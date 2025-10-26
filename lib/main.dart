@@ -1,23 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-
 // Core
 import 'app_colors.dart';
-
 // Models
 import 'models/wedding_models.dart';
-
 // Data
 import 'data/database_helper.dart';
-
 // Screens
 import 'screens/dashboard_screen.dart';
 import 'screens/guests_screen.dart';
 import 'screens/budget_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/table_planning_screen.dart';
-
 // Dienstleister Screens (bereits vorhanden)
 import 'screens/dienstleister_list_screen.dart';
 
@@ -30,16 +25,13 @@ Future<void> deleteDatabase() async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   // Diese Zeile löscht die Datenbank - nach dem ersten Start wieder entfernen!
   await deleteDatabase();
-
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -67,14 +59,12 @@ class MyApp extends StatelessWidget {
 
 class HochzeitsApp extends StatefulWidget {
   const HochzeitsApp({Key? key}) : super(key: key);
-
   @override
   State<HochzeitsApp> createState() => _HochzeitsAppState();
 }
 
 class _HochzeitsAppState extends State<HochzeitsApp> {
   int _currentIndex = 0;
-
   // State
   List<Guest> _guests = [];
   List<Task> _tasks = [];
@@ -82,10 +72,8 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
   String _brideName = '';
   String _groomName = '';
   bool _isLoading = true;
-
   // Key für Budget-Page um sie neu zu erstellen
   Key _budgetPageKey = UniqueKey();
-
   @override
   void initState() {
     super.initState();
@@ -105,13 +93,11 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
           _groomName = weddingData['groom_name'] ?? '';
         });
       }
-
       // Gäste laden
       final guests = await DatabaseHelper.instance.getAllGuests();
       setState(() {
         _guests = guests;
       });
-
       // Tasks laden
       final tasks = await DatabaseHelper.instance.getAllTasks();
       setState(() {
@@ -254,7 +240,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-
     final List<Widget> _pages = [
       DashboardPage(
         weddingDate: _weddingDate,
@@ -287,7 +272,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
       ),
       const DienstleisterListScreen(),
     ];
-
     return Scaffold(
       appBar: AppBar(
         title: Row(

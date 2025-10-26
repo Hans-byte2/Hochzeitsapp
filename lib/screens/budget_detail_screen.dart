@@ -179,7 +179,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                     horizontal: 12,
                                     vertical: 8,
                                   ),
-                                  hintText: '0',
+                                  hintText: '',
                                 ),
                                 onChanged: (value) =>
                                     newPlanned = double.tryParse(value) ?? 0.0,
@@ -205,7 +205,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                     horizontal: 12,
                                     vertical: 8,
                                   ),
-                                  hintText: '0',
+                                  hintText: '',
                                 ),
                                 onChanged: (value) =>
                                     newActual = double.tryParse(value) ?? 0.0,
@@ -220,70 +220,64 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Notizen',
+                          'Notizen (optional)',
                           style: TextStyle(fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 4),
                         TextField(
-                          maxLines: 3,
+                          maxLines: 2,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            hintText: 'Zusätzliche Informationen',
+                            contentPadding: EdgeInsets.all(12),
+                            hintText: '',
                           ),
                           onChanged: (value) => newNotes = value,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    CheckboxListTile(
-                      title: const Text('Bereits bezahlt'),
-                      value: dialogPaid,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          dialogPaid = value ?? false;
-                          newPaid = value ?? false;
-                        });
-                      },
-                      contentPadding: EdgeInsets.zero,
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: dialogPaid,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              dialogPaid = value ?? false;
+                              newPaid = dialogPaid;
+                            });
+                          },
+                        ),
+                        const Text('Bereits bezahlt'),
+                      ],
                     ),
                   ],
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(builderContext),
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Abbrechen'),
                 ),
                 ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     if (newName.isEmpty) {
                       ScaffoldMessenger.of(builderContext).showSnackBar(
                         const SnackBar(
                           content: Text('Bitte geben Sie eine Bezeichnung ein'),
-                          backgroundColor: Colors.orange,
                         ),
                       );
                       return;
                     }
-                    Navigator.pop(builderContext, {
+
+                    Navigator.pop(context, {
                       'name': newName,
                       'planned': newPlanned,
                       'actual': newActual,
                       'notes': newNotes,
-                      'paid': newPaid ? 1 : 0,
+                      'paid': newPaid,
                     });
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                  ),
-                  child: const Text(
-                    'Hinzufügen',
-                    style: TextStyle(color: Colors.white),
-                  ),
+                  child: const Text('Hinzufügen'),
                 ),
               ],
             );
@@ -300,27 +294,20 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           'planned': result['planned'],
           'actual': result['actual'],
           'category': widget.category,
-          'notes': result['notes'],
-          'paid': result['paid'],
+          'notes': result['notes'] ?? '',
+          'paid': result['paid'] ? 1 : 0,
         });
         await _loadCategoryItems();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Budgetposten erfolgreich hinzugefügt'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Posten hinzugefügt')));
         }
       } catch (e) {
-        print('Fehler beim Hinzufügen: $e');
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Fehler beim Hinzufügen: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Fehler: $e')));
         }
       }
     }
@@ -328,59 +315,31 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
   Future<void> _editBudgetItemInDetail(Map<String, dynamic> item) async {
     String editName = item['name'];
-    double editPlanned = item['planned']?.toDouble() ?? 0.0;
-    double editActual = item['actual']?.toDouble() ?? 0.0;
-    String editCategory = item['category'] ?? 'other';
+    double editPlanned = item['planned'];
+    double editActual = item['actual'] ?? 0.0;
     String editNotes = item['notes'] ?? '';
     bool editPaid = (item['paid'] ?? 0) == 1;
+
+    final plannedController = TextEditingController(
+      text: editPlanned.toStringAsFixed(0),
+    );
+    final actualController = TextEditingController(
+      text: editActual.toStringAsFixed(0),
+    );
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (builderContext) {
-        String dialogCategory = editCategory;
         bool dialogPaid = editPaid;
 
         return StatefulBuilder(
           builder: (statefulContext, setDialogState) {
             return AlertDialog(
-              title: Text('${item['name']} bearbeiten'),
+              title: Text('Bearbeiten: $editName'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Kategorie',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        DropdownButtonFormField<String>(
-                          value: dialogCategory,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                          ),
-                          items: _categoryLabels.entries.map((entry) {
-                            return DropdownMenuItem(
-                              value: entry.key,
-                              child: Text(entry.value),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setDialogState(() {
-                              dialogCategory = value!;
-                              editCategory = value;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -391,6 +350,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                         const SizedBox(height: 4),
                         TextField(
                           controller: TextEditingController(text: editName),
+                          autofocus: true,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
                             contentPadding: EdgeInsets.symmetric(
@@ -415,9 +375,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                               ),
                               const SizedBox(height: 4),
                               TextField(
-                                controller: TextEditingController(
-                                  text: editPlanned.toString(),
-                                ),
+                                controller: plannedController,
                                 keyboardType: TextInputType.number,
                                 decoration: const InputDecoration(
                                   border: OutlineInputBorder(),
@@ -443,9 +401,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                               ),
                               const SizedBox(height: 4),
                               TextField(
-                                controller: TextEditingController(
-                                  text: editActual.toString(),
-                                ),
+                                controller: actualController,
                                 keyboardType: TextInputType.number,
                                 decoration: const InputDecoration(
                                   border: OutlineInputBorder(),
@@ -467,63 +423,96 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Notizen',
+                          'Notizen (optional)',
                           style: TextStyle(fontWeight: FontWeight.w500),
                         ),
                         const SizedBox(height: 4),
                         TextField(
                           controller: TextEditingController(text: editNotes),
-                          maxLines: 3,
+                          maxLines: 2,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            hintText: 'Zusätzliche Informationen',
+                            contentPadding: EdgeInsets.all(12),
                           ),
                           onChanged: (value) => editNotes = value,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    CheckboxListTile(
-                      title: const Text('Bereits bezahlt'),
-                      value: dialogPaid,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          dialogPaid = value ?? false;
-                          editPaid = value ?? false;
-                        });
-                      },
-                      contentPadding: EdgeInsets.zero,
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: dialogPaid,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              dialogPaid = value ?? false;
+                              editPaid = dialogPaid;
+                            });
+                          },
+                        ),
+                        const Text('Bereits bezahlt'),
+                      ],
                     ),
                   ],
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(builderContext),
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Abbrechen'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final confirmed = await showDialog<bool>(
+                      context: builderContext,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Löschen bestätigen'),
+                        content: const Text(
+                          'Möchten Sie diesen Posten wirklich löschen?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Abbrechen'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.red,
+                            ),
+                            child: const Text('Löschen'),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (confirmed == true) {
+                      Navigator.pop(builderContext, {'delete': true});
+                    }
+                  },
+                  style: TextButton.styleFrom(foregroundColor: Colors.red),
+                  child: const Text('Löschen'),
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    Navigator.pop(builderContext, {
+                    if (editName.isEmpty) {
+                      ScaffoldMessenger.of(builderContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Bitte geben Sie eine Bezeichnung ein'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(context, {
                       'name': editName,
                       'planned': editPlanned,
                       'actual': editActual,
-                      'category': editCategory,
                       'notes': editNotes,
-                      'paid': editPaid ? 1 : 0,
+                      'paid': editPaid,
                     });
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                  ),
-                  child: const Text(
-                    'Speichern',
-                    style: TextStyle(color: Colors.white),
-                  ),
+                  child: const Text('Speichern'),
                 ),
               ],
             );
@@ -533,360 +522,305 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     );
 
     if (result != null) {
-      try {
-        await DatabaseHelper.instance.updateBudgetItem(
-          item['id'],
-          result['name'],
-          result['planned'],
-          result['actual'],
-        );
-        final db = await DatabaseHelper.instance.database;
-        await db.update(
-          'budget_items',
-          {
-            'category': result['category'],
-            'notes': result['notes'],
-            'paid': result['paid'],
-          },
-          where: 'id = ?',
-          whereArgs: [item['id']],
-        );
-        await _loadCategoryItems();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Budgetposten aktualisiert')),
+      if (result['delete'] == true) {
+        await _deleteItem(item['id']);
+      } else {
+        try {
+          final db = await DatabaseHelper.instance.database;
+          await db.update(
+            'budget_items',
+            {
+              'name': result['name'],
+              'planned': result['planned'],
+              'actual': result['actual'],
+              'notes': result['notes'],
+              'paid': result['paid'] ? 1 : 0,
+            },
+            where: 'id = ?',
+            whereArgs: [item['id']],
           );
+          await _loadCategoryItems();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Änderungen gespeichert')),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Fehler: $e')));
+          }
         }
-      } catch (e) {
-        print('Fehler beim Speichern: $e');
       }
     }
   }
 
   Future<void> _deleteItem(int id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Löschen bestätigen'),
-        content: const Text(
-          'Möchten Sie diesen Budgetposten wirklich löschen?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Löschen', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        await DatabaseHelper.instance.deleteBudgetItem(id);
-        await _loadCategoryItems();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Budgetposten gelöscht')),
-          );
-        }
-      } catch (e) {
-        print('Fehler beim Löschen: $e');
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
+      await _loadCategoryItems();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Posten gelöscht')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Fehler beim Löschen: $e')));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(widget.categoryName),
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-        ),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final categoryColor = _categoryColors[widget.category] ?? Colors.grey;
-    final percentage = _categoryPlanned > 0
-        ? (_categoryActual / _categoryPlanned) * 100
-        : 0.0;
+    final categoryColor = _categoryColors[widget.category] ?? AppColors.primary;
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: Text(widget.categoryName),
         backgroundColor: categoryColor,
         foregroundColor: Colors.white,
         elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _addNewBudgetItem,
-            tooltip: 'Neuen Posten hinzufügen',
-          ),
-        ],
       ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [categoryColor, categoryColor.withOpacity(0.8)],
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  decoration: BoxDecoration(
+                    color: categoryColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       _buildStatColumn(
                         'Geplant',
                         '€${_formatCurrency(_categoryPlanned)}',
-                        Icons.account_balance_wallet,
+                        Icons.schedule,
                       ),
                       _buildStatColumn(
                         'Ausgegeben',
                         '€${_formatCurrency(_categoryActual)}',
-                        Icons.payment,
+                        Icons.account_balance_wallet,
                       ),
                       _buildStatColumn(
-                        'Bezahlt',
-                        '$_paidItems/${_categoryItems.length}',
-                        Icons.check_circle,
+                        'Posten',
+                        '${_categoryItems.length}',
+                        Icons.list,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Budgetverbrauch:',
-                            style: TextStyle(color: Colors.white, fontSize: 14),
-                          ),
-                          Text(
-                            '${percentage.toStringAsFixed(1)}%',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      LinearProgressIndicator(
-                        value: percentage / 100,
-                        backgroundColor: Colors.white.withOpacity(0.3),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          percentage > 100 ? Colors.red : Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: _categoryItems.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.inbox,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Keine Budgetposten in dieser Kategorie',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _addNewBudgetItem,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Ersten Posten hinzufügen'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: categoryColor,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _categoryItems.length,
-                    itemBuilder: (context, index) {
-                      final item = _categoryItems[index];
-                      final isPaid = (item['paid'] ?? 0) == 1;
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
+                ),
+                Expanded(
+                  child: _categoryItems.isEmpty
+                      ? Center(
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Row(
-                                children: [
-                                  GestureDetector(
-                                    onTap: () =>
-                                        _togglePaid(item['id'], isPaid),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: isPaid
-                                            ? Colors.green
-                                            : Colors.grey.shade300,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        isPaid
-                                            ? Icons.check
-                                            : Icons.circle_outlined,
-                                        color: Colors.white,
-                                        size: 16,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      item['name'],
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        decoration: isPaid
-                                            ? TextDecoration.lineThrough
-                                            : null,
-                                        color: isPaid
-                                            ? Colors.grey
-                                            : Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                  PopupMenuButton<String>(
-                                    onSelected: (value) {
-                                      if (value == 'edit') {
-                                        _editBudgetItemInDetail(item);
-                                      } else if (value == 'delete') {
-                                        _deleteItem(item['id']);
-                                      }
-                                    },
-                                    itemBuilder: (context) => const [
-                                      PopupMenuItem(
-                                        value: 'edit',
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.edit,
-                                              color: Colors.blue,
-                                            ),
-                                            SizedBox(width: 8),
-                                            Text('Bearbeiten'),
-                                          ],
-                                        ),
-                                      ),
-                                      PopupMenuItem(
-                                        value: 'delete',
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              Icons.delete,
-                                              color: Colors.red,
-                                            ),
-                                            SizedBox(width: 8),
-                                            Text('Löschen'),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                              Icon(
+                                Icons.inbox_outlined,
+                                size: 64,
+                                color: Colors.grey.shade400,
                               ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _buildDetailCard(
-                                      'Geplant',
-                                      '€${_formatCurrency(item['planned'])}',
-                                      Colors.blue,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _buildDetailCard(
-                                      'Tatsächlich',
-                                      '€${_formatCurrency(item['actual'] ?? 0)}',
-                                      Colors.orange,
-                                    ),
-                                  ),
-                                ],
+                              const SizedBox(height: 16),
+                              Text(
+                                'Noch keine Posten in dieser Kategorie',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey.shade600,
+                                ),
                               ),
-                              if (item['notes'] != null &&
-                                  item['notes'].toString().isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Tippe auf + um einen neuen Posten hinzuzufügen',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _categoryItems.length,
+                          itemBuilder: (context, index) {
+                            final item = _categoryItems[index];
+                            final isPaid = (item['paid'] ?? 0) == 1;
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: InkWell(
+                                onTap: () => _editBudgetItemInDetail(item),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
-                                        'Notizen:',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 12,
-                                          color: Colors.grey,
+                                      Row(
+                                        children: [
+                                          GestureDetector(
+                                            onTap: () =>
+                                                _togglePaid(item['id'], isPaid),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                color: isPaid
+                                                    ? Colors.green
+                                                    : Colors.grey.shade300,
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Icon(
+                                                isPaid
+                                                    ? Icons.check
+                                                    : Icons.circle_outlined,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              item['name'],
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                                decoration: isPaid
+                                                    ? TextDecoration.lineThrough
+                                                    : null,
+                                                color: isPaid
+                                                    ? Colors.grey
+                                                    : Colors.black87,
+                                              ),
+                                            ),
+                                          ),
+                                          PopupMenuButton<String>(
+                                            onSelected: (value) {
+                                              if (value == 'edit') {
+                                                _editBudgetItemInDetail(item);
+                                              } else if (value == 'delete') {
+                                                _deleteItem(item['id']);
+                                              }
+                                            },
+                                            itemBuilder: (context) => const [
+                                              PopupMenuItem(
+                                                value: 'edit',
+                                                child: Row(
+                                                  children: [
+                                                    Icon(
+                                                      Icons.edit,
+                                                      color: Colors.blue,
+                                                    ),
+                                                    SizedBox(width: 8),
+                                                    Text('Bearbeiten'),
+                                                  ],
+                                                ),
+                                              ),
+                                              PopupMenuItem(
+                                                value: 'delete',
+                                                child: Row(
+                                                  children: [
+                                                    Icon(
+                                                      Icons.delete,
+                                                      color: Colors.red,
+                                                    ),
+                                                    SizedBox(width: 8),
+                                                    Text('Löschen'),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildDetailCard(
+                                              'Geplant',
+                                              '€${_formatCurrency(item['planned'])}',
+                                              Colors.blue,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildDetailCard(
+                                              'Tatsächlich',
+                                              '€${_formatCurrency(item['actual'] ?? 0)}',
+                                              Colors.orange,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (item['notes'] != null &&
+                                          item['notes']
+                                              .toString()
+                                              .isNotEmpty) ...[
+                                        const SizedBox(height: 12),
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade50,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              const Text(
+                                                'Notizen:',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 12,
+                                                  color: Colors.grey,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                item['notes'],
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        item['notes'],
-                                        style: const TextStyle(fontSize: 14),
-                                      ),
+                                      ],
                                     ],
                                   ),
                                 ),
-                              ],
-                            ],
-                          ),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+                ),
+              ],
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: _addNewBudgetItem,
         backgroundColor: categoryColor,

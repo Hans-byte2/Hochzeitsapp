@@ -112,8 +112,8 @@ class DatabaseHelper {
       'groom_name': '',
     });
 
-    // Insert sample budget items
-    await _insertSampleBudgetItems(db);
+    // KEINE Beispiel-Budget-Einträge mehr
+    // await _insertSampleBudgetItems(db); // ← ENTFERNT
 
     // Insert default timeline milestones
     await _insertDefaultMilestones(db);
@@ -122,37 +122,9 @@ class DatabaseHelper {
     await _insertDefaultTables(db);
   }
 
+  // Diese Funktion ist jetzt leer und wird nicht mehr aufgerufen
   Future _insertSampleBudgetItems(Database db) async {
-    await db.insert('budget_items', {
-      'name': 'Location',
-      'planned': 5000.0,
-      'actual': 4800.0,
-      'category': 'location',
-    });
-    await db.insert('budget_items', {
-      'name': 'Catering',
-      'planned': 3000.0,
-      'actual': 0.0,
-      'category': 'catering',
-    });
-    await db.insert('budget_items', {
-      'name': 'Dekoration',
-      'planned': 800.0,
-      'actual': 650.0,
-      'category': 'decoration',
-    });
-    await db.insert('budget_items', {
-      'name': 'Fotograf',
-      'planned': 1200.0,
-      'actual': 1200.0,
-      'category': 'photography',
-    });
-    await db.insert('budget_items', {
-      'name': 'Musik/DJ',
-      'planned': 600.0,
-      'actual': 0.0,
-      'category': 'music',
-    });
+    // Keine Beispiel-Einträge mehr - Budget startet leer
   }
 
   Future _insertDefaultMilestones(Database db) async {
