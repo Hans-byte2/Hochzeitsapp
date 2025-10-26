@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:sqflite/sqflite.dart';
 import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
 import '../models/budget_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
-import 'package:hochzeits_planer/screens/budget_detail_screen.dart';
+import 'budget_detail_screen.dart';
 
 class EnhancedBudgetPage extends StatefulWidget {
   const EnhancedBudgetPage({super.key});
@@ -19,6 +20,9 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   List<Map<String, dynamic>> _budgetItems = [];
   bool _isLoading = true;
   bool _showForm = false;
+  double _totalBudget = 0.0; // NEU: Gesamtbudget
+  final _totalBudgetController =
+      TextEditingController(); // NEU: Controller für Gesamtbudget
 
   final Map<String, String> _categoryLabels = {
     'location': 'Location & Catering',
@@ -64,28 +68,156 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     super.initState();
     _initializeDatabase();
     _loadBudgetItems();
+    _loadTotalBudget(); // NEU: Gesamtbudget laden
+  }
+
+  @override
+  void dispose() {
+    _totalBudgetController.dispose(); // NEU: Controller entsorgen
+    super.dispose();
+  }
+
+  // NEU: Gesamtbudget aus Datenbank laden
+  Future<void> _loadTotalBudget() async {
+    try {
+      final db = await DatabaseHelper.instance.database;
+      final result = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['total_budget'],
+      );
+
+      if (result.isNotEmpty) {
+        final value = result.first['value'];
+        setState(() {
+          _totalBudget = double.tryParse(value.toString()) ?? 0.0;
+          _totalBudgetController.text = _totalBudget.toStringAsFixed(0);
+        });
+      }
+    } catch (e) {
+      print('Fehler beim Laden des Gesamtbudgets: $e');
+    }
+  }
+
+  // NEU: Gesamtbudget in Datenbank speichern
+  Future<void> _saveTotalBudget(double budget) async {
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.insert('app_settings', {
+        'key': 'total_budget',
+        'value': budget.toString(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+      setState(() {
+        _totalBudget = budget;
+      });
+    } catch (e) {
+      print('Fehler beim Speichern des Gesamtbudgets: $e');
+    }
+  }
+
+  // NEU: Dialog zum Bearbeiten des Gesamtbudgets
+  Future<void> _showEditTotalBudgetDialog() async {
+    final controller = TextEditingController(
+      text: _totalBudget.toStringAsFixed(0),
+    );
+
+    final result = await showDialog<double>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Gesamtbudget bearbeiten'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Geben Sie Ihr geplantes Gesamtbudget ein:',
+              style: TextStyle(fontSize: 14, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Gesamtbudget (€)',
+                prefixText: '€ ',
+                hintText: '0',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final value = double.tryParse(controller.text);
+              Navigator.pop(context, value);
+            },
+            child: const Text('Speichern'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      await _saveTotalBudget(result);
+    }
   }
 
   Future<void> _initializeDatabase() async {
     try {
       final db = await DatabaseHelper.instance.database;
-      await db
-          .execute('''
-        ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT 'other'
-      ''')
-          .catchError((e) {});
-      await db
-          .execute('''
-        ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT ''
-      ''')
-          .catchError((e) {});
-      await db
-          .execute('''
-        ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0
-      ''')
-          .catchError((e) {});
+
+      // Bestehende Spalten hinzufügen falls nicht vorhanden - FEHLER WERDEN IGNORIERT
+      try {
+        await db.execute('''
+          ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT 'other'
+        ''');
+        print('✅ Spalte category hinzugefügt');
+      } catch (e) {
+        // Spalte existiert bereits - kein Problem
+        print('ℹ️ Spalte category existiert bereits');
+      }
+
+      try {
+        await db.execute('''
+          ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT ''
+        ''');
+        print('✅ Spalte notes hinzugefügt');
+      } catch (e) {
+        // Spalte existiert bereits - kein Problem
+        print('ℹ️ Spalte notes existiert bereits');
+      }
+
+      try {
+        await db.execute('''
+          ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0
+        ''');
+        print('✅ Spalte paid hinzugefügt');
+      } catch (e) {
+        // Spalte existiert bereits - kein Problem
+        print('ℹ️ Spalte paid existiert bereits');
+      }
+
+      // NEU: Tabelle für Einstellungen erstellen (für Gesamtbudget)
+      try {
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+          )
+        ''');
+        print('✅ app_settings Tabelle erstellt/existiert');
+      } catch (e) {
+        print('❌ Fehler bei app_settings Tabelle: $e');
+      }
     } catch (e) {
-      print('Fehler beim Initialisieren der Datenbank: $e');
+      print('❌ Fehler beim Initialisieren der Datenbank: $e');
     }
   }
 
@@ -671,6 +803,9 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             ],
           ),
           const SizedBox(height: 16),
+          // NEU: Gesamtbudget Card ganz oben
+          _buildTotalBudgetCard(),
+          const SizedBox(height: 16),
           _buildBudgetOverview(),
           const SizedBox(height: 16),
           _buildStatsCards(),
@@ -680,6 +815,130 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           const SizedBox(height: 16),
           _buildBudgetItemsList(),
         ],
+      ),
+    );
+  }
+
+  // NEU: Widget für Gesamtbudget Card
+  Widget _buildTotalBudgetCard() {
+    final budgetRemaining = _totalBudget - totalActual;
+    final percentageUsed = _totalBudget > 0
+        ? (totalActual / _totalBudget) * 100
+        : 0.0;
+
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColors.primary, AppColors.primary.withOpacity(0.7)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Gesamtbudget',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.white, size: 20),
+                    onPressed: _showEditTotalBudgetDialog,
+                    tooltip: 'Gesamtbudget bearbeiten',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '€${_formatCurrency(_totalBudget)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Ausgegeben:',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        Text(
+                          '€${_formatCurrency(totalActual)}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Verbleibend:',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        Text(
+                          '€${_formatCurrency(budgetRemaining)}',
+                          style: TextStyle(
+                            color: budgetRemaining >= 0
+                                ? Colors.white
+                                : Colors.red.shade200,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: LinearProgressIndicator(
+                        value: percentageUsed / 100,
+                        backgroundColor: Colors.white.withOpacity(0.3),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          percentageUsed > 100 ? Colors.red : Colors.white,
+                        ),
+                        minHeight: 8,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${percentageUsed.toStringAsFixed(1)}% verwendet',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
