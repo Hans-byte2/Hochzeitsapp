@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
 // Core
 import 'app_colors.dart';
 // Models
@@ -16,17 +14,7 @@ import 'screens/table_planning_screen.dart';
 // Dienstleister Screens (bereits vorhanden)
 import 'screens/dienstleister_list_screen.dart';
 
-Future<void> deleteDatabase() async {
-  final dbPath = await getDatabasesPath();
-  final path = join(dbPath, 'wedding_planner.db');
-  await databaseFactory.deleteDatabase(path);
-  print('Datenbank gelöscht: $path');
-}
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  // Diese Zeile löscht die Datenbank - nach dem ersten Start wieder entfernen!
-  await deleteDatabase();
+void main() {
   runApp(const MyApp());
 }
 
