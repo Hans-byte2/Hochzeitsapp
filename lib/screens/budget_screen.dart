@@ -843,6 +843,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Gesamtbudget, Betrag und Edit-Button in einer Zeile
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -854,21 +855,20 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
+                  Text(
+                    '€${_formatCurrency(_totalBudget)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   IconButton(
                     icon: const Icon(Icons.edit, color: Colors.white, size: 20),
                     onPressed: _showEditTotalBudgetDialog,
                     tooltip: 'Gesamtbudget bearbeiten',
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '€${_formatCurrency(_totalBudget)}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 36,
-                  fontWeight: FontWeight.bold,
-                ),
               ),
               const SizedBox(height: 16),
               Container(
@@ -879,6 +879,25 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ),
                 child: Column(
                   children: [
+                    // NEU: Geplant-Zeile
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Davon verplant:',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        Text(
+                          '€${_formatCurrency(totalPlanned)}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [

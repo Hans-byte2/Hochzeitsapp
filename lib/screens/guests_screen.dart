@@ -52,37 +52,51 @@ class _GuestPageState extends State<GuestPage> {
           title: Text(
             _editingGuest != null ? 'Gast bearbeiten' : 'Neuen Gast hinzufügen',
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _firstNameController,
-                decoration: const InputDecoration(labelText: 'Vorname'),
-              ),
-              TextField(
-                controller: _lastNameController,
-                decoration: const InputDecoration(labelText: 'Nachname'),
-              ),
-              TextField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: 'E-Mail'),
-              ),
-              DropdownButtonFormField<String>(
-                value: _selectedStatus,
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: const [
-                  DropdownMenuItem(value: 'pending', child: Text('Ausstehend')),
-                  DropdownMenuItem(value: 'yes', child: Text('Zugesagt')),
-                  DropdownMenuItem(value: 'no', child: Text('Abgesagt')),
-                ],
-                onChanged: (value) =>
-                    setDialogState(() => _selectedStatus = value!),
-              ),
-              TextField(
-                controller: _dietaryController,
-                decoration: const InputDecoration(labelText: 'Besonderheiten'),
-              ),
-            ],
+          content: SingleChildScrollView(
+            // <- NEU: ScrollView hinzugefügt
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _firstNameController,
+                  decoration: const InputDecoration(labelText: 'Vorname'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _lastNameController,
+                  decoration: const InputDecoration(labelText: 'Nachname'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _emailController,
+                  decoration: const InputDecoration(labelText: 'E-Mail'),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _selectedStatus,
+                  decoration: const InputDecoration(labelText: 'Status'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'pending',
+                      child: Text('Ausstehend'),
+                    ),
+                    DropdownMenuItem(value: 'yes', child: Text('Zugesagt')),
+                    DropdownMenuItem(value: 'no', child: Text('Abgesagt')),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => _selectedStatus = value!),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _dietaryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Besonderheiten',
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -231,41 +245,25 @@ class _GuestPageState extends State<GuestPage> {
 
       await PdfExportService.exportGuestListToPdf(widget.guests);
 
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('PDF erfolgreich erstellt!'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gästeliste erfolgreich als PDF exportiert!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Erstellen: $e')),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Fehler beim PDF-Export: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -279,321 +277,306 @@ class _GuestPageState extends State<GuestPage> {
 
       await ExcelExportService.exportGuestListToExcel(widget.guests);
 
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Excel-Datei erfolgreich erstellt!'),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gästeliste erfolgreich als Excel exportiert!'),
+          backgroundColor: Colors.green,
+        ),
+      );
     } catch (e) {
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Erstellen: $e')),
-              ],
-            ),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Fehler beim Excel-Export: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final totalGuests = widget.guests.length;
+    final confirmedGuests = widget.guests
+        .where((g) => g.confirmed == 'yes')
+        .length;
+    final declinedGuests = widget.guests
+        .where((g) => g.confirmed == 'no')
+        .length;
+    final pendingGuests = totalGuests - confirmedGuests - declinedGuests;
+
     final filteredGuests = _getFilteredGuests();
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Gästeliste',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              Row(
-                children: [
-                  IconButton(
-                    onPressed: _showExportDialog,
-                    icon: const Icon(Icons.share),
-                    tooltip: 'Exportieren',
-                    style: IconButton.styleFrom(
-                      backgroundColor: AppColors.secondary,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _showGuestDialog(),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Gast hinzufügen'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Gästeliste'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _showExportDialog,
+            tooltip: 'Exportieren',
           ),
-          const SizedBox(height: 16),
-          // Statistik-Zeile mit Klick-Funktion
-          Row(
-            children: [
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _filterStatus = _filterStatus == null ? null : null;
-                    });
-                  },
-                  child: _buildStatCard(
-                    'Gesamt',
-                    widget.guests.length.toString(),
-                    Colors.blue,
-                    Icons.people,
-                    _filterStatus == null,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _filterStatus = _filterStatus == 'yes' ? null : 'yes';
-                    });
-                  },
-                  child: _buildStatCard(
-                    'Zugesagt',
-                    widget.guests
-                        .where((g) => g.confirmed == 'yes')
-                        .length
-                        .toString(),
-                    Colors.green,
-                    Icons.check_circle,
-                    _filterStatus == 'yes',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _filterStatus = _filterStatus == 'pending'
-                          ? null
-                          : 'pending';
-                    });
-                  },
-                  child: _buildStatCard(
-                    'Offen',
-                    widget.guests
-                        .where((g) => g.confirmed == 'pending')
-                        .length
-                        .toString(),
-                    Colors.orange,
-                    Icons.schedule,
-                    _filterStatus == 'pending',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _filterStatus = _filterStatus == 'no' ? null : 'no';
-                    });
-                  },
-                  child: _buildStatCard(
-                    'Abgesagt',
-                    widget.guests
-                        .where((g) => g.confirmed == 'no')
-                        .length
-                        .toString(),
-                    Colors.red,
-                    Icons.cancel,
-                    _filterStatus == 'no',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (_filterStatus != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.filter_alt, size: 16, color: Colors.blue.shade700),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Filter aktiv: ${_getStatusLabel(_filterStatus!)}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.blue.shade700,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () {
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Übersicht',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
                       setState(() {
                         _filterStatus = null;
                       });
                     },
-                    child: const Text('Zurücksetzen'),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 16),
-          Expanded(
-            child: filteredGuests.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _filterStatus == null
-                              ? 'Noch keine Gäste hinzugefügt'
-                              : 'Keine Gäste mit Status "${_getStatusLabel(_filterStatus!)}"',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
+                    child: _buildStatCard(
+                      'Gesamt',
+                      '$totalGuests',
+                      AppColors.primary,
+                      Icons.people,
+                      _filterStatus == null,
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: filteredGuests.length,
-                    itemBuilder: (context, index) {
-                      final guest = filteredGuests[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          side: const BorderSide(
-                            color: AppColors.cardBorder,
-                            width: 1,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _filterStatus = _filterStatus == 'pending'
+                            ? null
+                            : 'pending';
+                      });
+                    },
+                    child: _buildStatCard(
+                      'Ausstehend',
+                      '$pendingGuests',
+                      Colors.orange,
+                      Icons.schedule,
+                      _filterStatus == 'pending',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _filterStatus = _filterStatus == 'yes' ? null : 'yes';
+                      });
+                    },
+                    child: _buildStatCard(
+                      'Zugesagt',
+                      '$confirmedGuests',
+                      Colors.green,
+                      Icons.check_circle,
+                      _filterStatus == 'yes',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _filterStatus = _filterStatus == 'no' ? null : 'no';
+                      });
+                    },
+                    child: _buildStatCard(
+                      'Abgesagt',
+                      '$declinedGuests',
+                      Colors.red,
+                      Icons.cancel,
+                      _filterStatus == 'no',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_filterStatus != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.filter_alt,
+                      size: 16,
+                      color: Colors.blue.shade700,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Filter aktiv: ${_getStatusLabel(_filterStatus!)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.blue.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _filterStatus = null;
+                        });
+                      },
+                      child: const Text('Zurücksetzen'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Expanded(
+              child: filteredGuests.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.people_outline,
+                            size: 64,
+                            color: Colors.grey[400],
                           ),
-                        ),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: _getStatusColor(guest.confirmed),
-                            child: Text(
-                              guest.firstName[0].toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _filterStatus == null
+                                ? 'Noch keine Gäste hinzugefügt'
+                                : 'Keine Gäste mit Status "${_getStatusLabel(_filterStatus!)}"',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey[600],
                             ),
                           ),
-                          title: Text('${guest.firstName} ${guest.lastName}'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(guest.email),
-                              if (guest.dietaryRequirements.isNotEmpty)
-                                Text(
-                                  'Besonderheiten: ${guest.dietaryRequirements}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontStyle: FontStyle.italic,
-                                  ),
-                                ),
-                            ],
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: filteredGuests.length,
+                      itemBuilder: (context, index) {
+                        final guest = filteredGuests[index];
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: const BorderSide(
+                              color: AppColors.cardBorder,
+                              width: 1,
+                            ),
                           ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Chip(
-                                label: Text(
-                                  _getStatusLabel(guest.confirmed),
-                                  style: const TextStyle(fontSize: 12),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: _getStatusColor(guest.confirmed),
+                              child: Text(
+                                guest.firstName[0].toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                                backgroundColor: _getStatusColor(
-                                  guest.confirmed,
-                                ).withOpacity(0.2),
-                                side: BorderSide.none,
                               ),
-                              PopupMenuButton(
-                                itemBuilder: (menuContext) => [
-                                  PopupMenuItem(
-                                    child: const Row(
-                                      children: [
-                                        Icon(Icons.edit, size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Bearbeiten'),
-                                      ],
-                                    ),
-                                    onTap: () => Future.delayed(
-                                      Duration.zero,
-                                      () => _showGuestDialog(guest),
+                            ),
+                            title: Text('${guest.firstName} ${guest.lastName}'),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(guest.email),
+                                if (guest.dietaryRequirements.isNotEmpty)
+                                  Text(
+                                    'Besonderheiten: ${guest.dietaryRequirements}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontStyle: FontStyle.italic,
                                     ),
                                   ),
-                                  PopupMenuItem(
-                                    child: const Row(
-                                      children: [
-                                        Icon(
-                                          Icons.delete,
-                                          size: 18,
-                                          color: Colors.red,
-                                        ),
-                                        SizedBox(width: 8),
-                                        Text(
-                                          'Löschen',
-                                          style: TextStyle(color: Colors.red),
-                                        ),
-                                      ],
-                                    ),
-                                    onTap: () =>
-                                        widget.onDeleteGuest(guest.id!),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Chip(
+                                  label: Text(
+                                    _getStatusLabel(guest.confirmed),
+                                    style: const TextStyle(fontSize: 12),
                                   ),
-                                ],
-                              ),
-                            ],
+                                  backgroundColor: _getStatusColor(
+                                    guest.confirmed,
+                                  ).withOpacity(0.2),
+                                  side: BorderSide.none,
+                                ),
+                                PopupMenuButton(
+                                  itemBuilder: (menuContext) => [
+                                    PopupMenuItem(
+                                      child: const Row(
+                                        children: [
+                                          Icon(Icons.edit, size: 18),
+                                          SizedBox(width: 8),
+                                          Text('Bearbeiten'),
+                                        ],
+                                      ),
+                                      onTap: () => Future.delayed(
+                                        Duration.zero,
+                                        () => _showGuestDialog(guest),
+                                      ),
+                                    ),
+                                    PopupMenuItem(
+                                      child: const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.delete,
+                                            size: 18,
+                                            color: Colors.red,
+                                          ),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Löschen',
+                                            style: TextStyle(color: Colors.red),
+                                          ),
+                                        ],
+                                      ),
+                                      onTap: () =>
+                                          widget.onDeleteGuest(guest.id!),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showGuestDialog(),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('Gast hinzufügen'),
       ),
     );
   }
