@@ -1219,6 +1219,8 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
             ),
             Expanded(
               child: SingleChildScrollView(
+                physics:
+                    const AlwaysScrollableScrollPhysics(), // ✅ FIX für Scroll-Problem
                 padding: const EdgeInsets.all(24),
                 child: Form(
                   key: _formKey,
