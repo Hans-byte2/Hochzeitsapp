@@ -62,6 +62,10 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
   bool _isLoading = true;
   // Key für Budget-Page um sie neu zu erstellen
   Key _budgetPageKey = UniqueKey();
+  // NEU: Für Task-Navigation
+  int? _selectedTaskId;
+  Key _taskPageKey = UniqueKey();
+
   @override
   void initState() {
     super.initState();
@@ -204,6 +208,22 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     });
   }
 
+  // NEU: Navigation zu Task mit spezifischer ID
+  void _navigateToTaskWithId(int taskId) {
+    setState(() {
+      _selectedTaskId = taskId;
+      _taskPageKey = UniqueKey(); // Neue Instanz erstellen
+      _currentIndex = 4; // Task-Seite Index
+    });
+  }
+
+  // NEU: Callback zum Zurücksetzen der ausgewählten Task
+  void _clearSelectedTask() {
+    setState(() {
+      _selectedTaskId = null;
+    });
+  }
+
   Color _getNavColor(int index) {
     switch (index) {
       case 0:
@@ -240,6 +260,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         onUpdateTask: _updateTask,
         onDeleteTask: _deleteTask,
         onNavigateToPage: _navigateToPage,
+        onNavigateToTaskWithId: _navigateToTaskWithId, // NEU
       ),
       GuestPage(
         guests: _guests,
@@ -250,6 +271,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
       TischplanungPage(guests: _guests, onUpdateGuest: _updateGuest),
       EnhancedBudgetPage(key: _budgetPageKey),
       TaskPage(
+        key: _taskPageKey, // NEU: Key für Neuaufbau
         tasks: _tasks,
         onAddTask: _addTask,
         onUpdateTask: _updateTask,
@@ -257,6 +279,15 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         weddingDate: _weddingDate,
         brideName: _brideName,
         groomName: _groomName,
+        selectedTaskId: _selectedTaskId, // NEU
+        onClearSelectedTask: _clearSelectedTask, // NEU
+        // neue hinzugefügt task
+        onNavigateToHome: () {
+          // NEU!
+          setState(() {
+            _currentIndex = 0; // Navigiere zur Home-Seite (Index 0)
+          });
+        },
       ),
       const DienstleisterListScreen(),
     ];
@@ -297,6 +328,12 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
           if (index == 3) {
             setState(() {
               _budgetPageKey = UniqueKey();
+            });
+          }
+          // Task-Page: Ausgewählte Task zurücksetzen
+          if (index == 4) {
+            setState(() {
+              _selectedTaskId = null;
             });
           }
           setState(() {

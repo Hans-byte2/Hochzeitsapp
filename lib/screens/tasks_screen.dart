@@ -13,6 +13,9 @@ class TaskPage extends StatefulWidget {
   final DateTime? weddingDate;
   final String brideName;
   final String groomName;
+  final int? selectedTaskId;
+  final VoidCallback? onClearSelectedTask;
+  final VoidCallback? onNavigateToHome; // NEU: Callback zum Home navigieren
 
   const TaskPage({
     Key? key,
@@ -23,6 +26,9 @@ class TaskPage extends StatefulWidget {
     this.weddingDate,
     required this.brideName,
     required this.groomName,
+    this.selectedTaskId,
+    this.onClearSelectedTask,
+    this.onNavigateToHome, // NEU
   }) : super(key: key);
 
   @override
@@ -74,27 +80,106 @@ class _TaskPageState extends State<TaskPage>
         _currentTab = _tabController.index;
       });
     });
-    _initializeAndLoadMilestones();
+
+    _loadTimelineMilestones();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (widget.selectedTaskId != null) {
+        _openTaskById(widget.selectedTaskId!);
+      }
+    });
   }
 
-  Future<void> _initializeAndLoadMilestones() async {
-    // Prüfe ob schon Timeline-Aufgaben existieren
+  void _openTaskById(int taskId) {
+    final task = widget.tasks.firstWhere(
+      (t) => t.id == taskId,
+      orElse: () => Task(
+        title: '',
+        category: 'other',
+        priority: 'medium',
+        completed: false,
+        createdDate: DateTime.now(),
+      ),
+    );
+
+    if (task.id != null) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _editTask(task);
+      });
+
+      if (widget.onClearSelectedTask != null) {
+        widget.onClearSelectedTask!();
+      }
+    }
+  }
+
+  Future<void> _initializeDefaultMilestonesManually() async {
+    if (widget.weddingDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bitte legen Sie zuerst ein Hochzeitsdatum fest'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     final timelineTasks = widget.tasks
         .where((t) => t.category == 'timeline')
         .toList();
 
-    if (timelineTasks.isEmpty && widget.weddingDate != null) {
-      await _initializeDefaultMilestones();
+    if (timelineTasks.isNotEmpty) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Warnung'),
+          content: Text(
+            'Es sind bereits ${timelineTasks.length} Timeline-Aufgaben vorhanden. Möchten Sie diese löschen und die Standard-Checkliste neu erstellen?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text(
+                'Ja, neu erstellen',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      for (final task in timelineTasks) {
+        if (task.id != null) {
+          await DatabaseHelper.instance.deleteTask(task.id!);
+        }
+      }
+
+      await Future.delayed(const Duration(milliseconds: 300));
     }
 
-    await _loadTimelineMilestones();
+    await _initializeDefaultMilestones();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Timeline-Checkliste wurde erstellt'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   Future<void> _initializeDefaultMilestones() async {
     if (widget.weddingDate == null) return;
 
     final defaultMilestones = [
-      // 12 bis 6 Monate vor der Hochzeit
       {'title': 'Standesamt, Kirche oder beides?', 'months_before': 12},
       {'title': 'Hochzeitsdatum fixieren', 'months_before': 12},
       {'title': 'Termin Standesamt / Kirche fixieren', 'months_before': 11},
@@ -115,8 +200,6 @@ class _TaskPageState extends State<TaskPage>
       {'title': 'Erste Überlegungen zu Flitterwochen', 'months_before': 7},
       {'title': 'Rechtliche Dokumente prüfen', 'months_before': 7},
       {'title': 'Versicherungen checken', 'months_before': 6},
-
-      // 6 bis 5 Monate vor der Hochzeit
       {'title': 'Ehe beim Standesamt anmelden', 'months_before': 6},
       {'title': 'Catering für das Fest buchen', 'months_before': 6},
       {'title': 'Fotograf, Musik / DJ buchen', 'months_before': 6},
@@ -142,8 +225,6 @@ class _TaskPageState extends State<TaskPage>
       {'title': 'Probeessen beim Caterer vereinbaren', 'months_before': 5},
       {'title': 'Musiker/Redner Songauswahl abstimmen', 'months_before': 5},
       {'title': 'Ablaufplan für den Tag grob erstellen', 'months_before': 5},
-
-      // 4 bis 3 Monate vor der Hochzeit
       {'title': 'Traugespräch mit Pfarrer vereinbaren', 'months_before': 4},
       {'title': 'Menü planen und festlegen', 'months_before': 4},
       {'title': 'Mit Floristen Blumen planen', 'months_before': 4},
@@ -169,8 +250,6 @@ class _TaskPageState extends State<TaskPage>
       },
       {'title': 'Programmheft für Gäste gestalten', 'months_before': 3},
       {'title': 'Backup-Plan für schlechtes Wetter planen', 'months_before': 3},
-
-      // 2 bis 1 Monate vor der Hochzeit
       {'title': 'Gastgeschenke organisieren', 'months_before': 2},
       {'title': 'Probetermin Frisur und Make-Up', 'months_before': 2},
       {'title': 'Sitzordnung für die Feier planen', 'months_before': 2},
@@ -204,8 +283,6 @@ class _TaskPageState extends State<TaskPage>
       },
       {'title': 'Entertainment für Kinder besorgen', 'months_before': 1},
       {'title': 'Notfallset Braut vorbereiten', 'months_before': 1},
-
-      // 1 Woche vor der Hochzeit
       {'title': 'Ablaufplan finalisieren', 'months_before': 0},
       {'title': 'Maniküre / Pediküre / Massage', 'months_before': 0},
       {'title': 'Kleidung und Dokumente vorbereiten', 'months_before': 0},
@@ -224,8 +301,6 @@ class _TaskPageState extends State<TaskPage>
       },
       {'title': 'Hochzeitsauto schmücken / organisieren', 'months_before': 0},
       {'title': 'Entspannungszeit einplanen', 'months_before': 0},
-
-      // Nach der Hochzeit
       {'title': 'Dankeskarten verschicken', 'months_before': -1},
       {'title': 'Hochzeitskleid reinigen / aufbewahren', 'months_before': -1},
       {'title': 'Fotos / Video auswählen & abholen', 'months_before': -1},
@@ -237,12 +312,10 @@ class _TaskPageState extends State<TaskPage>
       {'title': 'Gästeliste mit Adressen sichern', 'months_before': -1},
     ];
 
-    // Erstelle echte Aufgaben mit Timeline-Kategorie
     for (final milestone in defaultMilestones) {
       final monthsBefore = milestone['months_before'] as int;
       final weddingDate = widget.weddingDate!;
 
-      // Berechne Deadline basierend auf months_before
       DateTime deadline;
       if (monthsBefore > 0) {
         deadline = DateTime(
@@ -257,11 +330,9 @@ class _TaskPageState extends State<TaskPage>
           weddingDate.day,
         );
       } else {
-        // 0 = 1 Woche vorher
         deadline = weddingDate.subtract(const Duration(days: 7));
       }
 
-      // Bestimme Priorität basierend auf Zeitpunkt
       String priority;
       if (monthsBefore >= 6) {
         priority = 'low';
@@ -294,8 +365,6 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Future<void> _loadTimelineMilestones() async {
-    // Diese Methode wird nicht mehr benötigt, da wir keine DB-Meilensteine mehr haben
-    // Wird nur noch für Kompatibilität beibehalten
     setState(() {
       _timelineMilestones = [];
     });
@@ -1028,7 +1097,7 @@ class _TaskPageState extends State<TaskPage>
                       if (task.deadline != null) ...[
                         const SizedBox(width: 4),
                         _buildCompactBadge(
-                          '${task.deadline!.day}.${task.deadline!.month}',
+                          '${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}',
                           isOverdue ? Colors.red : Colors.grey,
                         ),
                       ],
@@ -1108,6 +1177,11 @@ class _TaskPageState extends State<TaskPage>
         .inDays;
     final groupedTimeline = _generateGroupedTimeline();
 
+    // KORRIGIERT: Zähle alle Tasks mit category == 'timeline'
+    final timelineTasksCount = widget.tasks
+        .where((t) => t.category == 'timeline')
+        .length;
+
     return Column(
       children: [
         Container(
@@ -1153,9 +1227,16 @@ class _TaskPageState extends State<TaskPage>
                   color: AppColors.primary,
                 ),
               ),
+              const SizedBox(height: 4),
+              Text(
+                'Timeline-Aufgaben: $timelineTasksCount',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
               const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   ElevatedButton.icon(
                     onPressed: () => _showTaskForm(),
@@ -1170,13 +1251,25 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: _initializeDefaultMilestonesManually,
+                    icon: const Icon(Icons.playlist_add, size: 16),
+                    label: const Text('Checkliste'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
                   IconButton(
                     onPressed: _showResetTimelineTasksDialog,
-                    icon: const Icon(Icons.refresh, size: 20),
-                    tooltip: 'Timeline-Checkliste zurücksetzen',
+                    icon: const Icon(Icons.delete_sweep, size: 20),
+                    tooltip: 'Alle Timeline-Aufgaben löschen',
                     style: IconButton.styleFrom(
-                      backgroundColor: Colors.orange,
+                      backgroundColor: Colors.red,
                       foregroundColor: Colors.white,
                     ),
                   ),
@@ -1186,12 +1279,43 @@ class _TaskPageState extends State<TaskPage>
           ),
         ),
         Expanded(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            children: groupedTimeline.entries
-                .map((entry) => _buildTimelineSection(entry))
-                .toList(),
-          ),
+          child: groupedTimeline.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.checklist,
+                          size: 80,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Keine Timeline-Aufgaben',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Klicken Sie auf "Checkliste" um die Standard-Timeline zu erstellen',
+                          style: TextStyle(fontSize: 14, color: Colors.grey),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  children: groupedTimeline.entries
+                      .map((entry) => _buildTimelineSection(entry))
+                      .toList(),
+                ),
         ),
       ],
     );
@@ -1200,7 +1324,6 @@ class _TaskPageState extends State<TaskPage>
   Map<String, List<Map<String, dynamic>>> _generateGroupedTimeline() {
     final timeline = _generateTimeline();
 
-    // Definiere die Reihenfolge der Abschnitte
     final Map<String, List<Map<String, dynamic>>> grouped = {
       '12-6 Monate vor der Hochzeit': [],
       '6-5 Monate vor der Hochzeit': [],
@@ -1216,13 +1339,11 @@ class _TaskPageState extends State<TaskPage>
     for (final item in timeline) {
       final type = item['type'] as String;
 
-      // Hochzeitstag gesondert behandeln
       if (type == 'wedding_day') {
         grouped['Der große Tag']!.add(item);
         continue;
       }
 
-      // Für Tasks: Basierend auf Deadline gruppieren
       if (type == 'task') {
         final date = item['date'] as DateTime;
         final daysUntilWedding = weddingDate.difference(date).inDays;
@@ -1243,7 +1364,6 @@ class _TaskPageState extends State<TaskPage>
       }
     }
 
-    // Sortiere Items innerhalb jeder Gruppe nach Datum
     for (var key in grouped.keys) {
       grouped[key]!.sort((a, b) {
         if (a['type'] == 'task' && b['type'] == 'task') {
@@ -1253,7 +1373,6 @@ class _TaskPageState extends State<TaskPage>
       });
     }
 
-    // Entferne leere Gruppen
     grouped.removeWhere((key, value) => value.isEmpty);
 
     return grouped;
@@ -1265,7 +1384,7 @@ class _TaskPageState extends State<TaskPage>
 
     final weddingDate = widget.weddingDate!;
 
-    // Alle Tasks mit Deadline hinzufügen
+    // ALLE Tasks mit Deadline hinzufügen (auch Timeline-Tasks!)
     for (final task in widget.tasks) {
       if (task.deadline != null) {
         items.add({
@@ -1282,7 +1401,6 @@ class _TaskPageState extends State<TaskPage>
       }
     }
 
-    // Hochzeitstag hinzufügen
     items.add({
       'title': 'Hochzeitstag',
       'date': weddingDate,
@@ -1419,6 +1537,7 @@ class _TaskPageState extends State<TaskPage>
     final isCompleted = item['isCompleted'] as bool;
     final isWeddingDay = item['type'] == 'wedding_day';
     final isTimelineTask = task?.category == 'timeline';
+    final date = item['date'] as DateTime?; // NEU: Datum holen
 
     return InkWell(
       onTap: () {
@@ -1511,8 +1630,21 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ],
                   ),
+                  // NEU: Datum anzeigen
+                  if (date != null && !isWeddingDay) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '📅 ${date.day}.${date.month}.${date.year}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                   if (item['description'] != null &&
-                      item['description'].toString().isNotEmpty) ...[
+                      item['description'].toString().isNotEmpty &&
+                      item['description'] != item['title']) ...[
                     const SizedBox(height: 2),
                     Text(
                       item['description'],
@@ -1595,7 +1727,9 @@ class _TaskPageState extends State<TaskPage>
     String description = editingTask?.description ?? '';
     DateTime? deadline = editingTask?.deadline;
     String priority = editingTask?.priority ?? 'medium';
-    String category = editingTask?.category ?? 'other';
+    String category =
+        editingTask?.category ??
+        'timeline'; // KORRIGIERT: Default auf 'timeline'
 
     showDialog(
       context: context,
@@ -1733,58 +1867,115 @@ class _TaskPageState extends State<TaskPage>
   void _showResetTimelineTasksDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Timeline-Checkliste zurücksetzen'),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Alle Timeline-Aufgaben löschen'),
         content: const Text(
-          'Möchten Sie alle Timeline-Aufgaben löschen und die Standard-Checkliste wiederherstellen?\n\nAlle Timeline-Aufgaben und deren Erledigungsstatus gehen verloren.',
+          'Möchten Sie ALLE Timeline-Aufgaben unwiderruflich löschen?\n\nDies umfasst sowohl automatisch erstellte als auch manuell hinzugefügte Timeline-Aufgaben.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Abbrechen'),
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
+
+              // Sammle alle Timeline-Task IDs
+              final timelineTaskIds = widget.tasks
+                  .where((t) => t.category == 'timeline' && t.id != null)
+                  .map((t) => t.id!)
+                  .toList();
+
+              if (timelineTaskIds.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Keine Timeline-Aufgaben vorhanden'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                return;
+              }
+
+              final count = timelineTaskIds.length;
 
               // Zeige Ladeanzeige
               showDialog(
                 context: context,
                 barrierDismissible: false,
-                builder: (context) =>
-                    const Center(child: CircularProgressIndicator()),
+                builder: (loadingContext) => WillPopScope(
+                  onWillPop: () async => false,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text('Lösche $count Aufgaben...'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               );
 
-              // Lösche alle Timeline-Aufgaben
-              final timelineTasks = widget.tasks
-                  .where((t) => t.category == 'timeline')
-                  .toList();
-              for (final task in timelineTasks) {
-                if (task.id != null) {
-                  widget.onDeleteTask(task.id!);
+              try {
+                // WICHTIG: Verwende das Callback-System um das Parent-Widget zu informieren
+                for (final taskId in timelineTaskIds) {
+                  widget.onDeleteTask(taskId);
+                  // Kurze Pause zwischen Löschungen
+                  await Future.delayed(const Duration(milliseconds: 50));
+                }
+
+                // Warte bis alle gelöscht sind
+                await Future.delayed(const Duration(milliseconds: 500));
+
+                if (mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '$count Timeline-Aufgaben wurden gelöscht.',
+                      ),
+                      backgroundColor: Colors.green,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+
+                  // Navigiere zur Home-Seite um Daten neu zu laden
+                  if (widget.onNavigateToHome != null) {
+                    await Future.delayed(const Duration(milliseconds: 500));
+                    widget.onNavigateToHome!();
+                  }
+                }
+              } catch (e) {
+                if (mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Fehler beim Löschen: $e'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
                 }
               }
-
-              // Warte kurz, damit die Löschungen verarbeitet werden
-              await Future.delayed(const Duration(milliseconds: 300));
-
-              // Erstelle Standard-Timeline-Aufgaben neu
-              await _initializeDefaultMilestones();
-
-              if (mounted) Navigator.pop(context);
-
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Timeline-Checkliste wurde zurückgesetzt'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text(
-              'Zurücksetzen',
+              'Ja, alle löschen',
               style: TextStyle(color: Colors.white),
             ),
           ),

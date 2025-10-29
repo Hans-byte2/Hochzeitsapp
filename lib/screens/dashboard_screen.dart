@@ -14,7 +14,8 @@ class DashboardPage extends StatefulWidget {
   final Function(Task) onAddTask;
   final Function(Task) onUpdateTask;
   final Function(int) onDeleteTask;
-  final Function(int) onNavigateToPage; // NEU!
+  final Function(int) onNavigateToPage;
+  final Function(int) onNavigateToTaskWithId; // NEU!
 
   const DashboardPage({
     Key? key,
@@ -27,7 +28,8 @@ class DashboardPage extends StatefulWidget {
     required this.onAddTask,
     required this.onUpdateTask,
     required this.onDeleteTask,
-    required this.onNavigateToPage, // NEU!
+    required this.onNavigateToPage,
+    required this.onNavigateToTaskWithId, // NEU!
   }) : super(key: key);
 
   @override
@@ -802,73 +804,87 @@ class _DashboardPageState extends State<DashboardPage> {
             else
               Column(
                 children: _upcomingTasks.take(3).map((task) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade50,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border(
-                        left: BorderSide(
-                          width: 4,
-                          color: _getPriorityColor(task.priority),
+                  return InkWell(
+                    onTap: () {
+                      if (task.id != null) {
+                        widget.onNavigateToTaskWithId(task.id!);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border(
+                          left: BorderSide(
+                            width: 4,
+                            color: _getPriorityColor(task.priority),
+                          ),
                         ),
                       ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                task.title,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.black87,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (task.deadline != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primary.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: AppColors.primary.withOpacity(0.3),
-                                  ),
-                                ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
                                 child: Text(
-                                  '${task.deadline!.day}.${task.deadline!.month}.',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.w500,
+                                  task.title,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                          ],
-                        ),
-                        if (task.description.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            task.description,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                              const SizedBox(width: 8),
+                              Icon(
+                                Icons.arrow_forward_ios,
+                                size: 14,
+                                color: Colors.grey.shade400,
+                              ),
+                              const SizedBox(width: 8),
+                              if (task.deadline != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: AppColors.primary.withOpacity(0.3),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${task.deadline!.day}.${task.deadline!.month}.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
+                          if (task.description.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              task.description,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   );
                 }).toList(),
