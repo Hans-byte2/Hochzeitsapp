@@ -15,7 +15,7 @@ class TaskPage extends StatefulWidget {
   final String groomName;
   final int? selectedTaskId;
   final VoidCallback? onClearSelectedTask;
-  final VoidCallback? onNavigateToHome; // NEU: Callback zum Home navigieren
+  final VoidCallback? onNavigateToHome;
 
   const TaskPage({
     Key? key,
@@ -28,7 +28,7 @@ class TaskPage extends StatefulWidget {
     required this.groomName,
     this.selectedTaskId,
     this.onClearSelectedTask,
-    this.onNavigateToHome, // NEU
+    this.onNavigateToHome,
   }) : super(key: key);
 
   @override
@@ -40,13 +40,15 @@ class _TaskPageState extends State<TaskPage>
   String _selectedFilter = 'all';
   bool _isSubmitting = false;
   Task? _editingTask;
-  String _quickAddTitle = '';
+  String _searchQuery = ''; // NEU: Für Suchfunktion
 
   late TabController _tabController;
   int _currentTab = 0;
 
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _searchController =
+      TextEditingController(); // NEU: Controller für Suche
   String _selectedCategory = 'other';
   String _selectedPriority = 'medium';
   DateTime? _selectedDeadline;
@@ -361,6 +363,7 @@ class _TaskPageState extends State<TaskPage>
     _tabController.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
+    _searchController.dispose(); // NEU: Controller aufräumen
     super.dispose();
   }
 
@@ -397,25 +400,45 @@ class _TaskPageState extends State<TaskPage>
     }
   }
 
+  // GEÄNDERT: Erweiterte Filter-Logik mit Suchfunktion
   List<Task> get _filteredTasks {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
     return widget.tasks.where((task) {
+      // Erst nach Filter filtern
+      bool matchesFilter = false;
       switch (_selectedFilter) {
         case 'all':
-          return true;
+          matchesFilter = true;
+          break;
         case 'completed':
-          return task.completed;
+          matchesFilter = task.completed;
+          break;
         case 'pending':
-          return !task.completed;
+          matchesFilter = !task.completed;
+          break;
         case 'overdue':
-          return !task.completed &&
+          matchesFilter =
+              !task.completed &&
               task.deadline != null &&
               task.deadline!.isBefore(today);
+          break;
         default:
-          return task.category == _selectedFilter;
+          matchesFilter = task.category == _selectedFilter;
       }
+
+      // Dann nach Suchbegriff filtern
+      if (!matchesFilter) return false;
+
+      if (_searchQuery.isEmpty) return true;
+
+      final query = _searchQuery.toLowerCase();
+      return task.title.toLowerCase().contains(query) ||
+          task.description.toLowerCase().contains(query) ||
+          (_categoryLabels[task.category] ?? task.category)
+              .toLowerCase()
+              .contains(query);
     }).toList();
   }
 
@@ -431,26 +454,18 @@ class _TaskPageState extends State<TaskPage>
         .length;
   }
 
-  void _handleQuickAdd() {
-    if (_quickAddTitle.trim().isEmpty) return;
-
+  // NEU: Suchfunktion
+  void _handleSearch() {
     setState(() {
-      _isSubmitting = true;
+      _searchQuery = _searchController.text.trim();
     });
+  }
 
-    final newTask = Task(
-      title: _quickAddTitle.trim(),
-      category: 'other',
-      priority: 'medium',
-      completed: false,
-      createdDate: DateTime.now(),
-    );
-
-    widget.onAddTask(newTask);
-
+  // NEU: Suche zurücksetzen
+  void _clearSearch() {
     setState(() {
-      _quickAddTitle = '';
-      _isSubmitting = false;
+      _searchQuery = '';
+      _searchController.clear();
     });
   }
 
@@ -862,45 +877,55 @@ class _TaskPageState extends State<TaskPage>
             ),
           ),
           const SizedBox(height: 8),
+          // GEÄNDERT: Kompakte Suchfunktion
           Card(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
               side: const BorderSide(color: AppColors.cardBorder, width: 1),
             ),
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 children: [
+                  const Icon(Icons.search, size: 18, color: Colors.grey),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
+                      controller: _searchController,
                       decoration: const InputDecoration(
-                        hintText: 'Schnell hinzufügen...',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 8,
-                        ),
+                        hintText: 'Aufgaben durchsuchen...',
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
                       ),
-                      onChanged: (value) => _quickAddTitle = value,
-                      onSubmitted: (_) => _handleQuickAdd(),
+                      style: const TextStyle(fontSize: 14),
+                      onChanged: (value) => _handleSearch(),
+                      onSubmitted: (_) => _handleSearch(),
                     ),
                   ),
+                  if (_searchQuery.isNotEmpty)
+                    IconButton(
+                      onPressed: _clearSearch,
+                      icon: const Icon(Icons.clear, size: 18),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      tooltip: 'Suche löschen',
+                    ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: _isSubmitting ? null : _handleQuickAdd,
+                    onPressed: _handleSearch,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      minimumSize: const Size(0, 32),
                     ),
-                    child: _isSubmitting
-                        ? const SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text(
-                            'Add',
-                            style: TextStyle(color: Colors.white),
-                          ),
+                    child: const Text(
+                      'Suche',
+                      style: TextStyle(color: Colors.white, fontSize: 12),
+                    ),
                   ),
                 ],
               ),
@@ -911,10 +936,36 @@ class _TaskPageState extends State<TaskPage>
           const SizedBox(height: 8),
           Expanded(
             child: _filteredTasks.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Keine Aufgaben gefunden.',
-                      style: TextStyle(color: Colors.grey),
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _searchQuery.isNotEmpty
+                              ? Icons.search_off
+                              : Icons.assignment,
+                          size: 64,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _searchQuery.isNotEmpty
+                              ? 'Keine Ergebnisse für "$_searchQuery"'
+                              : 'Keine Aufgaben gefunden.',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (_searchQuery.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: _clearSearch,
+                            icon: const Icon(Icons.clear),
+                            label: const Text('Suche zurücksetzen'),
+                          ),
+                        ],
+                      ],
                     ),
                   )
                 : ListView.builder(
@@ -1177,7 +1228,6 @@ class _TaskPageState extends State<TaskPage>
         .inDays;
     final groupedTimeline = _generateGroupedTimeline();
 
-    // KORRIGIERT: Zähle alle Tasks mit category == 'timeline'
     final timelineTasksCount = widget.tasks
         .where((t) => t.category == 'timeline')
         .length;
@@ -1384,7 +1434,6 @@ class _TaskPageState extends State<TaskPage>
 
     final weddingDate = widget.weddingDate!;
 
-    // ALLE Tasks mit Deadline hinzufügen (auch Timeline-Tasks!)
     for (final task in widget.tasks) {
       if (task.deadline != null) {
         items.add({
@@ -1537,7 +1586,7 @@ class _TaskPageState extends State<TaskPage>
     final isCompleted = item['isCompleted'] as bool;
     final isWeddingDay = item['type'] == 'wedding_day';
     final isTimelineTask = task?.category == 'timeline';
-    final date = item['date'] as DateTime?; // NEU: Datum holen
+    final date = item['date'] as DateTime?;
 
     return InkWell(
       onTap: () {
@@ -1630,7 +1679,6 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ],
                   ),
-                  // NEU: Datum anzeigen
                   if (date != null && !isWeddingDay) ...[
                     const SizedBox(height: 2),
                     Text(
@@ -1727,9 +1775,7 @@ class _TaskPageState extends State<TaskPage>
     String description = editingTask?.description ?? '';
     DateTime? deadline = editingTask?.deadline;
     String priority = editingTask?.priority ?? 'medium';
-    String category =
-        editingTask?.category ??
-        'timeline'; // KORRIGIERT: Default auf 'timeline'
+    String category = editingTask?.category ?? 'timeline';
 
     showDialog(
       context: context,
@@ -1881,7 +1927,6 @@ class _TaskPageState extends State<TaskPage>
             onPressed: () async {
               Navigator.pop(dialogContext);
 
-              // Sammle alle Timeline-Task IDs
               final timelineTaskIds = widget.tasks
                   .where((t) => t.category == 'timeline' && t.id != null)
                   .map((t) => t.id!)
@@ -1899,7 +1944,6 @@ class _TaskPageState extends State<TaskPage>
 
               final count = timelineTaskIds.length;
 
-              // Zeige Ladeanzeige
               showDialog(
                 context: context,
                 barrierDismissible: false,
@@ -1926,14 +1970,11 @@ class _TaskPageState extends State<TaskPage>
               );
 
               try {
-                // WICHTIG: Verwende das Callback-System um das Parent-Widget zu informieren
                 for (final taskId in timelineTaskIds) {
                   widget.onDeleteTask(taskId);
-                  // Kurze Pause zwischen Löschungen
                   await Future.delayed(const Duration(milliseconds: 50));
                 }
 
-                // Warte bis alle gelöscht sind
                 await Future.delayed(const Duration(milliseconds: 500));
 
                 if (mounted) {
@@ -1951,7 +1992,6 @@ class _TaskPageState extends State<TaskPage>
                     ),
                   );
 
-                  // Navigiere zur Home-Seite um Daten neu zu laden
                   if (widget.onNavigateToHome != null) {
                     await Future.delayed(const Duration(milliseconds: 500));
                     widget.onNavigateToHome!();
