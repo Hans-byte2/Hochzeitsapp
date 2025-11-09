@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 import '../app_colors.dart';
 import '../data/database_helper.dart';
+import '../models/budget.dart'; // NEU: Budget Model
 
 class CategoryDetailPage extends StatefulWidget {
   final String category;
@@ -18,11 +20,11 @@ class CategoryDetailPage extends StatefulWidget {
 }
 
 class _CategoryDetailPageState extends State<CategoryDetailPage> {
-  List<Map<String, dynamic>> _categoryItems = [];
+  List<Budget> _categoryItems = []; // GEÄNDERT: Budget Objekte
   bool _isLoading = true;
   double _categoryPlanned = 0.0;
   double _categoryActual = 0.0;
-  int _paidItems = 0;
+  final _uuid = const Uuid(); // NEU: UUID Generator
 
   final Map<String, String> _categoryLabels = {
     'location': 'Location & Catering',
@@ -68,19 +70,17 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         _isLoading = true;
       });
 
-      final allItems = await DatabaseHelper.instance.getAllBudgetItems();
-      final categoryItems = allItems
-          .where((item) => (item['category'] ?? 'other') == widget.category)
-          .toList();
+      // NEU: Verwende getBudgetsByCategory
+      final categoryItems = await DatabaseHelper.instance.getBudgetsByCategory(
+        widget.category,
+      );
 
       double planned = 0.0;
       double actual = 0.0;
-      int paid = 0;
 
       for (final item in categoryItems) {
-        planned += item['planned'] ?? 0.0;
-        actual += item['actual'] ?? 0.0;
-        if ((item['paid'] ?? 0) == 1) paid++;
+        planned += item.plannedAmount;
+        actual += item.actualAmount;
       }
 
       if (mounted) {
@@ -88,7 +88,6 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           _categoryItems = categoryItems;
           _categoryPlanned = planned;
           _categoryActual = actual;
-          _paidItems = paid;
           _isLoading = false;
         });
       }
@@ -102,202 +101,135 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     }
   }
 
-  Future<void> _togglePaid(int id, bool currentStatus) async {
-    try {
-      final db = await DatabaseHelper.instance.database;
-      await db.update(
-        'budget_items',
-        {'paid': currentStatus ? 0 : 1},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
-      await _loadCategoryItems();
-    } catch (e) {
-      print('Fehler beim Aktualisieren des Bezahlt-Status: $e');
-    }
-  }
-
   Future<void> _addNewBudgetItem() async {
-    String newName = '';
     double newPlanned = 0.0;
     double newActual = 0.0;
     String newNotes = '';
-    bool newPaid = false;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (builderContext) {
-        bool dialogPaid = newPaid;
-
-        return StatefulBuilder(
-          builder: (statefulContext, setDialogState) {
-            return AlertDialog(
-              title: Text('Neuer Posten: ${widget.categoryName}'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+        return AlertDialog(
+          title: Text('Neuer Posten: ${widget.categoryName}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Bezeichnung',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Geplant (€)',
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            autofocus: true,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              hintText: '0',
                             ),
-                            hintText: 'z.B. Hochzeitslocation',
+                            onChanged: (value) =>
+                                newPlanned = double.tryParse(value) ?? 0.0,
                           ),
-                          onChanged: (value) => newName = value,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Geplant (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  hintText: '',
-                                ),
-                                onChanged: (value) =>
-                                    newPlanned = double.tryParse(value) ?? 0.0,
-                              ),
-                            ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Tatsächlich (€)',
+                            style: TextStyle(fontWeight: FontWeight.w500),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Tatsächlich (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
+                          const SizedBox(height: 4),
+                          TextField(
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  hintText: '',
-                                ),
-                                onChanged: (value) =>
-                                    newActual = double.tryParse(value) ?? 0.0,
-                              ),
-                            ],
+                              hintText: '0',
+                            ),
+                            onChanged: (value) =>
+                                newActual = double.tryParse(value) ?? 0.0,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notizen (optional)',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          maxLines: 2,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.all(12),
-                            hintText: '',
-                          ),
-                          onChanged: (value) => newNotes = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: dialogPaid,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              dialogPaid = value ?? false;
-                              newPaid = dialogPaid;
-                            });
-                          },
-                        ),
-                        const Text('Bereits bezahlt'),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Abbrechen'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (newName.isEmpty) {
-                      ScaffoldMessenger.of(builderContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Bitte geben Sie eine Bezeichnung ein'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(context, {
-                      'name': newName,
-                      'planned': newPlanned,
-                      'actual': newActual,
-                      'notes': newNotes,
-                      'paid': newPaid,
-                    });
-                  },
-                  child: const Text('Hinzufügen'),
+                const SizedBox(height: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Notizen (optional)',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 4),
+                    TextField(
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.all(12),
+                        hintText: 'z.B. Hochzeitslocation Mühlenhof',
+                      ),
+                      onChanged: (value) => newNotes = value,
+                    ),
+                  ],
                 ),
               ],
-            );
-          },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {
+                  'planned': newPlanned,
+                  'actual': newActual,
+                  'notes': newNotes,
+                });
+              },
+              child: const Text('Hinzufügen'),
+            ),
+          ],
         );
       },
     );
 
     if (result != null) {
       try {
-        final db = await DatabaseHelper.instance.database;
-        await db.insert('budget_items', {
-          'name': result['name'],
-          'planned': result['planned'],
-          'actual': result['actual'],
-          'category': widget.category,
-          'notes': result['notes'] ?? '',
-          'paid': result['paid'] ? 1 : 0,
-        });
+        // NEU: Erstelle Budget-Objekt mit UUID
+        final budget = Budget(
+          id: _uuid.v4(),
+          category: widget.category,
+          plannedAmount: result['planned'],
+          actualAmount: result['actual'],
+          notes: result['notes'] ?? '',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        await DatabaseHelper.instance.insertBudget(budget);
         await _loadCategoryItems();
+
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -313,12 +245,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     }
   }
 
-  Future<void> _editBudgetItemInDetail(Map<String, dynamic> item) async {
-    String editName = item['name'];
-    double editPlanned = item['planned'];
-    double editActual = item['actual'] ?? 0.0;
-    String editNotes = item['notes'] ?? '';
-    bool editPaid = (item['paid'] ?? 0) == 1;
+  Future<void> _editBudgetItemInDetail(Budget item) async {
+    double editPlanned = item.plannedAmount;
+    double editActual = item.actualAmount;
+    String editNotes = item.notes;
 
     final plannedController = TextEditingController(
       text: editPlanned.toStringAsFixed(0),
@@ -330,216 +260,159 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (builderContext) {
-        bool dialogPaid = editPaid;
-
-        return StatefulBuilder(
-          builder: (statefulContext, setDialogState) {
-            return AlertDialog(
-              title: Text('Bearbeiten: $editName'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+        return AlertDialog(
+          title: const Text('Posten bearbeiten'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Bezeichnung',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: TextEditingController(text: editName),
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Geplant (€)',
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: plannedController,
+                            autofocus: true,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                             ),
-                          ),
-                          onChanged: (value) => editName = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Geplant (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: plannedController,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onChanged: (value) =>
-                                    editPlanned = double.tryParse(value) ?? 0.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Tatsächlich (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: actualController,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onChanged: (value) =>
-                                    editActual = double.tryParse(value) ?? 0.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notizen (optional)',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: TextEditingController(text: editNotes),
-                          maxLines: 2,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.all(12),
-                          ),
-                          onChanged: (value) => editNotes = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: dialogPaid,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              dialogPaid = value ?? false;
-                              editPaid = dialogPaid;
-                            });
-                          },
-                        ),
-                        const Text('Bereits bezahlt'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Abbrechen'),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: builderContext,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Löschen bestätigen'),
-                        content: const Text(
-                          'Möchten Sie diesen Posten wirklich löschen?',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Abbrechen'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.red,
-                            ),
-                            child: const Text('Löschen'),
+                            onChanged: (value) =>
+                                editPlanned = double.tryParse(value) ?? 0.0,
                           ),
                         ],
                       ),
-                    );
-
-                    if (confirmed == true) {
-                      Navigator.pop(builderContext, {'delete': true});
-                    }
-                  },
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  child: const Text('Löschen'),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Tatsächlich (€)',
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: actualController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                            ),
+                            onChanged: (value) =>
+                                editActual = double.tryParse(value) ?? 0.0,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (editName.isEmpty) {
-                      ScaffoldMessenger.of(builderContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Bitte geben Sie eine Bezeichnung ein'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(context, {
-                      'name': editName,
-                      'planned': editPlanned,
-                      'actual': editActual,
-                      'notes': editNotes,
-                      'paid': editPaid,
-                    });
-                  },
-                  child: const Text('Speichern'),
+                const SizedBox(height: 16),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Notizen (optional)',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 4),
+                    TextField(
+                      controller: TextEditingController(text: editNotes),
+                      maxLines: 2,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.all(12),
+                      ),
+                      onChanged: (value) => editNotes = value,
+                    ),
+                  ],
                 ),
               ],
-            );
-          },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Abbrechen'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: builderContext,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Löschen bestätigen'),
+                    content: const Text(
+                      'Möchten Sie diesen Posten wirklich löschen?',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Abbrechen'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                        child: const Text('Löschen'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (confirmed == true) {
+                  Navigator.pop(builderContext, {'delete': true});
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Löschen'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, {
+                  'planned': editPlanned,
+                  'actual': editActual,
+                  'notes': editNotes,
+                });
+              },
+              child: const Text('Speichern'),
+            ),
+          ],
         );
       },
     );
 
     if (result != null) {
       if (result['delete'] == true) {
-        await _deleteItem(item['id']);
+        await _deleteItem(item.id);
       } else {
         try {
-          final db = await DatabaseHelper.instance.database;
-          await db.update(
-            'budget_items',
-            {
-              'name': result['name'],
-              'planned': result['planned'],
-              'actual': result['actual'],
-              'notes': result['notes'],
-              'paid': result['paid'] ? 1 : 0,
-            },
-            where: 'id = ?',
-            whereArgs: [item['id']],
+          // NEU: Update mit Budget-Objekt
+          final updatedBudget = item.copyWith(
+            plannedAmount: result['planned'],
+            actualAmount: result['actual'],
+            notes: result['notes'],
+            updatedAt: DateTime.now(),
           );
+
+          await DatabaseHelper.instance.updateBudget(updatedBudget);
           await _loadCategoryItems();
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Änderungen gespeichert')),
@@ -556,11 +429,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     }
   }
 
-  Future<void> _deleteItem(int id) async {
+  Future<void> _deleteItem(String id) async {
     try {
-      final db = await DatabaseHelper.instance.database;
-      await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
+      await DatabaseHelper.instance.deleteBudget(id);
       await _loadCategoryItems();
+
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -660,7 +533,6 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                           itemCount: _categoryItems.length,
                           itemBuilder: (context, index) {
                             final item = _categoryItems[index];
-                            final isPaid = (item['paid'] ?? 0) == 1;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -679,39 +551,12 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                     children: [
                                       Row(
                                         children: [
-                                          GestureDetector(
-                                            onTap: () =>
-                                                _togglePaid(item['id'], isPaid),
-                                            child: Container(
-                                              padding: const EdgeInsets.all(4),
-                                              decoration: BoxDecoration(
-                                                color: isPaid
-                                                    ? Colors.green
-                                                    : Colors.grey.shade300,
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: Icon(
-                                                isPaid
-                                                    ? Icons.check
-                                                    : Icons.circle_outlined,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
                                           Expanded(
                                             child: Text(
-                                              item['name'],
-                                              style: TextStyle(
+                                              widget.categoryName,
+                                              style: const TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.bold,
-                                                decoration: isPaid
-                                                    ? TextDecoration.lineThrough
-                                                    : null,
-                                                color: isPaid
-                                                    ? Colors.grey
-                                                    : Colors.black87,
                                               ),
                                             ),
                                           ),
@@ -720,7 +565,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                               if (value == 'edit') {
                                                 _editBudgetItemInDetail(item);
                                               } else if (value == 'delete') {
-                                                _deleteItem(item['id']);
+                                                _deleteItem(item.id);
                                               }
                                             },
                                             itemBuilder: (context) => const [
@@ -760,7 +605,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Geplant',
-                                              '€${_formatCurrency(item['planned'])}',
+                                              '€${_formatCurrency(item.plannedAmount)}',
                                               Colors.blue,
                                             ),
                                           ),
@@ -768,16 +613,13 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Tatsächlich',
-                                              '€${_formatCurrency(item['actual'] ?? 0)}',
+                                              '€${_formatCurrency(item.actualAmount)}',
                                               Colors.orange,
                                             ),
                                           ),
                                         ],
                                       ),
-                                      if (item['notes'] != null &&
-                                          item['notes']
-                                              .toString()
-                                              .isNotEmpty) ...[
+                                      if (item.notes.isNotEmpty) ...[
                                         const SizedBox(height: 12),
                                         Container(
                                           width: double.infinity,
@@ -802,7 +644,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                               ),
                                               const SizedBox(height: 4),
                                               Text(
-                                                item['notes'],
+                                                item.notes,
                                                 style: const TextStyle(
                                                   fontSize: 14,
                                                 ),

@@ -18,6 +18,7 @@ dependencies:
   path_provider: ^2.1.1
   share_plus: ^7.2.1
   file_picker: ^8.0.0+1
+  uuid: ^4.5.2
  
 
     # NEU für Dienstleister

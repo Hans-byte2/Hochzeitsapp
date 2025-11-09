@@ -184,7 +184,7 @@ class ExcelExportService {
       sheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: row))
           .value = TextCellValue(
-        item.notes,
+        item.notes ?? '',
       );
     }
 

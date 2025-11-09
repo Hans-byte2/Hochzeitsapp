@@ -269,7 +269,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         onDeleteGuest: _deleteGuest,
       ),
       TischplanungPage(guests: _guests, onUpdateGuest: _updateGuest),
-      EnhancedBudgetPage(key: _budgetPageKey),
+      BudgetScreen(key: _budgetPageKey),
       TaskPage(
         key: _taskPageKey, // NEU: Key für Neuaufbau
         tasks: _tasks,

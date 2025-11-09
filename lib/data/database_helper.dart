@@ -2,6 +2,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as pathJoin;
 import '../models/wedding_models.dart';
 import 'dienstleister_database.dart';
+import '../models/budget.dart';
+import '../models/budget_models.dart'; // ⭐ ZEILE HINZUFÜGEN
+import 'package:uuid/uuid.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -21,7 +24,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       pathString,
-      version: 4,
+      version: 5,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -337,26 +340,6 @@ class DatabaseHelper {
     });
   }
 
-  Future<void> updateBudgetItem(
-    int id,
-    String name,
-    double planned,
-    double actual,
-  ) async {
-    final db = await instance.database;
-    await db.update(
-      'budget_items',
-      {'name': name, 'planned': planned, 'actual': actual},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  Future<void> deleteBudgetItem(int id) async {
-    final db = await instance.database;
-    await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
-  }
-
   // ================================
   // TIMELINE MILESTONES CRUD
   // ================================
@@ -427,4 +410,343 @@ class DatabaseHelper {
     final db = await instance.database;
     db.close();
   }
+
+  // ========================================
+  // BUDGET CRUD OPERATIONEN
+  // ========================================
+
+  // Budget erstellen
+  Future<String> insertBudget(Budget budget) async {
+    final db = await database;
+    await db.insert('budget', budget.toMap());
+    return budget.id;
+  }
+
+  // Budget aktualisieren
+  Future<int> updateBudget(Budget budget) async {
+    final db = await database;
+    return await db.update(
+      'budget',
+      budget.copyWith(updatedAt: DateTime.now()).toMap(),
+      where: 'id = ?',
+      whereArgs: [budget.id],
+    );
+  }
+
+  // Budget löschen (Soft Delete)
+  Future<int> deleteBudget(String id) async {
+    final db = await database;
+    return await db.update(
+      'budget',
+      {'is_deleted': 1, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Budget endgültig löschen
+  Future<int> deleteBudgetPermanently(String id) async {
+    final db = await database;
+    return await db.delete('budget', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // Alle Budgets abrufen (ohne gelöschte)
+  Future<List<Budget>> getAllBudgets() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'budget',
+      where: 'is_deleted = ?',
+      whereArgs: [0],
+      orderBy: 'category ASC',
+    );
+    return List.generate(maps.length, (i) => Budget.fromMap(maps[i]));
+  }
+
+  // Budget nach ID abrufen
+  Future<Budget?> getBudgetById(String id) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'budget',
+      where: 'id = ? AND is_deleted = ?',
+      whereArgs: [id, 0],
+    );
+    if (maps.isEmpty) return null;
+    return Budget.fromMap(maps.first);
+  }
+
+  // Budgets nach Kategorie abrufen
+  Future<List<Budget>> getBudgetsByCategory(String category) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'budget',
+      where: 'category = ? AND is_deleted = ?',
+      whereArgs: [category, 0],
+    );
+    return List.generate(maps.length, (i) => Budget.fromMap(maps[i]));
+  }
+
+  // Gesamt-Budget berechnen
+  Future<Map<String, double>> getTotalBudget() async {
+    final db = await database;
+    final result = await db.rawQuery('''
+    SELECT 
+      SUM(planned_amount) as total_planned,
+      SUM(actual_amount) as total_actual
+    FROM budget
+    WHERE is_deleted = 0
+  ''');
+
+    return {
+      'planned': (result.first['total_planned'] as num?)?.toDouble() ?? 0.0,
+      'actual': (result.first['total_actual'] as num?)?.toDouble() ?? 0.0,
+    };
+  }
+  // ⭐ BUDGET DATENBANK-METHODEN FÜR database_helper.dart
+
+  // Diese Methoden müssen in deine DatabaseHelper Klasse eingefügt werden
+
+  // 1. TABELLENERSTELLUNG (in onCreate oder onUpgrade)
+  // ====================================================
+
+  Future<void> _createBudgetTable(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS budget_items (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      estimated_cost REAL NOT NULL,
+      actual_cost REAL NOT NULL DEFAULT 0,
+      is_paid INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      is_deleted INTEGER NOT NULL DEFAULT 0
+    )
+  ''');
+  }
+
+  // 2. MIGRATION VON ALTER STRUKTUR (falls du bereits eine budget_items Tabelle hast)
+  // ==================================================================================
+
+  Future<void> _migrateBudgetTableToV5(Database db) async {
+    // Prüfen ob die Tabelle existiert
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='budget_items'",
+    );
+
+    if (tables.isEmpty) {
+      // Tabelle existiert noch nicht, einfach neu erstellen
+      await _createBudgetTable(db);
+      return;
+    }
+
+    // Prüfen ob 'name' Spalte bereits existiert
+    final columns = await db.rawQuery('PRAGMA table_info(budget_items)');
+    final hasNameColumn = columns.any((col) => col['name'] == 'name');
+
+    if (!hasNameColumn) {
+      // Alte Tabelle sichern
+      await db.execute('ALTER TABLE budget_items RENAME TO budget_items_old');
+
+      // Neue Tabelle erstellen
+      await _createBudgetTable(db);
+
+      // Daten migrieren
+      final oldData = await db.query('budget_items_old');
+
+      for (var row in oldData) {
+        await db.insert('budget_items', {
+          'id': (row['id'] as String?) ?? const Uuid().v4(),
+          'name':
+              row['category'] ??
+              'Unbenannt', // ⭐ Falls kein Name vorhanden, Kategorie verwenden
+          'category': row['category'] ?? 'Sonstiges',
+          'estimated_cost': row['estimated_cost'] ?? 0,
+          'actual_cost': row['actual_cost'] ?? 0,
+          'is_paid': row['is_paid'] ?? 0,
+          'notes': row['notes'],
+          'created_at': row['created_at'] ?? DateTime.now().toIso8601String(),
+          'updated_at': row['updated_at'] ?? DateTime.now().toIso8601String(),
+          'is_deleted': row['is_deleted'] ?? 0,
+        });
+      }
+
+      // Alte Tabelle löschen
+      await db.execute('DROP TABLE budget_items_old');
+    }
+  }
+
+  // 3. CRUD METHODEN
+  // ================
+
+  // CREATE - Budget Item hinzufügen
+  Future<int> insertBudgetItem(BudgetItem item) async {
+    final db = await database;
+    try {
+      await db.insert(
+        'budget_items',
+        item.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      return 1; // Erfolg
+    } catch (e) {
+      print('Fehler beim Einfügen des Budget Items: $e');
+      rethrow;
+    }
+  }
+
+  // READ - Alle Budget Items laden (ohne gelöschte)
+  Future<List<BudgetItem>> getBudgetItems() async {
+    final db = await database;
+    try {
+      final maps = await db.query(
+        'budget_items',
+        where: 'is_deleted = ?',
+        whereArgs: [0],
+        orderBy: 'category ASC, name ASC',
+      );
+      return maps.map((map) => BudgetItem.fromMap(map)).toList();
+    } catch (e) {
+      print('Fehler beim Laden der Budget Items: $e');
+      return [];
+    }
+  }
+
+  // READ - Einzelnes Budget Item
+  Future<BudgetItem?> getBudgetItem(String id) async {
+    final db = await database;
+    try {
+      final maps = await db.query(
+        'budget_items',
+        where: 'id = ? AND is_deleted = ?',
+        whereArgs: [id, 0],
+        limit: 1,
+      );
+      if (maps.isNotEmpty) {
+        return BudgetItem.fromMap(maps.first);
+      }
+      return null;
+    } catch (e) {
+      print('Fehler beim Laden des Budget Items: $e');
+      return null;
+    }
+  }
+
+  // READ - Budget Items nach Kategorie
+  Future<List<BudgetItem>> getBudgetItemsByCategory(String category) async {
+    final db = await database;
+    try {
+      final maps = await db.query(
+        'budget_items',
+        where: 'category = ? AND is_deleted = ?',
+        whereArgs: [category, 0],
+        orderBy: 'name ASC',
+      );
+      return maps.map((map) => BudgetItem.fromMap(map)).toList();
+    } catch (e) {
+      print('Fehler beim Laden der Budget Items nach Kategorie: $e');
+      return [];
+    }
+  }
+
+  // UPDATE - Budget Item aktualisieren
+  Future<int> updateBudgetItem(BudgetItem item) async {
+    final db = await database;
+    try {
+      final updatedItem = item.copyWith(updatedAt: DateTime.now());
+      return await db.update(
+        'budget_items',
+        updatedItem.toMap(),
+        where: 'id = ?',
+        whereArgs: [item.id],
+      );
+    } catch (e) {
+      print('Fehler beim Aktualisieren des Budget Items: $e');
+      rethrow;
+    }
+  }
+
+  // DELETE - Budget Item löschen (Soft Delete)
+  Future<int> deleteBudgetItem(String id) async {
+    final db = await database;
+    try {
+      return await db.update(
+        'budget_items',
+        {'is_deleted': 1, 'updated_at': DateTime.now().toIso8601String()},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    } catch (e) {
+      print('Fehler beim Löschen des Budget Items: $e');
+      rethrow;
+    }
+  }
+
+  // DELETE - Budget Item permanent löschen
+  Future<int> permanentlyDeleteBudgetItem(String id) async {
+    final db = await database;
+    try {
+      return await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
+    } catch (e) {
+      print('Fehler beim permanenten Löschen des Budget Items: $e');
+      rethrow;
+    }
+  }
+
+  // STATISTICS - Budget Statistiken
+  Future<Map<String, double>> getBudgetStatistics() async {
+    final items = await getBudgetItems();
+
+    double totalEstimated = 0;
+    double totalActual = 0;
+    int paidCount = 0;
+
+    for (var item in items) {
+      totalEstimated += item.estimatedCost;
+      totalActual += item.actualCost;
+      if (item.isPaid) paidCount++;
+    }
+
+    return {
+      'totalEstimated': totalEstimated,
+      'totalActual': totalActual,
+      'paidCount': paidCount.toDouble(),
+      'unpaidCount': (items.length - paidCount).toDouble(),
+      'totalItems': items.length.toDouble(),
+    };
+  }
+
+  // EXPORT/IMPORT - Alle Budget Items für Export
+  Future<List<Map<String, dynamic>>> exportBudgetItems() async {
+    final items = await getBudgetItems();
+    return items.map((item) => item.toJson()).toList();
+  }
+
+  // EXPORT/IMPORT - Budget Items importieren
+  Future<void> importBudgetItems(List<Map<String, dynamic>> itemsJson) async {
+    for (var json in itemsJson) {
+      try {
+        final item = BudgetItem.fromJson(json);
+        await insertBudgetItem(item);
+      } catch (e) {
+        print('Fehler beim Importieren eines Budget Items: $e');
+      }
+    }
+  }
+
+  // ⭐ WICHTIG: onUpgrade Methode aktualisieren
+  // ===========================================
+
+  @override
+  Future<void> onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 5) {
+      // Migration zu Version 5 mit UUID und name-Feld
+      await _migrateBudgetTableToV5(db);
+    }
+  }
+
+  // ⭐ WICHTIG: Versionsnummer erhöhen
+  // ==================================
+  // In deiner DatabaseHelper Klasse:
+  // static const int _version = 5; // Oder höher
 }
