@@ -77,10 +77,7 @@ class _GuestPageState extends State<GuestPage> {
                   value: _selectedStatus,
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: const [
-                    DropdownMenuItem(
-                      value: 'pending',
-                      child: Text('Ausstehend'),
-                    ),
+                    DropdownMenuItem(value: 'pending', child: Text('Offen')),
                     DropdownMenuItem(value: 'yes', child: Text('Zugesagt')),
                     DropdownMenuItem(value: 'no', child: Text('Abgesagt')),
                   ],
@@ -159,7 +156,7 @@ class _GuestPageState extends State<GuestPage> {
   String _getStatusLabel(String status) {
     switch (status) {
       case 'pending':
-        return 'Ausstehend';
+        return 'Offen';
       case 'yes':
         return 'Zugesagt';
       case 'no':
@@ -334,7 +331,7 @@ class _GuestPageState extends State<GuestPage> {
               'Übersicht',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
@@ -364,7 +361,7 @@ class _GuestPageState extends State<GuestPage> {
                       });
                     },
                     child: _buildStatCard(
-                      'Ausstehend',
+                      'Offen',
                       '$pendingGuests',
                       Colors.orange,
                       Icons.schedule,
