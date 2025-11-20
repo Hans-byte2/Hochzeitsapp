@@ -5,8 +5,8 @@ import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/wedding_models.dart';
 import '../models/dienstleister_models.dart';
-import '../models/budget_models.dart'; // ← HINZUFÜGEN
-import '../models/table_models.dart'; // ← HINZUFÜGEN
+import '../models/budget_models.dart';
+import '../models/table_models.dart';
 
 class PdfExportService {
   // Farben für PDF (konvertiert von AppColors)
@@ -129,11 +129,11 @@ class PdfExportService {
 
     final totalPlanned = budgetItems.fold<double>(
       0.0,
-      (sum, item) => sum + item.planned,
+      (sum, item) => sum + item.estimatedCost,
     );
     final totalActual = budgetItems.fold<double>(
       0.0,
-      (sum, item) => sum + item.actual,
+      (sum, item) => sum + item.actualCost,
     );
     final difference = totalPlanned - totalActual;
 
@@ -230,12 +230,12 @@ class PdfExportService {
                         children: [
                           _buildTableCell(item.name),
                           _buildTableCell(
-                            '${item.planned.toStringAsFixed(2)} €',
+                            '${item.estimatedCost.toStringAsFixed(2)} €',
                           ),
                           _buildTableCell(
-                            '${item.actual.toStringAsFixed(2)} €',
+                            '${item.actualCost.toStringAsFixed(2)} €',
                           ),
-                          _buildTableCell(item.paid ? 'Bezahlt' : 'Offen'),
+                          _buildTableCell(item.isPaid ? 'Bezahlt' : 'Offen'),
                         ],
                       );
                     }),

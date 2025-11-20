@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../models/budget_models.dart'; // ⭐ MIT 'S' am Ende!
-import '../data/database_helper.dart'; // ⭐ lib/data/ nicht lib/database/!
+import '../models/budget_models.dart';
+import '../data/database_helper.dart';
 import 'dart:math' as math;
 
 class BudgetScreen extends StatefulWidget {
@@ -18,16 +18,13 @@ class _BudgetScreenState extends State<BudgetScreen>
   bool _isLoading = true;
   double _totalBudget = 50000.0;
 
-  // Tab Controller für verschiedene Ansichten
   late TabController _tabController;
 
-  // Filter und Sortierung
   String _filterCategory = 'Alle';
-  String _sortBy = 'category'; // category, name, estimated, actual
+  String _sortBy = 'category';
   bool _showPaidOnly = false;
   bool _showUnpaidOnly = false;
 
-  // ⭐ Controller für das Add-Formular
   final _nameController = TextEditingController();
   final _estimatedCostController = TextEditingController();
   final _actualCostController = TextEditingController();
@@ -35,10 +32,8 @@ class _BudgetScreenState extends State<BudgetScreen>
   String _selectedCategory = BudgetCategories.defaults[0];
   bool _isPaid = false;
 
-  // Statistiken Cache
   Map<String, double>? _cachedStats;
 
-  // Animation Controller
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -60,28 +55,52 @@ class _BudgetScreenState extends State<BudgetScreen>
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _estimatedCostController.dispose();
-    _actualCostController.dispose();
-    _notesController.dispose();
-    _tabController.dispose();
+    // ✅ 1. Animation stoppen
+    _animationController.stop();
+
+    // ✅ 2. Animation Controller disposen
     _animationController.dispose();
+
+    // ✅ 3. Tab Controller disposen
+    _tabController.dispose();
+
+    // ✅ 4. Text Controller disposen
+    _notesController.dispose();
+    _actualCostController.dispose();
+    _estimatedCostController.dispose();
+    _nameController.dispose();
+
+    // ✅ 5. Super zuletzt
     super.dispose();
   }
 
   Future<void> _loadBudget() async {
+    if (!mounted) return; // ✅
+
     setState(() => _isLoading = true);
+
     try {
       final items = await _db.getBudgetItems();
+
+      if (!mounted) return; // ✅
+
       setState(() {
         _budgetItems = items;
         _isLoading = false;
-        _cachedStats = null; // Cache invalidieren
+        _cachedStats = null;
       });
-      _animationController.forward(from: 0.0);
-    } catch (e) {
-      setState(() => _isLoading = false);
+
       if (mounted) {
+        // ✅
+        _animationController.forward(from: 0.0);
+      }
+    } catch (e) {
+      if (!mounted) return; // ✅
+
+      setState(() => _isLoading = false);
+
+      if (mounted) {
+        // ✅
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Fehler beim Laden: $e'),
@@ -99,27 +118,18 @@ class _BudgetScreenState extends State<BudgetScreen>
 
   Future<void> _loadTotalBudget() async {
     // TODO: Aus SharedPreferences laden
-    // final prefs = await SharedPreferences.getInstance();
-    // setState(() {
-    //   _totalBudget = prefs.getDouble('total_budget') ?? 50000.0;
-    // });
   }
 
   Future<void> _saveTotalBudget() async {
     // TODO: In SharedPreferences speichern
-    // final prefs = await SharedPreferences.getInstance();
-    // await prefs.setDouble('total_budget', _totalBudget);
   }
 
-  // ⭐ WICHTIG: Funktionierendes Hinzufügen neuer Budgetposten
   Future<void> _addBudgetItem() async {
-    // Validierung: Name
     if (_nameController.text.trim().isEmpty) {
       _showErrorSnackBar('Bitte gib eine Bezeichnung ein');
       return;
     }
 
-    // Validierung: Geschätzter Preis
     if (_estimatedCostController.text.trim().isEmpty) {
       _showErrorSnackBar('Bitte gib einen geschätzten Preis ein');
       return;
@@ -131,13 +141,11 @@ class _BudgetScreenState extends State<BudgetScreen>
       return;
     }
 
-    // Tatsächlicher Preis (optional)
     double actualCost = 0.0;
     if (_actualCostController.text.trim().isNotEmpty) {
       actualCost = _parseCurrency(_actualCostController.text) ?? 0.0;
     }
 
-    // Wenn "Bezahlt" aktiviert ist, tatsächlichen Preis auf geschätzten setzen
     if (_isPaid && actualCost == 0.0) {
       actualCost = estimatedCost;
     }
@@ -156,11 +164,15 @@ class _BudgetScreenState extends State<BudgetScreen>
     try {
       await _db.insertBudgetItem(newItem);
 
-      // Formular zurücksetzen
+      if (!mounted) return; // ✅
+
       _nameController.clear();
       _estimatedCostController.clear();
       _actualCostController.clear();
       _notesController.clear();
+
+      if (!mounted) return; // ✅
+
       setState(() {
         _selectedCategory = BudgetCategories.defaults[0];
         _isPaid = false;
@@ -168,28 +180,30 @@ class _BudgetScreenState extends State<BudgetScreen>
 
       await _loadBudget();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text('Budgetposten "${newItem.name}" hinzugefügt'),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
+      if (!mounted) return; // ✅
 
-      // Zurück zum Übersicht-Tab nach Hinzufügen
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Budgetposten "${newItem.name}" hinzugefügt'),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      if (!mounted) return; // ✅
+
       _tabController.animateTo(0);
     } catch (e) {
+      if (!mounted) return; // ✅
       _showErrorSnackBar('Fehler beim Hinzufügen: $e');
     }
   }
@@ -197,9 +211,16 @@ class _BudgetScreenState extends State<BudgetScreen>
   Future<void> _updateBudgetItem(BudgetItem item) async {
     try {
       await _db.updateBudgetItem(item);
+
+      if (!mounted) return; // ✅
+
       await _loadBudget();
+
+      if (!mounted) return; // ✅
+
       _showSuccessSnackBar('Budgetposten aktualisiert');
     } catch (e) {
+      if (!mounted) return; // ✅
       _showErrorSnackBar('Fehler beim Aktualisieren: $e');
     }
   }
@@ -215,6 +236,8 @@ class _BudgetScreenState extends State<BudgetScreen>
   }
 
   Future<void> _deleteBudgetItem(BudgetItem item) async {
+    if (!mounted) return; // ✅
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -249,12 +272,20 @@ class _BudgetScreenState extends State<BudgetScreen>
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && mounted) {
+      // ✅
       try {
         await _db.deleteBudgetItem(item.id);
+
+        if (!mounted) return; // ✅
+
         await _loadBudget();
+
+        if (!mounted) return; // ✅
+
         _showSuccessSnackBar('Budgetposten "${item.name}" gelöscht');
       } catch (e) {
+        if (!mounted) return; // ✅
         _showErrorSnackBar('Fehler beim Löschen: $e');
       }
     }
@@ -298,19 +329,16 @@ class _BudgetScreenState extends State<BudgetScreen>
   List<BudgetItem> _getFilteredItems() {
     var items = _budgetItems;
 
-    // Kategorie-Filter
     if (_filterCategory != 'Alle') {
       items = items.where((item) => item.category == _filterCategory).toList();
     }
 
-    // Bezahlt-Filter
     if (_showPaidOnly) {
       items = items.where((item) => item.isPaid).toList();
     } else if (_showUnpaidOnly) {
       items = items.where((item) => !item.isPaid).toList();
     }
 
-    // Sortierung
     switch (_sortBy) {
       case 'name':
         items.sort((a, b) => a.name.compareTo(b.name));
@@ -424,8 +452,6 @@ class _BudgetScreenState extends State<BudgetScreen>
             ),
     );
   }
-
-  // ==================== ÜBERSICHT TAB ====================
 
   Widget _buildOverviewTab() {
     return RefreshIndicator(
@@ -1137,8 +1163,6 @@ class _BudgetScreenState extends State<BudgetScreen>
     );
   }
 
-  // ==================== LISTE TAB ====================
-
   Widget _buildListTab() {
     final filteredItems = _getFilteredItems();
 
@@ -1589,8 +1613,6 @@ class _BudgetScreenState extends State<BudgetScreen>
     );
   }
 
-  // ==================== ADD TAB ====================
-
   Widget _buildAddTab() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1655,7 +1677,6 @@ class _BudgetScreenState extends State<BudgetScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ⭐ Name/Bezeichnung Feld - PFLICHTFELD
         TextField(
           controller: _nameController,
           decoration: InputDecoration(
@@ -1670,8 +1691,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           autofocus: false,
         ),
         const SizedBox(height: 16),
-
-        // Kategorie Dropdown
         DropdownButtonFormField<String>(
           value: _selectedCategory,
           decoration: InputDecoration(
@@ -1691,8 +1710,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           },
         ),
         const SizedBox(height: 16),
-
-        // Geschätzter Preis - PFLICHTFELD
         TextField(
           controller: _estimatedCostController,
           decoration: InputDecoration(
@@ -1711,8 +1728,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           ],
         ),
         const SizedBox(height: 16),
-
-        // Tatsächlicher Preis - OPTIONAL
         TextField(
           controller: _actualCostController,
           decoration: InputDecoration(
@@ -1731,8 +1746,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           ],
         ),
         const SizedBox(height: 16),
-
-        // Notizen
         TextField(
           controller: _notesController,
           decoration: InputDecoration(
@@ -1748,8 +1761,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           textCapitalization: TextCapitalization.sentences,
         ),
         const SizedBox(height: 16),
-
-        // Bezahlt Checkbox
         Card(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           child: SwitchListTile(
@@ -1775,8 +1786,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           ),
         ),
         const SizedBox(height: 24),
-
-        // Hinzufügen Button
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -1795,8 +1804,6 @@ class _BudgetScreenState extends State<BudgetScreen>
           ),
         ),
         const SizedBox(height: 12),
-
-        // Zurücksetzen Button
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -1809,6 +1816,9 @@ class _BudgetScreenState extends State<BudgetScreen>
                 _selectedCategory = BudgetCategories.defaults[0];
                 _isPaid = false;
               });
+
+              if (!mounted) return; // ✅
+
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Formular zurückgesetzt')),
               );
@@ -1827,9 +1837,9 @@ class _BudgetScreenState extends State<BudgetScreen>
     );
   }
 
-  // ==================== DIALOGS & HELPERS ====================
-
   Future<void> _editTotalBudget() async {
+    if (!mounted) return; // ✅
+
     final controller = TextEditingController(
       text: _totalBudget.toStringAsFixed(2).replaceAll('.', ','),
     );
@@ -1882,9 +1892,13 @@ class _BudgetScreenState extends State<BudgetScreen>
 
     controller.dispose();
 
-    if (result != null && result > 0) {
+    if (result != null && result > 0 && mounted) {
+      // ✅
       setState(() => _totalBudget = result);
       await _saveTotalBudget();
+
+      if (!mounted) return; // ✅
+
       _showSuccessSnackBar(
         'Gesamtbudget aktualisiert: ${_formatCurrency(result)}',
       );
@@ -1892,6 +1906,8 @@ class _BudgetScreenState extends State<BudgetScreen>
   }
 
   void _showFilterDialog() {
+    if (!mounted) return; // ✅
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1967,6 +1983,8 @@ class _BudgetScreenState extends State<BudgetScreen>
   }
 
   void _showItemOptions(BudgetItem item) {
+    if (!mounted) return; // ✅
+
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
@@ -2010,157 +2028,30 @@ class _BudgetScreenState extends State<BudgetScreen>
   }
 
   void _showEditDialog(BudgetItem item) {
-    final nameController = TextEditingController(text: item.name);
-    final estimatedController = TextEditingController(
-      text: item.estimatedCost.toStringAsFixed(2).replaceAll('.', ','),
-    );
-    final actualController = TextEditingController(
-      text: item.actualCost.toStringAsFixed(2).replaceAll('.', ','),
-    );
-    final notesController = TextEditingController(text: item.notes ?? '');
-    String selectedCategory = item.category;
-    bool isPaid = item.isPaid;
+    if (!mounted) return; // ✅
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Budgetposten bearbeiten'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Bezeichnung',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedCategory,
-                  decoration: const InputDecoration(
-                    labelText: 'Kategorie',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: BudgetCategories.defaults.map((cat) {
-                    return DropdownMenuItem(value: cat, child: Text(cat));
-                  }).toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => selectedCategory = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: estimatedController,
-                  decoration: const InputDecoration(
-                    labelText: 'Geschätzter Preis',
-                    border: OutlineInputBorder(),
-                    suffixText: '€',
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: actualController,
-                  decoration: const InputDecoration(
-                    labelText: 'Tatsächlicher Preis',
-                    border: OutlineInputBorder(),
-                    suffixText: '€',
-                  ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: notesController,
-                  decoration: const InputDecoration(
-                    labelText: 'Notizen',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 12),
-                CheckboxListTile(
-                  title: const Text('Bereits bezahlt'),
-                  value: isPaid,
-                  onChanged: (value) {
-                    setState(() => isPaid = value ?? false);
-                  },
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                nameController.dispose();
-                estimatedController.dispose();
-                actualController.dispose();
-                notesController.dispose();
-                Navigator.pop(context);
-              },
-              child: const Text('Abbrechen'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final estimated = _parseCurrency(estimatedController.text);
-                final actual = _parseCurrency(actualController.text);
-
-                if (nameController.text.trim().isEmpty ||
-                    estimated == null ||
-                    actual == null) {
-                  _showErrorSnackBar('Bitte fülle alle Pflichtfelder aus');
-                  return;
-                }
-
-                final updatedItem = item.copyWith(
-                  name: nameController.text.trim(),
-                  category: selectedCategory,
-                  estimatedCost: estimated,
-                  actualCost: actual,
-                  isPaid: isPaid,
-                  notes: notesController.text.trim().isEmpty
-                      ? null
-                      : notesController.text.trim(),
-                  updatedAt: DateTime.now(),
-                );
-
-                await _updateBudgetItem(updatedItem);
-
-                nameController.dispose();
-                estimatedController.dispose();
-                actualController.dispose();
-                notesController.dispose();
-                if (context.mounted) Navigator.pop(context);
-              },
-              child: const Text('Speichern'),
-            ),
-          ],
-        ),
+      builder: (context) => _EditBudgetDialog(
+        item: item,
+        onUpdate: _updateBudgetItem,
+        onError: _showErrorSnackBar,
+        parseCurrency: _parseCurrency,
       ),
     );
   }
 
   Future<void> _exportBudget() async {
-    // TODO: Implementierung des Exports
     _showSuccessSnackBar('Export-Funktion wird bald verfügbar sein');
   }
 
   Future<void> _importBudget() async {
-    // TODO: Implementierung des Imports
     _showSuccessSnackBar('Import-Funktion wird bald verfügbar sein');
   }
 
   Future<void> _clearAllBudgetItems() async {
+    if (!mounted) return; // ✅
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2182,14 +2073,22 @@ class _BudgetScreenState extends State<BudgetScreen>
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && mounted) {
+      // ✅
       try {
         for (var item in _budgetItems) {
           await _db.deleteBudgetItem(item.id);
         }
+
+        if (!mounted) return; // ✅
+
         await _loadBudget();
+
+        if (!mounted) return; // ✅
+
         _showSuccessSnackBar('Alle Budgetposten gelöscht');
       } catch (e) {
+        if (!mounted) return; // ✅
         _showErrorSnackBar('Fehler beim Löschen: $e');
       }
     }
@@ -2201,7 +2100,6 @@ class _BudgetScreenState extends State<BudgetScreen>
     final intPart = parts[0];
     final decPart = parts[1];
 
-    // Tausendertrennzeichen hinzufügen
     final buffer = StringBuffer();
     for (int i = 0; i < intPart.length; i++) {
       if (i > 0 && (intPart.length - i) % 3 == 0) {
@@ -2213,8 +2111,6 @@ class _BudgetScreenState extends State<BudgetScreen>
     return '${buffer.toString()},${decPart} €';
   }
 }
-
-// ==================== CUSTOM PAINTER ====================
 
 class _DonutChartPainter extends CustomPainter {
   final Map<String, double> data;
@@ -2255,7 +2151,6 @@ class _DonutChartPainter extends CustomPainter {
       colorIndex++;
     }
 
-    // Weißer Kreis in der Mitte
     final innerPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
@@ -2264,4 +2159,170 @@ class _DonutChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class _EditBudgetDialog extends StatefulWidget {
+  final BudgetItem item;
+  final Future<void> Function(BudgetItem) onUpdate;
+  final void Function(String) onError;
+  final double? Function(String) parseCurrency;
+
+  const _EditBudgetDialog({
+    required this.item,
+    required this.onUpdate,
+    required this.onError,
+    required this.parseCurrency,
+  });
+
+  @override
+  State<_EditBudgetDialog> createState() => _EditBudgetDialogState();
+}
+
+class _EditBudgetDialogState extends State<_EditBudgetDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _estimatedController;
+  late final TextEditingController _actualController;
+  late final TextEditingController _notesController;
+  late String _selectedCategory;
+  late bool _isPaid;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.item.name);
+    _estimatedController = TextEditingController(
+      text: widget.item.estimatedCost.toStringAsFixed(2).replaceAll('.', ','),
+    );
+    _actualController = TextEditingController(
+      text: widget.item.actualCost.toStringAsFixed(2).replaceAll('.', ','),
+    );
+    _notesController = TextEditingController(text: widget.item.notes ?? '');
+    _selectedCategory = widget.item.category;
+    _isPaid = widget.item.isPaid;
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _actualController.dispose();
+    _estimatedController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Budgetposten bearbeiten'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Bezeichnung',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: const InputDecoration(
+                labelText: 'Kategorie',
+                border: OutlineInputBorder(),
+              ),
+              items: BudgetCategories.defaults.map((cat) {
+                return DropdownMenuItem(value: cat, child: Text(cat));
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _selectedCategory = value);
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _estimatedController,
+              decoration: const InputDecoration(
+                labelText: 'Geschätzter Preis',
+                border: OutlineInputBorder(),
+                suffixText: '€',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _actualController,
+              decoration: const InputDecoration(
+                labelText: 'Tatsächlicher Preis',
+                border: OutlineInputBorder(),
+                suffixText: '€',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesController,
+              decoration: const InputDecoration(
+                labelText: 'Notizen',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 12),
+            CheckboxListTile(
+              title: const Text('Bereits bezahlt'),
+              value: _isPaid,
+              onChanged: (value) {
+                setState(() => _isPaid = value ?? false);
+              },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Abbrechen'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final estimated = widget.parseCurrency(_estimatedController.text);
+            final actual = widget.parseCurrency(_actualController.text);
+
+            if (_nameController.text.trim().isEmpty ||
+                estimated == null ||
+                actual == null) {
+              widget.onError('Bitte fülle alle Pflichtfelder aus');
+              return;
+            }
+
+            final updatedItem = widget.item.copyWith(
+              name: _nameController.text.trim(),
+              category: _selectedCategory,
+              estimatedCost: estimated,
+              actualCost: actual,
+              isPaid: _isPaid,
+              notes: _notesController.text.trim().isEmpty
+                  ? null
+                  : _notesController.text.trim(),
+              updatedAt: DateTime.now(),
+            );
+
+            await widget.onUpdate(updatedItem);
+
+            if (context.mounted) Navigator.pop(context);
+          },
+          child: const Text('Speichern'),
+        ),
+      ],
+    );
+  }
 }

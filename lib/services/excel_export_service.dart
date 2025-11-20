@@ -143,7 +143,7 @@ class ExcelExportService {
     for (var i = 0; i < budgetItems.length; i++) {
       var item = budgetItems[i];
       var row = i + 1;
-      var difference = item.planned - item.actual;
+      var difference = item.estimatedCost - item.actualCost;
 
       sheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row))
@@ -158,12 +158,12 @@ class ExcelExportService {
       sheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row))
           .value = DoubleCellValue(
-        item.planned,
+        item.estimatedCost,
       );
       sheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row))
           .value = DoubleCellValue(
-        item.actual,
+        item.actualCost,
       );
 
       var diffCell = sheet.cell(
@@ -179,7 +179,7 @@ class ExcelExportService {
       sheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row))
           .value = TextCellValue(
-        item.paid ? 'Ja' : 'Nein',
+        item.isPaid ? 'Ja' : 'Nein',
       );
       sheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: row))
@@ -192,11 +192,11 @@ class ExcelExportService {
     var summaryRow = budgetItems.length + 2;
     var totalPlanned = budgetItems.fold<double>(
       0.0,
-      (sum, item) => sum + item.planned,
+      (sum, item) => sum + item.estimatedCost,
     );
     var totalActual = budgetItems.fold<double>(
       0.0,
-      (sum, item) => sum + item.actual,
+      (sum, item) => sum + item.actualCost,
     );
     var totalDiff = totalPlanned - totalActual;
 
@@ -251,9 +251,12 @@ class ExcelExportService {
     categories.forEach((category, items) {
       var catPlanned = items.fold<double>(
         0.0,
-        (sum, item) => sum + item.planned,
+        (sum, item) => sum + item.estimatedCost,
       );
-      var catActual = items.fold<double>(0.0, (sum, item) => sum + item.actual);
+      var catActual = items.fold<double>(
+        0.0,
+        (sum, item) => sum + item.actualCost,
+      );
 
       categoriesSheet
           .cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: catRow))

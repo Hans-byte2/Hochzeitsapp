@@ -3,7 +3,7 @@ import 'package:path/path.dart' as pathJoin;
 import '../models/wedding_models.dart';
 import 'dienstleister_database.dart';
 import '../models/budget.dart';
-import '../models/budget_models.dart'; // ⭐ ZEILE HINZUFÜGEN
+import '../models/budget_models.dart';
 import 'package:uuid/uuid.dart';
 
 class DatabaseHelper {
@@ -24,7 +24,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       pathString,
-      version: 5,
+      version: 6, // ✅ Version erhöht
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -68,18 +68,8 @@ class DatabaseHelper {
       )
     ''');
 
-    // Budget Table
-    await db.execute('''
-      CREATE TABLE budget_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        planned REAL DEFAULT 0.0,
-        actual REAL DEFAULT 0.0,
-        category TEXT DEFAULT 'other',
-        notes TEXT DEFAULT '',
-        paid INTEGER DEFAULT 0
-      )
-    ''');
+    // ✅ Budget Table mit NEUEN Spaltennamen
+    await _createBudgetTable(db);
 
     // Tables Table (für Tischplanung)
     await db.execute('''
@@ -115,19 +105,11 @@ class DatabaseHelper {
       'groom_name': '',
     });
 
-    // KEINE Beispiel-Budget-Einträge mehr
-    // await _insertSampleBudgetItems(db); // ← ENTFERNT
-
     // Insert default timeline milestones
     await _insertDefaultMilestones(db);
 
     // Insert default tables
     await _insertDefaultTables(db);
-  }
-
-  // Diese Funktion ist jetzt leer und wird nicht mehr aufgerufen
-  Future _insertSampleBudgetItems(Database db) async {
-    // Keine Beispiel-Einträge mehr - Budget startet leer
   }
 
   Future _insertDefaultMilestones(Database db) async {
@@ -181,7 +163,10 @@ class DatabaseHelper {
     });
   }
 
+  // ✅ KORRIGIERTE UPGRADE METHODE
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    print('Upgrade database from version $oldVersion to $newVersion');
+
     if (oldVersion < 2) {
       await db.execute('''
         CREATE TABLE timeline_milestones (
@@ -225,6 +210,97 @@ class DatabaseHelper {
       await db
           .execute('ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0')
           .catchError((e) {});
+    }
+
+    // ✅ NEU: Budget-Migration zu v6
+    if (oldVersion < 6) {
+      await _migrateBudgetTableToV6(db);
+    }
+  }
+
+  // ✅ BUDGET-TABELLE ERSTELLEN (mit neuen Spaltennamen)
+  Future<void> _createBudgetTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS budget_items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        estimated_cost REAL NOT NULL,
+        actual_cost REAL NOT NULL DEFAULT 0,
+        is_paid INTEGER NOT NULL DEFAULT 0,
+        notes TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+  }
+
+  // ✅ KORRIGIERTE MIGRATION (planned -> estimated_cost, etc.)
+  Future<void> _migrateBudgetTableToV6(Database db) async {
+    print('🔄 Starte Budget-Tabellen-Migration zu v6...');
+
+    try {
+      // Prüfen ob alte Tabelle existiert
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='budget_items'",
+      );
+
+      if (tables.isEmpty) {
+        print('⚠️ budget_items Tabelle existiert nicht, erstelle neue...');
+        await _createBudgetTable(db);
+        return;
+      }
+
+      // Prüfen ob Migration notwendig ist (alte Spalte vorhanden?)
+      final columns = await db.rawQuery('PRAGMA table_info(budget_items)');
+      final hasOldColumns = columns.any((col) => col['name'] == 'planned');
+
+      if (!hasOldColumns) {
+        print('✅ Tabelle hat bereits neue Spalten, Migration nicht nötig');
+        return;
+      }
+
+      print('📊 Migriere Daten von alten zu neuen Spalten...');
+
+      // Alte Tabelle umbenennen
+      await db.execute('ALTER TABLE budget_items RENAME TO budget_items_old');
+
+      // Neue Tabelle mit korrekten Spalten erstellen
+      await _createBudgetTable(db);
+
+      // Daten kopieren und umwandeln
+      final oldData = await db.query('budget_items_old');
+
+      for (var row in oldData) {
+        await db.insert('budget_items', {
+          'id': (row['id'] as String?) ?? Uuid().v4(),
+          'name': row['name'] ?? row['category'] ?? 'Unbenannt',
+          'category': row['category'] ?? 'Sonstiges',
+          'estimated_cost':
+              row['planned'] ?? 0.0, // ✅ planned -> estimated_cost
+          'actual_cost': row['actual'] ?? 0.0, // ✅ actual -> actual_cost
+          'is_paid': row['paid'] ?? 0, // ✅ paid -> is_paid
+          'notes': row['notes'] ?? '',
+          'created_at': row['created_at'] ?? DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+      }
+
+      // Alte Tabelle löschen
+      await db.execute('DROP TABLE budget_items_old');
+
+      print('✅ Migration erfolgreich! ${oldData.length} Einträge migriert');
+    } catch (e) {
+      print('❌ Fehler bei Migration: $e');
+      // Bei Fehler: Rollback versuchen
+      try {
+        await db.execute('DROP TABLE IF EXISTS budget_items');
+        await db.execute('ALTER TABLE budget_items_old RENAME TO budget_items');
+        print('↩️ Rollback durchgeführt');
+      } catch (rollbackError) {
+        print('❌ Rollback fehlgeschlagen: $rollbackError');
+      }
+      rethrow;
     }
   }
 
@@ -319,7 +395,7 @@ class DatabaseHelper {
   }
 
   // ================================
-  // BUDGET CRUD
+  // ALTE BUDGET CRUD (Legacy - für Abwärtskompatibilität)
   // ================================
 
   Future<List<Map<String, dynamic>>> getAllBudgetItems() async {
@@ -412,7 +488,7 @@ class DatabaseHelper {
   }
 
   // ========================================
-  // BUDGET CRUD OPERATIONEN
+  // BUDGET CRUD OPERATIONEN (für Budget-Klasse)
   // ========================================
 
   // Budget erstellen
@@ -501,83 +577,10 @@ class DatabaseHelper {
       'actual': (result.first['total_actual'] as num?)?.toDouble() ?? 0.0,
     };
   }
-  // ⭐ BUDGET DATENBANK-METHODEN FÜR database_helper.dart
 
-  // Diese Methoden müssen in deine DatabaseHelper Klasse eingefügt werden
-
-  // 1. TABELLENERSTELLUNG (in onCreate oder onUpgrade)
-  // ====================================================
-
-  Future<void> _createBudgetTable(Database db) async {
-    await db.execute('''
-    CREATE TABLE IF NOT EXISTS budget_items (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      estimated_cost REAL NOT NULL,
-      actual_cost REAL NOT NULL DEFAULT 0,
-      is_paid INTEGER NOT NULL DEFAULT 0,
-      notes TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      is_deleted INTEGER NOT NULL DEFAULT 0
-    )
-  ''');
-  }
-
-  // 2. MIGRATION VON ALTER STRUKTUR (falls du bereits eine budget_items Tabelle hast)
-  // ==================================================================================
-
-  Future<void> _migrateBudgetTableToV5(Database db) async {
-    // Prüfen ob die Tabelle existiert
-    final tables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='budget_items'",
-    );
-
-    if (tables.isEmpty) {
-      // Tabelle existiert noch nicht, einfach neu erstellen
-      await _createBudgetTable(db);
-      return;
-    }
-
-    // Prüfen ob 'name' Spalte bereits existiert
-    final columns = await db.rawQuery('PRAGMA table_info(budget_items)');
-    final hasNameColumn = columns.any((col) => col['name'] == 'name');
-
-    if (!hasNameColumn) {
-      // Alte Tabelle sichern
-      await db.execute('ALTER TABLE budget_items RENAME TO budget_items_old');
-
-      // Neue Tabelle erstellen
-      await _createBudgetTable(db);
-
-      // Daten migrieren
-      final oldData = await db.query('budget_items_old');
-
-      for (var row in oldData) {
-        await db.insert('budget_items', {
-          'id': (row['id'] as String?) ?? const Uuid().v4(),
-          'name':
-              row['category'] ??
-              'Unbenannt', // ⭐ Falls kein Name vorhanden, Kategorie verwenden
-          'category': row['category'] ?? 'Sonstiges',
-          'estimated_cost': row['estimated_cost'] ?? 0,
-          'actual_cost': row['actual_cost'] ?? 0,
-          'is_paid': row['is_paid'] ?? 0,
-          'notes': row['notes'],
-          'created_at': row['created_at'] ?? DateTime.now().toIso8601String(),
-          'updated_at': row['updated_at'] ?? DateTime.now().toIso8601String(),
-          'is_deleted': row['is_deleted'] ?? 0,
-        });
-      }
-
-      // Alte Tabelle löschen
-      await db.execute('DROP TABLE budget_items_old');
-    }
-  }
-
-  // 3. CRUD METHODEN
-  // ================
+  // ================================
+  // NEUE BUDGET ITEM CRUD METHODEN
+  // ================================
 
   // CREATE - Budget Item hinzufügen
   Future<int> insertBudgetItem(BudgetItem item) async {
@@ -588,21 +591,19 @@ class DatabaseHelper {
         item.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
-      return 1; // Erfolg
+      return 1;
     } catch (e) {
       print('Fehler beim Einfügen des Budget Items: $e');
       rethrow;
     }
   }
 
-  // READ - Alle Budget Items laden (ohne gelöschte)
+  // READ - Alle Budget Items laden
   Future<List<BudgetItem>> getBudgetItems() async {
     final db = await database;
     try {
       final maps = await db.query(
         'budget_items',
-        where: 'is_deleted = ?',
-        whereArgs: [0],
         orderBy: 'category ASC, name ASC',
       );
       return maps.map((map) => BudgetItem.fromMap(map)).toList();
@@ -618,8 +619,8 @@ class DatabaseHelper {
     try {
       final maps = await db.query(
         'budget_items',
-        where: 'id = ? AND is_deleted = ?',
-        whereArgs: [id, 0],
+        where: 'id = ?',
+        whereArgs: [id],
         limit: 1,
       );
       if (maps.isNotEmpty) {
@@ -638,8 +639,8 @@ class DatabaseHelper {
     try {
       final maps = await db.query(
         'budget_items',
-        where: 'category = ? AND is_deleted = ?',
-        whereArgs: [category, 0],
+        where: 'category = ?',
+        whereArgs: [category],
         orderBy: 'name ASC',
       );
       return maps.map((map) => BudgetItem.fromMap(map)).toList();
@@ -666,16 +667,11 @@ class DatabaseHelper {
     }
   }
 
-  // DELETE - Budget Item löschen (Soft Delete)
+  // DELETE - Budget Item löschen
   Future<int> deleteBudgetItem(String id) async {
     final db = await database;
     try {
-      return await db.update(
-        'budget_items',
-        {'is_deleted': 1, 'updated_at': DateTime.now().toIso8601String()},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      return await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
     } catch (e) {
       print('Fehler beim Löschen des Budget Items: $e');
       rethrow;
@@ -733,20 +729,4 @@ class DatabaseHelper {
       }
     }
   }
-
-  // ⭐ WICHTIG: onUpgrade Methode aktualisieren
-  // ===========================================
-
-  @override
-  Future<void> onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 5) {
-      // Migration zu Version 5 mit UUID und name-Feld
-      await _migrateBudgetTableToV5(db);
-    }
-  }
-
-  // ⭐ WICHTIG: Versionsnummer erhöhen
-  // ==================================
-  // In deiner DatabaseHelper Klasse:
-  // static const int _version = 5; // Oder höher
 }
