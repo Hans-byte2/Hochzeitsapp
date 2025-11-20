@@ -3,6 +3,10 @@ import '../models/wedding_models.dart';
 import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
+import 'dart:io';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../services/profile_providers.dart';
 
 class DashboardPage extends StatefulWidget {
   final DateTime? weddingDate;
@@ -141,76 +145,120 @@ class _DashboardPageState extends State<DashboardPage> {
     String brideName = widget.brideName;
     String groomName = widget.groomName;
     DateTime? weddingDate = widget.weddingDate;
-
     showDialog(
       context: context,
-      builder: (builderContext) => AlertDialog(
-        title: const Text('Hochzeitsdaten bearbeiten'),
-        content: StatefulBuilder(
-          builder: (statefulContext, setDialogState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                decoration: const InputDecoration(labelText: 'Name der Braut'),
-                controller: TextEditingController(text: brideName),
-                onChanged: (value) => brideName = value,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                decoration: const InputDecoration(
-                  labelText: 'Name des Bräutigams',
-                ),
-                controller: TextEditingController(text: groomName),
-                onChanged: (value) => groomName = value,
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  const Text('Hochzeitsdatum: '),
-                  TextButton(
-                    onPressed: () async {
-                      final date = await showDatePicker(
-                        context: statefulContext,
-                        initialDate:
-                            weddingDate ??
-                            DateTime.now().add(const Duration(days: 365)),
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(
-                          const Duration(days: 1095),
+      builder: (builderContext) {
+        return Consumer(
+          builder: (dialogContext, ref, _) {
+            final profile = ref.watch(profileControllerProvider);
+            final imagePath = profile.imagePath;
+
+            DateTime? weddingDate = widget.weddingDate;
+            String brideName = widget.brideName;
+            String groomName = widget.groomName;
+
+            return AlertDialog(
+              title: const Text('Hochzeitsdaten bearbeiten'),
+              content: StatefulBuilder(
+                builder: (statefulContext, setDialogState) {
+                  return Container(
+                    decoration: imagePath != null
+                        ? BoxDecoration(
+                            image: DecorationImage(
+                              image: FileImage(File(imagePath)),
+                              fit: BoxFit.cover,
+                              colorFilter: ColorFilter.mode(
+                                Colors.black.withOpacity(0.45),
+                                BlendMode.darken,
+                              ),
+                            ),
+                          )
+                        : null,
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'Name der Braut',
+                          ),
+                          style: const TextStyle(color: Colors.white),
+                          controller: TextEditingController(text: brideName),
+                          onChanged: (value) => brideName = value,
                         ),
-                      );
-                      if (date != null)
-                        setDialogState(() => weddingDate = date);
-                    },
-                    child: Text(
-                      weddingDate != null
-                          ? '${weddingDate!.day}.${weddingDate!.month}.${weddingDate!.year}'
-                          : 'Datum wählen',
+                        const SizedBox(height: 16),
+                        TextField(
+                          decoration: const InputDecoration(
+                            labelText: 'Name des Bräutigams',
+                          ),
+                          style: const TextStyle(color: Colors.white),
+                          controller: TextEditingController(text: groomName),
+                          onChanged: (value) => groomName = value,
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            const Text(
+                              'Hochzeitsdatum: ',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                final date = await showDatePicker(
+                                  context: statefulContext,
+                                  initialDate:
+                                      weddingDate ??
+                                      DateTime.now().add(
+                                        const Duration(days: 365),
+                                      ),
+                                  firstDate: DateTime.now(),
+                                  lastDate: DateTime.now().add(
+                                    const Duration(days: 1095),
+                                  ),
+                                );
+                                if (date != null) {
+                                  setDialogState(() => weddingDate = date);
+                                }
+                              },
+                              child: Text(
+                                weddingDate != null
+                                    ? '${weddingDate!.day}.${weddingDate!.month}.${weddingDate!.year}'
+                                    : 'Datum wählen',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(builderContext),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            onPressed: () {
-              if (weddingDate != null &&
-                  brideName.isNotEmpty &&
-                  groomName.isNotEmpty) {
-                widget.onUpdateWeddingData(weddingDate!, brideName, groomName);
-                Navigator.pop(builderContext);
-              }
-            },
-            child: const Text('Speichern'),
-          ),
-        ],
-      ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(builderContext),
+                  child: const Text('Abbrechen'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    if (weddingDate != null &&
+                        brideName.isNotEmpty &&
+                        groomName.isNotEmpty) {
+                      widget.onUpdateWeddingData(
+                        weddingDate!,
+                        brideName,
+                        groomName,
+                      );
+                      Navigator.pop(builderContext);
+                    }
+                  },
+                  child: const Text('Speichern'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -244,127 +292,192 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildHeaderCard(String coupleNames) {
-    return Card(
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.primary.withOpacity(0.1), AppColors.secondary],
+    return Consumer(
+      builder: (context, ref, _) {
+        final profile = ref.watch(profileControllerProvider);
+        final imagePath = profile.imagePath;
+        final bool useDarkText = imagePath == null;
+
+        final nameTextColor = useDarkText ? Colors.black87 : Colors.white;
+        final subtitleColor = useDarkText ? Colors.grey : Colors.white70;
+
+        return Card(
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
           ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            children: [
-              Container(
-                width: 150,
-                height: 150,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.primary, Colors.pink.shade300],
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: Stack(
+              children: [
+                // Hintergrund: Profilbild, falls vorhanden
+                if (imagePath != null)
+                  Positioned.fill(
+                    child: Image.file(File(imagePath), fit: BoxFit.cover),
                   ),
-                  borderRadius: BorderRadius.circular(60),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.primary.withOpacity(0.3),
-                      blurRadius: 25,
-                      offset: const Offset(0, 10),
+
+                // Overlay für bessere Lesbarkeit auf Bild
+                if (imagePath != null)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.25),
+                            Colors.black.withOpacity(0.55),
+                          ],
+                        ),
+                      ),
                     ),
-                  ],
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Image.asset(
-                    'assets/images/heartpepple_logo.png',
-                    fit: BoxFit.contain,
                   ),
-                ),
-              ),
-              Text(
-                coupleNames,
-                style: const TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              if (_daysUntilWedding >= 0) ...[
-                Text(
-                  _daysUntilWedding.toString(),
-                  style: TextStyle(
-                    fontSize: 58,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
+
+                // Fallback: dein bisheriger Farbverlauf, wenn kein Bild
+                if (imagePath == null)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            AppColors.primary.withOpacity(0.1),
+                            AppColors.secondary,
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                Text(
-                  _daysUntilWedding == 1
-                      ? 'Tag bis zur Hochzeit'
-                      : _daysUntilWedding == 0
-                      ? 'Heute ist der große Tag!'
-                      : 'Tage bis zur Hochzeit',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ] else ...[
-                const Text(
-                  '♥',
-                  style: TextStyle(fontSize: 64, color: Colors.red),
-                ),
-                const Text(
-                  'Deine Traumhochzeit:\n Schaffe Dir Zeit zu genießen ! ',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                    letterSpacing: 1.2,
+
+                // Inhalt
+                Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    children: [
+                      // Logo-Container (lassen wir wie bisher)
+                      Container(
+                        width: 150,
+                        height: 150,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [AppColors.primary, Colors.pink.shade300],
+                          ),
+                          borderRadius: BorderRadius.circular(60),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withOpacity(0.3),
+                              blurRadius: 25,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Image.asset(
+                            'assets/images/heartpepple_logo.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      ),
+
+                      // Namen
+                      Text(
+                        coupleNames,
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: nameTextColor,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Countdown / Text
+                      if (_daysUntilWedding >= 0) ...[
+                        Text(
+                          _daysUntilWedding.toString(),
+                          style: TextStyle(
+                            fontSize: 58,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        Text(
+                          _daysUntilWedding == 1
+                              ? 'Tag bis zur Hochzeit'
+                              : _daysUntilWedding == 0
+                              ? 'Heute ist der große Tag!'
+                              : 'Tage bis zur Hochzeit',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: subtitleColor,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ] else ...[
+                        const Text(
+                          '♥',
+                          style: TextStyle(fontSize: 64, color: Colors.red),
+                        ),
+                        Text(
+                          'Deine Traumhochzeit:\n Schaffe Dir Zeit zu genießen ! ',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: subtitleColor,
+                            letterSpacing: 1.2,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+
+                      const SizedBox(height: 16),
+
+                      // Datum mit Icon
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            color: subtitleColor,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            widget.weddingDate != null
+                                ? '${widget.weddingDate!.day}.${widget.weddingDate!.month}.${widget.weddingDate!.year}'
+                                : 'Datum noch nicht festgelegt',
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: subtitleColor,
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // Bearbeiten-Button (öffnet deinen Dialog)
+                      ElevatedButton.icon(
+                        onPressed: _showWeddingDataForm,
+                        icon: const Icon(Icons.edit, size: 16),
+                        label: const Text('Bearbeiten'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.calendar_today,
-                    color: Colors.grey,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.weddingDate != null
-                        ? '${widget.weddingDate!.day}.${widget.weddingDate!.month}.${widget.weddingDate!.year}'
-                        : 'Datum noch nicht festgelegt',
-                    style: const TextStyle(fontSize: 18, color: Colors.grey),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _showWeddingDataForm,
-                icon: const Icon(Icons.edit, size: 16),
-                label: const Text('Bearbeiten'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

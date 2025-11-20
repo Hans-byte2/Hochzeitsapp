@@ -55,6 +55,7 @@ class _Section extends StatelessWidget {
   }
 }
 
+/// 🔹 Nur Profilbild (Namen/Datum bleiben auf der Startseite in deiner DB)
 class _ProfileCard extends ConsumerWidget {
   const _ProfileCard();
 
@@ -84,32 +85,17 @@ class _ProfileCard extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                children: [
-                  TextFormField(
-                    initialValue: state.name1,
-                    decoration: const InputDecoration(labelText: 'Name 1'),
-                    onChanged: controller.setName1,
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    initialValue: state.name2,
-                    decoration: const InputDecoration(labelText: 'Name 2'),
-                    onChanged: controller.setName2,
-                  ),
-                ],
+            const Expanded(
+              child: Text(
+                'Profilbild für die Startseite festlegen.\n'
+                'Es wird hinter den Eingabefeldern für\n'
+                'Namen und Hochzeitsdatum angezeigt.',
+                style: TextStyle(fontSize: 13),
               ),
             ),
           ],
         ),
         const SizedBox(height: 12),
-        _DateRow(
-          label: 'Hochzeitsdatum',
-          isoString: state.weddingDateIso,
-          onPick: controller.setWeddingDateIso,
-        ),
-        const SizedBox(height: 8),
         if (state.imagePath != null)
           Align(
             alignment: Alignment.centerRight,
@@ -142,47 +128,6 @@ class _ProfileCard extends ConsumerWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Profilbild aktualisiert')));
-  }
-}
-
-class _DateRow extends StatelessWidget {
-  const _DateRow({
-    required this.label,
-    required this.isoString,
-    required this.onPick,
-  });
-
-  final String label;
-  final String? isoString;
-  final ValueChanged<String?> onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    final display = isoString ?? 'Auswählen';
-    return Row(
-      children: [
-        Expanded(child: Text('$label: $display')),
-        TextButton(
-          onPressed: () async {
-            final now = DateTime.now();
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: now,
-              firstDate: DateTime(now.year - 5),
-              lastDate: DateTime(now.year + 5),
-            );
-            if (picked != null) {
-              final iso =
-                  '${picked.year.toString().padLeft(4, '0')}-'
-                  '${picked.month.toString().padLeft(2, '0')}-'
-                  '${picked.day.toString().padLeft(2, '0')}';
-              onPick(iso);
-            }
-          },
-          child: const Text('Ändern'),
-        ),
-      ],
-    );
   }
 }
 

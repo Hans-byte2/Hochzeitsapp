@@ -320,9 +320,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
       ),
       const DienstleisterListScreen(),
     ];
-
     return Scaffold(
-      // lib/main.dart – in _HochzeitsAppState.build, AppBar:
       appBar: AppBar(
         title: Row(
           children: [
@@ -343,19 +341,129 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         ),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
-            },
-          ),
-        ],
       ),
 
-      body: IndexedStack(index: _currentIndex, children: pages),
+      // 👇 NEU: Drawer-Menü links
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: AppColors.primary),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  const Text(
+                    'HeartPebble',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_brideName.isNotEmpty || _groomName.isNotEmpty)
+                    Text(
+                      '$_brideName & $_groomName',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  if (_weddingDate != null)
+                    Text(
+                      '${_weddingDate!.day.toString().padLeft(2, '0')}.'
+                      '${_weddingDate!.month.toString().padLeft(2, '0')}.'
+                      '${_weddingDate!.year}',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+            // Navigationseinträge (springen in deine BottomNav)
+            ListTile(
+              leading: const Icon(Icons.home),
+              title: const Text('Home'),
+              selected: _currentIndex == 0,
+              onTap: () {
+                setState(() => _currentIndex = 0);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.people),
+              title: const Text('Gäste'),
+              selected: _currentIndex == 1,
+              onTap: () {
+                setState(() => _currentIndex = 1);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.table_restaurant),
+              title: const Text('Tischplanung'),
+              selected: _currentIndex == 2,
+              onTap: () {
+                setState(() => _currentIndex = 2);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.euro),
+              title: const Text('Budget'),
+              selected: _currentIndex == 3,
+              onTap: () {
+                setState(() => _currentIndex = 3);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.assignment),
+              title: const Text('Checkliste'),
+              selected: _currentIndex == 4,
+              onTap: () {
+                setState(() => _currentIndex = 4);
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.business),
+              title: const Text('Dienstleister'),
+              selected: _currentIndex == 5,
+              onTap: () {
+                setState(() => _currentIndex = 5);
+                Navigator.pop(context);
+              },
+            ),
+
+            const Divider(),
+
+            // Einstellungen – öffnet deine SettingsPage
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Einstellungen'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+              },
+            ),
+          ],
+        ),
+      ),
+
+      body: IndexedStack(
+        index: _currentIndex,
+        // falls deine Liste _pages heißt, einfach pages -> _pages ändern
+        children: pages,
+      ),
+
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -366,11 +474,13 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         backgroundColor: Colors.white,
         elevation: 8,
         onTap: (index) {
+          // Budget-Page neu erstellen wenn sie angezeigt wird
           if (index == 3) {
             setState(() {
               _budgetPageKey = UniqueKey();
             });
           }
+          // Task-Page: Ausgewählte Task zurücksetzen
           if (index == 4) {
             setState(() {
               _selectedTaskId = null;
