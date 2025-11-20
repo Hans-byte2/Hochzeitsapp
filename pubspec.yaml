@@ -15,9 +15,12 @@ dependencies:
   pdf: ^3.10.0
   printing: ^5.11.0
   excel: ^4.0.6
-  path_provider: ^2.1.1
+  path_provider: ^2.1.4
   share_plus: ^7.2.1
   file_picker: ^8.0.0+1
+  flutter_riverpod: ^2.5.1
+  shared_preferences: ^2.3.2
+  image_picker: ^1.1.2
  
 
     # NEU für Dienstleister

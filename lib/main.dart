@@ -1,58 +1,88 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 // Core
 import 'app_colors.dart';
+
+// Theme / State
+import 'services/theme_providers.dart';
+import 'services/profile_providers.dart';
+
 // Models
 import 'models/wedding_models.dart';
+
 // Data
 import 'data/database_helper.dart';
+
 // Screens
 import 'screens/dashboard_screen.dart';
 import 'screens/guests_screen.dart';
 import 'screens/budget_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/table_planning_screen.dart';
-// Dienstleister Screens (bereits vorhanden)
 import 'screens/dienstleister_list_screen.dart';
+// Wenn du die Settings-Seite später nutzen willst:
+import 'screens/settings_page.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final prefs = await SharedPreferences.getInstance();
+  final initialTheme = await resolveInitialVariant(prefs);
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        // Theme-State (Farbschema)
+        themeControllerProvider.overrideWith(
+          (ref) => ThemeController(prefs, initialTheme),
+        ),
+        // Profil-State (Namen, Profilbild, Datum)
+        profileControllerProvider.overrideWith(
+          (ref) => ProfileController(prefs),
+        ),
+      ],
+      child: const WeddingApp(),
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+/// Root-App mit Riverpod & globalem Theme
+class WeddingApp extends ConsumerWidget {
+  const WeddingApp({super.key});
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Theme aus Riverpod (ThemeVariant, etc.)
+    final theme = ref.watch(themeDataProvider);
+
     return MaterialApp(
-      title: 'HeartPebble',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.primary,
-          background: AppColors.background,
-          surface: AppColors.cardColor,
-        ),
-        cardTheme: const CardThemeData(
-          color: AppColors.cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(8)),
-            side: BorderSide(color: AppColors.cardBorder, width: 1),
-          ),
-        ),
-        scaffoldBackgroundColor: AppColors.background,
-      ),
-      home: const HochzeitsApp(),
       debugShowCheckedModeBanner: false,
+      title: 'HeartPebble',
+      theme: theme,
+      // Deine bisherige App-Struktur bleibt:
+      home: const HochzeitsApp(),
+      // Optional: später NamedRoute für Settings:
+      // routes: {
+      //   '/settings': (_) => const SettingsPage(),
+      // },
     );
   }
 }
 
+/// AB HIER: dein bestehendes HochzeitsApp-Widget bleibt wie gehabt
+
 class HochzeitsApp extends StatefulWidget {
   const HochzeitsApp({Key? key}) : super(key: key);
+
   @override
   State<HochzeitsApp> createState() => _HochzeitsAppState();
 }
 
 class _HochzeitsAppState extends State<HochzeitsApp> {
   int _currentIndex = 0;
+
   // State
   List<Guest> _guests = [];
   List<Task> _tasks = [];
@@ -60,9 +90,10 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
   String _brideName = '';
   String _groomName = '';
   bool _isLoading = true;
+
   // Key für Budget-Page um sie neu zu erstellen
   Key _budgetPageKey = UniqueKey();
-  // NEU: Für Task-Navigation
+  // Für Task-Navigation
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
@@ -122,7 +153,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
       final index = _guests.indexWhere((g) => g.id == updatedGuest.id);
       if (index != -1) {
         setState(() {
-          // WICHTIG: Neue Liste erstellen damit Flutter die Änderung erkennt!
           _guests = [
             ..._guests.sublist(0, index),
             updatedGuest,
@@ -208,7 +238,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     });
   }
 
-  // NEU: Navigation zu Task mit spezifischer ID
+  // Navigation zu Task mit spezifischer ID
   void _navigateToTaskWithId(int taskId) {
     setState(() {
       _selectedTaskId = taskId;
@@ -217,7 +247,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     });
   }
 
-  // NEU: Callback zum Zurücksetzen der ausgewählten Task
+  // Callback zum Zurücksetzen der ausgewählten Task
   void _clearSelectedTask() {
     setState(() {
       _selectedTaskId = null;
@@ -248,7 +278,8 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    final List<Widget> _pages = [
+
+    final List<Widget> pages = [
       DashboardPage(
         weddingDate: _weddingDate,
         brideName: _brideName,
@@ -260,7 +291,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         onUpdateTask: _updateTask,
         onDeleteTask: _deleteTask,
         onNavigateToPage: _navigateToPage,
-        onNavigateToTaskWithId: _navigateToTaskWithId, // NEU
+        onNavigateToTaskWithId: _navigateToTaskWithId,
       ),
       GuestPage(
         guests: _guests,
@@ -271,7 +302,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
       TischplanungPage(guests: _guests, onUpdateGuest: _updateGuest),
       EnhancedBudgetPage(key: _budgetPageKey),
       TaskPage(
-        key: _taskPageKey, // NEU: Key für Neuaufbau
+        key: _taskPageKey,
         tasks: _tasks,
         onAddTask: _addTask,
         onUpdateTask: _updateTask,
@@ -279,23 +310,23 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         weddingDate: _weddingDate,
         brideName: _brideName,
         groomName: _groomName,
-        selectedTaskId: _selectedTaskId, // NEU
-        onClearSelectedTask: _clearSelectedTask, // NEU
-        // neue hinzugefügt task
+        selectedTaskId: _selectedTaskId,
+        onClearSelectedTask: _clearSelectedTask,
         onNavigateToHome: () {
-          // NEU!
           setState(() {
-            _currentIndex = 0; // Navigiere zur Home-Seite (Index 0)
+            _currentIndex = 0;
           });
         },
       ),
       const DienstleisterListScreen(),
     ];
+
     return Scaffold(
+      // lib/main.dart – in _HochzeitsAppState.build, AppBar:
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
+            SizedBox(
               height: 36,
               width: 36,
               child: Image.asset(
@@ -312,8 +343,19 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         ),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+            },
+          ),
+        ],
       ),
-      body: IndexedStack(index: _currentIndex, children: _pages),
+
+      body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -324,13 +366,11 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         backgroundColor: Colors.white,
         elevation: 8,
         onTap: (index) {
-          // Budget-Page neu erstellen wenn sie angezeigt wird
           if (index == 3) {
             setState(() {
               _budgetPageKey = UniqueKey();
             });
           }
-          // Task-Page: Ausgewählte Task zurücksetzen
           if (index == 4) {
             setState(() {
               _selectedTaskId = null;
