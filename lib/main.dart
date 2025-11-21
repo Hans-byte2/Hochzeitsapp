@@ -22,7 +22,6 @@ import 'screens/budget_screen.dart';
 import 'screens/tasks_screen.dart';
 import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
-// Wenn du die Settings-Seite später nutzen willst:
 import 'screens/settings_page.dart';
 
 Future<void> main() async {
@@ -34,14 +33,12 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [
-        // Theme-State (Farbschema)
+        // Theme-State (Farbschema) – bekommt prefs von außen
         themeControllerProvider.overrideWith(
           (ref) => ThemeController(prefs, initialTheme),
         ),
-        // Profil-State (Namen, Profilbild, Datum)
-        profileControllerProvider.overrideWith(
-          (ref) => ProfileController(prefs),
-        ),
+        // ❌ Profil-State NICHT mehr overriden – ProfileController kümmert sich
+        // selbst um SharedPreferences.
       ],
       child: const WeddingApp(),
     ),
@@ -54,24 +51,16 @@ class WeddingApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Theme aus Riverpod (ThemeVariant, etc.)
     final theme = ref.watch(themeDataProvider);
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'HeartPebble',
       theme: theme,
-      // Deine bisherige App-Struktur bleibt:
       home: const HochzeitsApp(),
-      // Optional: später NamedRoute für Settings:
-      // routes: {
-      //   '/settings': (_) => const SettingsPage(),
-      // },
     );
   }
 }
-
-/// AB HIER: dein bestehendes HochzeitsApp-Widget bleibt wie gehabt
 
 class HochzeitsApp extends StatefulWidget {
   const HochzeitsApp({Key? key}) : super(key: key);
@@ -91,9 +80,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
-  // Key für Budget-Page um sie neu zu erstellen
   Key _budgetPageKey = UniqueKey();
-  // Für Task-Navigation
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
@@ -105,7 +92,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
 
   Future<void> _loadData() async {
     try {
-      // Wedding data laden
       final weddingData = await DatabaseHelper.instance.getWeddingData();
       if (weddingData != null) {
         setState(() {
@@ -116,14 +102,11 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
           _groomName = weddingData['groom_name'] ?? '';
         });
       }
-      // Gäste laden
+
       final guests = await DatabaseHelper.instance.getAllGuests();
-      setState(() {
-        _guests = guests;
-      });
-      // Tasks laden
       final tasks = await DatabaseHelper.instance.getAllTasks();
       setState(() {
+        _guests = guests;
         _tasks = tasks;
         _isLoading = false;
       });
@@ -135,7 +118,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
-  // Callback-Funktionen für Gäste
   Future<void> _addGuest(Guest guest) async {
     try {
       final newGuest = await DatabaseHelper.instance.createGuest(guest);
@@ -176,7 +158,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
-  // Callback-Funktionen für Aufgaben
   Future<void> _addTask(Task task) async {
     try {
       final newTask = await DatabaseHelper.instance.createTask(task);
@@ -213,7 +194,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
-  // Hochzeitsdaten-Callback
   Future<void> _updateWeddingData(
     DateTime date,
     String bride,
@@ -231,23 +211,20 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
-  // Navigation Callback
   void _navigateToPage(int pageIndex) {
     setState(() {
       _currentIndex = pageIndex;
     });
   }
 
-  // Navigation zu Task mit spezifischer ID
   void _navigateToTaskWithId(int taskId) {
     setState(() {
       _selectedTaskId = taskId;
-      _taskPageKey = UniqueKey(); // Neue Instanz erstellen
-      _currentIndex = 4; // Task-Seite Index
+      _taskPageKey = UniqueKey();
+      _currentIndex = 4;
     });
   }
 
-  // Callback zum Zurücksetzen der ausgewählten Task
   void _clearSelectedTask() {
     setState(() {
       _selectedTaskId = null;
@@ -320,6 +297,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
       ),
       const DienstleisterListScreen(),
     ];
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -342,8 +320,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
-
-      // 👇 NEU: Drawer-Menü links
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -384,8 +360,6 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
                 ],
               ),
             ),
-
-            // Navigationseinträge (springen in deine BottomNav)
             ListTile(
               leading: const Icon(Icons.home),
               title: const Text('Home'),
@@ -440,10 +414,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
                 Navigator.pop(context);
               },
             ),
-
             const Divider(),
-
-            // Einstellungen – öffnet deine SettingsPage
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Einstellungen'),
@@ -457,13 +428,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
           ],
         ),
       ),
-
-      body: IndexedStack(
-        index: _currentIndex,
-        // falls deine Liste _pages heißt, einfach pages -> _pages ändern
-        children: pages,
-      ),
-
+      body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -474,13 +439,11 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
         backgroundColor: Colors.white,
         elevation: 8,
         onTap: (index) {
-          // Budget-Page neu erstellen wenn sie angezeigt wird
           if (index == 3) {
             setState(() {
               _budgetPageKey = UniqueKey();
             });
           }
-          // Task-Page: Ausgewählte Task zurücksetzen
           if (index == 4) {
             setState(() {
               _selectedTaskId = null;

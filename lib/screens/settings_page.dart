@@ -55,7 +55,7 @@ class _Section extends StatelessWidget {
   }
 }
 
-/// 🔹 Nur Profilbild (Namen/Datum bleiben auf der Startseite in deiner DB)
+/// 🔹 Nur Profilbild (Namen/Datum bleiben auf der Startseite / DB)
 class _ProfileCard extends ConsumerWidget {
   const _ProfileCard();
 
@@ -168,6 +168,8 @@ class _AppearanceCard extends ConsumerWidget {
                   .read(themeControllerProvider.notifier)
                   .setVariant(ThemeVariant.vintageMintDark),
             ),
+            // hier kannst du gleich noch die neuen Varianten einbauen:
+            // _ModeChip(label: 'Pink', onTap: () => ...),
           ],
         ),
       ],
