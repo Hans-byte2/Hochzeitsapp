@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/wedding_models.dart';
 import '../models/table_models.dart';
-import '../app_colors.dart';
 import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
 
@@ -47,7 +46,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
     print(
       '🔄 WIDGET UPDATE: ${oldWidget.guests.length} → ${widget.guests.length} Gäste',
     );
-    // Prüfe ob sich die Gäste-Liste geändert hat
     final oldUnassigned = oldWidget.guests
         .where(
           (g) =>
@@ -93,27 +91,23 @@ class _TischplanungPageState extends State<TischplanungPage> {
       _getRelevantGuests().length - _getUnassignedGuests().length;
 
   Future<bool> _assignGuestToTable(Guest guest, int tableNumber) async {
-    // Finde den Tisch
     final table = tables.firstWhere((t) => t.tableNumber == tableNumber);
 
-    // Prüfe ob Gast bereits an diesem Tisch sitzt
     if (guest.tableNumber == tableNumber) {
       print('⚠️ Gast ${guest.firstName} ist bereits an Tisch $tableNumber');
-      return true; // Kein Fehler, aber nichts tun
+      return true;
     }
 
-    // Zähle aktuelle Gäste am Tisch (ohne den aktuellen Gast)
     final currentGuestsAtTable = _getGuestsForTable(
       tableNumber,
     ).where((g) => g.id != guest.id).length;
 
-    // Prüfe ob noch Platz ist
     if (currentGuestsAtTable >= table.seats) {
       print(
         '❌ Tisch $tableNumber ist voll! (${currentGuestsAtTable}/${table.seats})',
       );
       _showTableFullError();
-      return false; // Fehler - Tisch voll
+      return false;
     }
 
     print(
@@ -122,7 +116,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
     final updatedGuest = guest.copyWith(tableNumber: tableNumber);
     await widget.onUpdateGuest(updatedGuest);
     print('✅ ASSIGN fertig');
-    return true; // Erfolgreich
+    return true;
   }
 
   Future<void> _removeGuestFromTable(Guest guest) async {
@@ -132,7 +126,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
     print(
       '   Guest ID: ${guest.id}, aktuelle tableNumber: ${guest.tableNumber}',
     );
-    // WICHTIG: Setze auf 0 statt null, weil copyWith mit null nicht funktioniert!
     final updatedGuest = guest.copyWith(tableNumber: 0);
     print(
       '   Neuer Guest: ID ${updatedGuest.id}, neue tableNumber: ${updatedGuest.tableNumber}',
@@ -140,7 +133,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
     await widget.onUpdateGuest(updatedGuest);
     print('✅ REMOVE fertig');
 
-    // Debug: Prüfe ob der Gast wirklich updated wurde
     final checkGuest = widget.guests.firstWhere((g) => g.id == guest.id);
     print(
       '   🔍 Check: Guest ${checkGuest.firstName} hat jetzt tableNumber: ${checkGuest.tableNumber}',
@@ -172,34 +164,41 @@ class _TischplanungPageState extends State<TischplanungPage> {
   void _deleteTable(int tableId) {
     showDialog(
       context: context,
-      builder: (builderContext) => AlertDialog(
-        title: const Text('Tisch löschen'),
-        content: const Text('Alle Gäste werden wieder freigegeben.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(builderContext),
-            child: const Text('Abbrechen'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final table = tables.firstWhere((t) => t.id == tableId);
-              final guestsToUpdate = _getRelevantGuests()
-                  .where((g) => g.tableNumber == table.tableNumber)
-                  .toList();
+      builder: (builderContext) {
+        final scheme = Theme.of(builderContext).colorScheme;
+        return AlertDialog(
+          title: const Text('Tisch löschen'),
+          content: const Text('Alle Gäste werden wieder freigegeben.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(builderContext),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final table = tables.firstWhere((t) => t.id == tableId);
+                final guestsToUpdate = _getRelevantGuests()
+                    .where((g) => g.tableNumber == table.tableNumber)
+                    .toList();
 
-              for (final guest in guestsToUpdate) {
-                await _removeGuestFromTable(guest);
-              }
+                for (final guest in guestsToUpdate) {
+                  await _removeGuestFromTable(guest);
+                }
 
-              setState(() {
-                tables.removeWhere((t) => t.id == tableId);
-              });
-              Navigator.pop(builderContext);
-            },
-            child: const Text('Löschen'),
-          ),
-        ],
-      ),
+                setState(() {
+                  tables.removeWhere((t) => t.id == tableId);
+                });
+                Navigator.pop(builderContext);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: scheme.error,
+                foregroundColor: scheme.onError,
+              ),
+              child: const Text('Löschen'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -209,41 +208,48 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
     showDialog(
       context: context,
-      builder: (builderContext) => AlertDialog(
-        title: const Text('Neuer Tisch'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: 'Tischname'),
+      builder: (builderContext) {
+        final scheme = Theme.of(builderContext).colorScheme;
+        return AlertDialog(
+          title: const Text('Neuer Tisch'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: 'Tischname'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: seatsController,
+                decoration: const InputDecoration(labelText: 'Plätze'),
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(builderContext),
+              child: const Text('Abbrechen'),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: seatsController,
-              decoration: const InputDecoration(labelText: 'Plätze'),
-              keyboardType: TextInputType.number,
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.isNotEmpty) {
+                  newTableName = nameController.text;
+                  newTableSeats = int.tryParse(seatsController.text) ?? 8;
+                  _addTable();
+                  Navigator.pop(builderContext);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+              ),
+              child: const Text('Erstellen'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(builderContext),
-            child: const Text('Abbrechen'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty) {
-                newTableName = nameController.text;
-                newTableSeats = int.tryParse(seatsController.text) ?? 8;
-                _addTable();
-                Navigator.pop(builderContext);
-              }
-            },
-            child: const Text('Erstellen'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -254,10 +260,12 @@ class _TischplanungPageState extends State<TischplanungPage> {
       context: context,
       builder: (builderContext) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final theme = Theme.of(context);
+          final scheme = theme.colorScheme;
+
           final tableGuests = _getGuestsForTable(table.tableNumber);
           final allFreeGuests = _getUnassignedGuests();
 
-          // Suchfilter für freie Gäste
           final freeGuests = searchQuery.isEmpty
               ? allFreeGuests
               : allFreeGuests.where((guest) {
@@ -276,7 +284,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: AppColors.primary,
+                      color: scheme.primary,
                       borderRadius: const BorderRadius.only(
                         topLeft: Radius.circular(4),
                         topRight: Radius.circular(4),
@@ -290,24 +298,24 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             children: [
                               Text(
                                 table.tableName,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: scheme.onPrimary,
                                 ),
                               ),
                               Text(
                                 '${tableGuests.length} von ${table.seats} Plätzen belegt',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
-                                  color: Colors.white70,
+                                  color: scheme.onPrimary.withOpacity(0.7),
                                 ),
                               ),
                             ],
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
+                          icon: Icon(Icons.close, color: scheme.onPrimary),
                           onPressed: () => Navigator.pop(builderContext),
                         ),
                       ],
@@ -317,7 +325,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   Expanded(
                     child: DragTarget<Guest>(
                       onAccept: (guest) {
-                        // Immer versuchen hinzuzufügen wenn Gast von außerhalb kommt
                         if (guest.tableNumber != table.tableNumber) {
                           _assignGuestToTable(guest, table.tableNumber).then((
                             success,
@@ -328,13 +335,9 @@ class _TischplanungPageState extends State<TischplanungPage> {
                           });
                         }
                       },
-                      onWillAcceptWithDetails: (details) {
-                        // Akzeptiere alle Gäste die nicht bereits am Tisch sind
-                        return true;
-                      },
+                      onWillAcceptWithDetails: (details) => true,
                       builder: (context, candidateData, rejectedData) {
                         final isHighlighted = candidateData.isNotEmpty;
-                        // Prüfe ob gezogener Gast bereits am Tisch ist
                         final isDraggingFromThisTable =
                             candidateData.isNotEmpty &&
                             candidateData.first?.tableNumber ==
@@ -344,14 +347,14 @@ class _TischplanungPageState extends State<TischplanungPage> {
                           decoration: BoxDecoration(
                             color: isHighlighted
                                 ? (isDraggingFromThisTable
-                                      ? Colors
-                                            .grey
-                                            .shade100 // Gast ist bereits hier
-                                      : Colors.green.shade50)
-                                : Colors.grey.shade50,
-                            border: isHighlighted && !isDraggingFromThisTable
-                                ? Border.all(color: Colors.green, width: 2)
-                                : null,
+                                      ? theme.colorScheme.surfaceVariant
+                                            .withOpacity(0.3)
+                                      : scheme.primaryContainer.withOpacity(
+                                          0.3,
+                                        ))
+                                : theme.colorScheme.surfaceVariant.withOpacity(
+                                    0.2,
+                                  ),
                           ),
                           padding: const EdgeInsets.all(12),
                           child: Column(
@@ -375,7 +378,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                       'Hier ablegen',
                                       style: TextStyle(
                                         fontSize: 11,
-                                        color: Colors.green,
+                                        color: scheme.primary,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -385,7 +388,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                               const SizedBox(height: 8),
                               Expanded(
                                 child: tableGuests.isEmpty
-                                    ? const Center(
+                                    ? Center(
                                         child: Column(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
@@ -393,13 +396,17 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                             Icon(
                                               Icons.person_off_outlined,
                                               size: 40,
-                                              color: Colors.grey,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
                                             ),
-                                            SizedBox(height: 8),
+                                            const SizedBox(height: 8),
                                             Text(
                                               'Keine Gäste am Tisch',
                                               style: TextStyle(
-                                                color: Colors.grey,
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
                                                 fontSize: 13,
                                               ),
                                             ),
@@ -424,7 +431,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                     8,
                                                   ),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.blue,
+                                                    color: scheme.primary,
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           6,
@@ -432,11 +439,11 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                   ),
                                                   child: Text(
                                                     '${guest.firstName} ${guest.lastName}',
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 12,
                                                       fontWeight:
                                                           FontWeight.bold,
-                                                      color: Colors.white,
+                                                      color: scheme.onPrimary,
                                                     ),
                                                   ),
                                                 ),
@@ -445,13 +452,13 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                 opacity: 0.3,
                                                 child: _buildTinyGuestCard(
                                                   guest,
-                                                  Colors.blue,
+                                                  scheme.primary,
                                                   null,
                                                 ),
                                               ),
                                               child: _buildTinyGuestCard(
                                                 guest,
-                                                Colors.blue,
+                                                scheme.primary,
                                                 () {
                                                   _removeGuestFromTable(
                                                     guest,
@@ -478,7 +485,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                       horizontal: 12,
                       vertical: 8,
                     ),
-                    color: Colors.white,
+                    color: theme.colorScheme.surface,
                     child: TextField(
                       decoration: InputDecoration(
                         hintText: 'Gast suchen...',
@@ -495,7 +502,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             : null,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: Colors.grey.shade300),
+                          borderSide: BorderSide(color: theme.dividerColor),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 12,
@@ -515,20 +522,15 @@ class _TischplanungPageState extends State<TischplanungPage> {
                     height: 150,
                     child: DragTarget<Guest>(
                       onAccept: (guest) {
-                        // Gast vom Tisch entfernen
                         if (guest.tableNumber == table.tableNumber) {
                           _removeGuestFromTable(guest).then((_) {
                             setDialogState(() {});
                           });
                         }
                       },
-                      onWillAcceptWithDetails: (details) {
-                        // Akzeptiere alle Gäste
-                        return true;
-                      },
+                      onWillAcceptWithDetails: (details) => true,
                       builder: (context, candidateData, rejectedData) {
                         final isHighlighted = candidateData.isNotEmpty;
-                        // Prüfe ob gezogener Gast vom Tisch kommt
                         final isDraggingFromTable =
                             candidateData.isNotEmpty &&
                             candidateData.first?.tableNumber ==
@@ -538,12 +540,12 @@ class _TischplanungPageState extends State<TischplanungPage> {
                           decoration: BoxDecoration(
                             color: isHighlighted
                                 ? (isDraggingFromTable
-                                      ? Colors.orange.shade100
-                                      : Colors.grey.shade100)
-                                : Colors.white,
+                                      ? scheme.errorContainer
+                                      : scheme.surfaceVariant)
+                                : theme.colorScheme.surface,
                             border: isHighlighted && isDraggingFromTable
-                                ? Border.all(color: Colors.orange, width: 2)
-                                : null,
+                                ? Border.all(color: scheme.error, width: 2)
+                                : Border.all(color: theme.dividerColor),
                           ),
                           padding: const EdgeInsets.all(12),
                           child: Column(
@@ -562,11 +564,11 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                   ),
                                   if (isHighlighted && isDraggingFromTable) ...[
                                     const SizedBox(width: 8),
-                                    const Text(
+                                    Text(
                                       'Hier ablegen zum Entfernen',
                                       style: TextStyle(
                                         fontSize: 11,
-                                        color: Colors.orange,
+                                        color: scheme.error,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
@@ -586,17 +588,19 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                   ? Icons.search_off
                                                   : Icons.check_circle_outline,
                                               size: 24,
-                                              color: searchQuery.isNotEmpty
-                                                  ? Colors.grey
-                                                  : Colors.green,
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
                                               searchQuery.isNotEmpty
                                                   ? 'Keine Gäste gefunden'
                                                   : 'Alle Gäste sind platziert',
-                                              style: const TextStyle(
-                                                color: Colors.grey,
+                                              style: TextStyle(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
                                                 fontSize: 11,
                                               ),
                                             ),
@@ -621,7 +625,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                     8,
                                                   ),
                                                   decoration: BoxDecoration(
-                                                    color: Colors.orange,
+                                                    color: scheme.secondary,
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           6,
@@ -629,11 +633,11 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                   ),
                                                   child: Text(
                                                     '${guest.firstName} ${guest.lastName}',
-                                                    style: const TextStyle(
+                                                    style: TextStyle(
                                                       fontSize: 12,
                                                       fontWeight:
                                                           FontWeight.bold,
-                                                      color: Colors.white,
+                                                      color: scheme.onSecondary,
                                                     ),
                                                   ),
                                                 ),
@@ -642,13 +646,13 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                                 opacity: 0.3,
                                                 child: _buildTinyGuestCard(
                                                   guest,
-                                                  Colors.orange,
+                                                  scheme.secondary,
                                                   null,
                                                 ),
                                               ),
                                               child: _buildTinyGuestCard(
                                                 guest,
-                                                Colors.orange,
+                                                scheme.secondary,
                                                 () async {
                                                   final success =
                                                       await _assignGuestToTable(
@@ -675,9 +679,9 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: theme.colorScheme.surfaceVariant,
                       border: Border(
-                        top: BorderSide(color: Colors.grey.shade300),
+                        top: BorderSide(color: theme.dividerColor),
                       ),
                     ),
                     child: Row(
@@ -700,6 +704,9 @@ class _TischplanungPageState extends State<TischplanungPage> {
   }
 
   Widget _buildTinyGuestCard(Guest guest, Color color, VoidCallback? onAction) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 4),
       elevation: 1,
@@ -740,7 +747,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                       style: TextStyle(
                         fontSize: 10,
                         fontStyle: FontStyle.italic,
-                        color: Colors.grey.shade600,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -751,8 +758,12 @@ class _TischplanungPageState extends State<TischplanungPage> {
             if (onAction != null)
               IconButton(
                 icon: Icon(
-                  color == Colors.blue ? Icons.remove_circle : Icons.add_circle,
-                  color: color == Colors.blue ? Colors.red : Colors.green,
+                  color == scheme.primary || color == scheme.secondary
+                      ? Icons.remove_circle
+                      : Icons.add_circle,
+                  color: color == scheme.primary || color == scheme.secondary
+                      ? scheme.error
+                      : scheme.primary,
                   size: 18,
                 ),
                 onPressed: onAction,
@@ -762,7 +773,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
             else
               const SizedBox(width: 18),
             const SizedBox(width: 2),
-            Icon(Icons.drag_indicator, size: 16, color: Colors.grey.shade400),
+            Icon(Icons.drag_indicator, size: 16, color: theme.dividerColor),
           ],
         ),
       ),
@@ -772,48 +783,52 @@ class _TischplanungPageState extends State<TischplanungPage> {
   void _showGuestAssignDialog(Guest guest) {
     showDialog(
       context: context,
-      builder: (builderContext) => AlertDialog(
-        title: Text('${guest.firstName} ${guest.lastName}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Tisch zuweisen:'),
-            const SizedBox(height: 8),
-            ...tables.map((table) {
-              final tableGuests = _getGuestsForTable(table.tableNumber);
+      builder: (builderContext) {
+        final scheme = Theme.of(builderContext).colorScheme;
+        return AlertDialog(
+          title: Text('${guest.firstName} ${guest.lastName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Tisch zuweisen:'),
+              const SizedBox(height: 8),
+              ...tables.map((table) {
+                final tableGuests = _getGuestsForTable(table.tableNumber);
 
-              return ListTile(
-                title: Text(table.tableName),
-                subtitle: Text('${tableGuests.length}/${table.seats} Plätze'),
-                trailing: const Icon(Icons.arrow_forward_ios),
+                return ListTile(
+                  title: Text(table.tableName),
+                  subtitle: Text('${tableGuests.length}/${table.seats} Plätze'),
+                  trailing: const Icon(Icons.arrow_forward_ios),
+                  onTap: () async {
+                    await _assignGuestToTable(guest, table.tableNumber);
+                    Navigator.pop(builderContext);
+                  },
+                );
+              }).toList(),
+              const Divider(),
+              ListTile(
+                title: const Text('Nicht zuweisen'),
+                leading: Icon(Icons.remove_circle, color: scheme.error),
                 onTap: () async {
-                  await _assignGuestToTable(guest, table.tableNumber);
+                  await _removeGuestFromTable(guest);
                   Navigator.pop(builderContext);
                 },
-              );
-            }).toList(),
-            const Divider(),
-            ListTile(
-              title: const Text('Nicht zuweisen'),
-              leading: const Icon(Icons.remove_circle, color: Colors.orange),
-              onTap: () async {
-                await _removeGuestFromTable(guest);
-                Navigator.pop(builderContext);
-              },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(builderContext),
+              child: const Text('Schließen'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(builderContext),
-            child: const Text('Schließen'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   void _showTableFullError() {
+    final scheme = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -823,7 +838,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
             const Expanded(child: Text('Tisch ist bereits voll belegt!')),
           ],
         ),
-        backgroundColor: Colors.red,
+        backgroundColor: scheme.error,
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
       ),
@@ -832,10 +847,11 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
   Future<void> _showExportDialog() async {
     if (widget.guests.isEmpty) {
+      final scheme = Theme.of(context).colorScheme;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Keine Gäste zum Exportieren vorhanden'),
-          backgroundColor: Colors.orange,
+        SnackBar(
+          content: const Text('Keine Gäste zum Exportieren vorhanden'),
+          backgroundColor: scheme.tertiary,
         ),
       );
       return;
@@ -843,51 +859,55 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Tischplanung exportieren'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(
-                Icons.picture_as_pdf,
-                color: Colors.red,
-                size: 32,
+      builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          title: const Text('Tischplanung exportieren'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(
+                  Icons.picture_as_pdf,
+                  color: Colors.red,
+                  size: 32,
+                ),
+                title: const Text('Als PDF exportieren'),
+                subtitle: const Text('Schöne Übersicht für Gäste'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _exportAsPDF();
+                },
               ),
-              title: const Text('Als PDF exportieren'),
-              subtitle: const Text('Schöne Übersicht für Gäste'),
-              onTap: () {
-                Navigator.pop(context);
-                _exportAsPDF();
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(
-                Icons.table_chart,
-                color: Colors.green,
-                size: 32,
+              const Divider(),
+              ListTile(
+                leading: Icon(
+                  Icons.table_chart,
+                  color: scheme.primary,
+                  size: 32,
+                ),
+                title: const Text('Als Excel exportieren'),
+                subtitle: const Text('Komplette Tischplanung mit Details'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _exportAsExcel();
+                },
               ),
-              title: const Text('Als Excel exportieren'),
-              subtitle: const Text('Komplette Tischplanung mit Details'),
-              onTap: () {
-                Navigator.pop(context);
-                _exportAsExcel();
-              },
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Abbrechen'),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   Future<void> _exportAsPDF() async {
+    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
@@ -901,16 +921,16 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
+          SnackBar(
+            content: const Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
                 Text('PDF erfolgreich erstellt!'),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            backgroundColor: scheme.primary,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -927,7 +947,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: scheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -936,6 +956,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
   }
 
   Future<void> _exportAsExcel() async {
+    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
@@ -949,16 +970,16 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
+          SnackBar(
+            content: const Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
                 Text('Excel-Datei erfolgreich erstellt!'),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            backgroundColor: scheme.primary,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -975,7 +996,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: scheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -985,6 +1006,9 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isTablet = constraints.maxWidth > 600;
@@ -1000,7 +1024,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
               Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
-                  side: const BorderSide(color: AppColors.cardBorder, width: 1),
+                  side: BorderSide(color: theme.dividerColor, width: 1),
                 ),
                 child: Padding(
                   padding: EdgeInsets.all(isTablet ? 16 : 12),
@@ -1023,7 +1047,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                 Text(
                                   'Gäste durch Ziehen oder Tippen zuweisen',
                                   style: TextStyle(
-                                    color: Colors.grey,
+                                    color: theme.colorScheme.onSurfaceVariant,
                                     fontSize: isTablet ? 14 : 12,
                                   ),
                                 ),
@@ -1035,7 +1059,8 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             icon: const Icon(Icons.share, size: 20),
                             tooltip: 'Exportieren',
                             style: IconButton.styleFrom(
-                              backgroundColor: AppColors.secondary,
+                              backgroundColor: scheme.secondaryContainer,
+                              foregroundColor: scheme.onSecondaryContainer,
                             ),
                           ),
                           const SizedBox(width: 4),
@@ -1044,8 +1069,8 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             icon: const Icon(Icons.add),
                             label: Text(isTablet ? 'Neuer Tisch' : 'Tisch'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
+                              backgroundColor: scheme.primary,
+                              foregroundColor: scheme.onPrimary,
                             ),
                           ),
                         ],
@@ -1056,21 +1081,21 @@ class _TischplanungPageState extends State<TischplanungPage> {
                           _buildStatCard(
                             'Gesamt',
                             relevantGuests.length.toString(),
-                            Colors.blue,
+                            scheme.primary,
                             isTablet,
                           ),
                           SizedBox(width: isTablet ? 16 : 8),
                           _buildStatCard(
                             'Platziert',
                             seatedGuestsCount.toString(),
-                            Colors.green,
+                            scheme.tertiary,
                             isTablet,
                           ),
                           SizedBox(width: isTablet ? 16 : 8),
                           _buildStatCard(
                             'Frei',
                             unassignedGuests.length.toString(),
-                            Colors.orange,
+                            scheme.secondary,
                             isTablet,
                           ),
                         ],
@@ -1083,16 +1108,16 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
+                            color: scheme.surfaceVariant,
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.grey.shade300),
+                            border: Border.all(color: theme.dividerColor),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.info_outline,
                                 size: 16,
-                                color: Colors.grey.shade600,
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
@@ -1100,7 +1125,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                   '$excludedGuestsCount abgesagte Gäste werden nicht angezeigt',
                                   style: TextStyle(
                                     fontSize: isTablet ? 12 : 10,
-                                    color: Colors.grey.shade700,
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                               ),
@@ -1119,20 +1144,22 @@ class _TischplanungPageState extends State<TischplanungPage> {
                     Expanded(
                       flex: 3,
                       child: tables.isEmpty
-                          ? const Center(
+                          ? Center(
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(
                                     Icons.table_restaurant,
                                     size: 64,
-                                    color: Colors.grey,
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
-                                  SizedBox(height: 16),
-                                  Text('Keine Tische erstellt'),
+                                  const SizedBox(height: 16),
+                                  const Text('Keine Tische erstellt'),
                                   Text(
                                     'Klicken Sie auf "Neuer Tisch"',
-                                    style: TextStyle(color: Colors.grey),
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1203,6 +1230,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
     Color color,
     bool isTablet,
   ) {
+    final theme = Theme.of(context);
     return Expanded(
       child: Container(
         padding: EdgeInsets.all(isTablet ? 12 : 8),
@@ -1225,7 +1253,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
               label,
               style: TextStyle(
                 fontSize: isTablet ? 12 : 10,
-                color: Colors.grey[600],
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -1253,6 +1281,8 @@ class DraggableGuestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Draggable<Guest>(
       data: guest,
       feedback: Material(
@@ -1262,35 +1292,44 @@ class DraggableGuestCard extends StatelessWidget {
           width: 120,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: AppColors.secondary,
+            color: scheme.secondary,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
             '${guest.firstName} ${guest.lastName}',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: scheme.onSecondary,
             ),
           ),
         ),
       ),
-      childWhenDragging: Opacity(opacity: 0.5, child: _buildGuestContainer()),
-      child: GestureDetector(onTap: onTap, child: _buildGuestContainer()),
+      childWhenDragging: Opacity(
+        opacity: 0.5,
+        child: _buildGuestContainer(context),
+      ),
+      child: GestureDetector(
+        onTap: onTap,
+        child: _buildGuestContainer(context),
+      ),
     );
   }
 
-  Widget _buildGuestContainer() {
+  Widget _buildGuestContainer(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: EdgeInsets.all(isTablet ? 8 : 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: scheme.surface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.orange.shade300),
+        border: Border.all(color: scheme.secondary.withOpacity(0.5)),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
+            color: theme.shadowColor.withOpacity(0.1),
             spreadRadius: 1,
             blurRadius: 3,
           ),
@@ -1309,8 +1348,8 @@ class DraggableGuestCard extends StatelessWidget {
             Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: AppColors.primary,
+              decoration: BoxDecoration(
+                color: scheme.primary,
                 shape: BoxShape.circle,
               ),
             ),
@@ -1342,45 +1381,43 @@ class DragTargetTableCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return DragTarget<Guest>(
       onAccept: (guest) => onGuestDropped(guest),
-      onWillAcceptWithDetails: (details) {
-        // Akzeptiere alle Gäste die nicht bereits an diesem Tisch sind
-        return details.data.tableNumber != table.tableNumber;
-      },
+      onWillAcceptWithDetails: (details) =>
+          details.data.tableNumber != table.tableNumber,
       builder: (builderContext, candidateData, rejectedData) {
         final isHighlighted = candidateData.isNotEmpty;
         final canAccept = guests.length < table.seats;
-        // Prüfe ob Gast von diesem Tisch kommt
         final isFromThisTable =
             candidateData.isNotEmpty &&
             candidateData.first?.tableNumber == table.tableNumber;
 
+        final borderColor = theme.dividerColor;
+
         return Card(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
-            side: const BorderSide(color: AppColors.cardBorder, width: 1),
+            side: BorderSide(color: borderColor, width: 1),
           ),
           elevation: isHighlighted ? 8 : 2,
           color: isHighlighted
               ? (isFromThisTable
-                    ? Colors
-                          .grey
-                          .shade100 // Gast ist schon hier
+                    ? scheme.surfaceVariant
                     : (canAccept
-                          ? Colors
-                                .green
-                                .shade50 // Kann hinzugefügt werden
-                          : Colors.red.shade50)) // Tisch ist voll
-              : Colors.white,
+                          ? scheme.primaryContainer
+                          : scheme.errorContainer))
+              : scheme.surface,
           child: Column(
             children: [
               Container(
                 padding: EdgeInsets.all(isTablet ? 12 : 8),
                 decoration: BoxDecoration(
                   color: guests.length >= table.seats
-                      ? Colors.red.shade50
-                      : AppColors.secondary,
+                      ? scheme.errorContainer
+                      : scheme.secondaryContainer,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(8),
                     topRight: Radius.circular(8),
@@ -1395,6 +1432,7 @@ class DragTargetTableCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: isTablet ? 14 : 12,
                           fontWeight: FontWeight.bold,
+                          color: scheme.onSecondaryContainer,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1409,8 +1447,8 @@ class DragTargetTableCard extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: guests.length >= table.seats
-                                ? Colors.red.shade100
-                                : Colors.green.shade100,
+                                ? scheme.error.withOpacity(0.15)
+                                : scheme.tertiaryContainer,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -1418,17 +1456,17 @@ class DragTargetTableCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 9,
                               color: guests.length >= table.seats
-                                  ? Colors.red.shade700
-                                  : Colors.green.shade700,
+                                  ? scheme.error
+                                  : scheme.onTertiaryContainer,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
                         const SizedBox(width: 2),
                         IconButton(
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.edit,
-                            color: Colors.blue,
+                            color: scheme.primary,
                             size: 16,
                           ),
                           onPressed: onEdit,
@@ -1440,9 +1478,9 @@ class DragTargetTableCard extends StatelessWidget {
                           tooltip: 'Bearbeiten',
                         ),
                         IconButton(
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.delete,
-                            color: Colors.red,
+                            color: scheme.error,
                             size: 16,
                           ),
                           onPressed: onDelete,
@@ -1474,8 +1512,10 @@ class DragTargetTableCard extends StatelessWidget {
                                           : Icons.block)
                                     : Icons.add_circle_outline,
                                 color: isHighlighted
-                                    ? (canAccept ? Colors.green : Colors.red)
-                                    : Colors.grey,
+                                    ? (canAccept
+                                          ? scheme.primary
+                                          : scheme.error)
+                                    : scheme.onSurfaceVariant,
                                 size: isTablet ? 32 : 24,
                               ),
                               const SizedBox(height: 4),
@@ -1487,8 +1527,10 @@ class DragTargetTableCard extends StatelessWidget {
                                     : 'Leer',
                                 style: TextStyle(
                                   color: isHighlighted
-                                      ? (canAccept ? Colors.green : Colors.red)
-                                      : Colors.grey,
+                                      ? (canAccept
+                                            ? scheme.primary
+                                            : scheme.error)
+                                      : scheme.onSurfaceVariant,
                                   fontSize: isTablet ? 12 : 10,
                                 ),
                                 textAlign: TextAlign.center,
@@ -1510,15 +1552,15 @@ class DragTargetTableCard extends StatelessWidget {
                                   width: 120,
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: Colors.blue.shade200,
+                                    color: scheme.primary,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
                                     '${guest.firstName} ${guest.lastName}',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      color: scheme.onPrimary,
                                     ),
                                   ),
                                 ),
@@ -1532,9 +1574,9 @@ class DragTargetTableCard extends StatelessWidget {
                                     vertical: isTablet ? 6 : 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
+                                    color: scheme.surfaceVariant,
                                     border: Border.all(
-                                      color: Colors.grey.shade300,
+                                      color: theme.dividerColor,
                                     ),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
@@ -1545,7 +1587,9 @@ class DragTargetTableCard extends StatelessWidget {
                                           '${guest.firstName} ${guest.lastName}',
                                           style: TextStyle(
                                             fontSize: isTablet ? 11 : 10,
-                                            color: Colors.grey,
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
                                           ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -1553,7 +1597,7 @@ class DragTargetTableCard extends StatelessWidget {
                                       Icon(
                                         Icons.drag_indicator,
                                         size: 12,
-                                        color: Colors.grey.shade400,
+                                        color: theme.dividerColor,
                                       ),
                                     ],
                                   ),
@@ -1568,14 +1612,16 @@ class DragTargetTableCard extends StatelessWidget {
                                     vertical: isTablet ? 6 : 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: scheme.surface,
                                     border: Border.all(
-                                      color: Colors.grey.shade300,
+                                      color: theme.dividerColor,
                                     ),
                                     borderRadius: BorderRadius.circular(6),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.grey.withOpacity(0.1),
+                                        color: theme.shadowColor.withOpacity(
+                                          0.1,
+                                        ),
                                         spreadRadius: 1,
                                         blurRadius: 2,
                                       ),
@@ -1600,15 +1646,15 @@ class DragTargetTableCard extends StatelessWidget {
                                           margin: const EdgeInsets.only(
                                             right: 4,
                                           ),
-                                          decoration: const BoxDecoration(
-                                            color: AppColors.primary,
+                                          decoration: BoxDecoration(
+                                            color: scheme.primary,
                                             shape: BoxShape.circle,
                                           ),
                                         ),
                                       Icon(
                                         Icons.drag_indicator,
                                         size: 14,
-                                        color: Colors.grey.shade400,
+                                        color: theme.dividerColor,
                                       ),
                                     ],
                                   ),
@@ -1643,28 +1689,25 @@ class UnassignedGuestsArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return DragTarget<Guest>(
       onAccept: (guest) {
-        // Gast zur freien Liste hinzufügen (tableNumber auf null setzen)
         onGuestDropped(guest);
       },
-      onWillAcceptWithDetails: (details) {
-        // Akzeptiere jeden Gast - keine Einschränkung
-        return true;
-      },
+      onWillAcceptWithDetails: (details) => true,
       builder: (builderContext, candidateData, rejectedData) {
         final isHighlighted = candidateData.isNotEmpty;
 
         return Container(
           decoration: BoxDecoration(
             color: isHighlighted
-                ? Colors.orange.shade100
-                : const Color.fromARGB(255, 250, 250, 250),
+                ? scheme.secondaryContainer
+                : scheme.surfaceVariant.withOpacity(0.4),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isHighlighted
-                  ? Colors.orange.shade300
-                  : const Color.fromARGB(255, 231, 224, 214),
+              color: isHighlighted ? scheme.secondary : theme.dividerColor,
               width: isHighlighted ? 2 : 1,
             ),
           ),
@@ -1673,7 +1716,7 @@ class UnassignedGuestsArea extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(isTablet ? 12 : 8),
                 decoration: BoxDecoration(
-                  color: const Color.fromARGB(255, 202, 200, 198),
+                  color: scheme.surfaceVariant,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(12),
                     topRight: Radius.circular(12),
@@ -1681,10 +1724,7 @@ class UnassignedGuestsArea extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    const Icon(
-                      Icons.people,
-                      color: Color.fromARGB(255, 240, 239, 238),
-                    ),
+                    Icon(Icons.people, color: scheme.onSurfaceVariant),
                     const SizedBox(width: 8),
                     Text(
                       'Freie Gäste (${guests.length})',
@@ -1699,7 +1739,7 @@ class UnassignedGuestsArea extends StatelessWidget {
                         'Hier ablegen um zu entfernen',
                         style: TextStyle(
                           fontSize: isTablet ? 12 : 10,
-                          color: Colors.orange.shade700,
+                          color: scheme.secondary,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -1718,8 +1758,8 @@ class UnassignedGuestsArea extends StatelessWidget {
                                   : Icons.check_circle_outline,
                               size: 40,
                               color: isHighlighted
-                                  ? Colors.orange
-                                  : Colors.grey,
+                                  ? scheme.secondary
+                                  : scheme.onSurfaceVariant,
                             ),
                             const SizedBox(height: 8),
                             Text(
@@ -1728,8 +1768,8 @@ class UnassignedGuestsArea extends StatelessWidget {
                                   : 'Alle Gäste sind platziert!',
                               style: TextStyle(
                                 color: isHighlighted
-                                    ? Colors.orange.shade700
-                                    : Colors.grey,
+                                    ? scheme.secondary
+                                    : scheme.onSurfaceVariant,
                               ),
                             ),
                           ],

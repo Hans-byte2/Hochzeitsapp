@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/dienstleister_models.dart';
 import '../data/dienstleister_database.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../app_colors.dart';
 import 'package:intl/intl.dart';
 
 class DienstleisterDetailScreen extends StatefulWidget {
@@ -90,7 +89,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     }
   }
 
-  // Hilfsfunktion für Euro-Formatierung mit Tausendertrennzeichen
   String _formatEuro(double betrag) {
     final formatter = NumberFormat('#,##0.00', 'de_DE');
     return formatter.format(betrag).replaceAll(',', '.');
@@ -98,6 +96,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Lade...')),
@@ -115,8 +115,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(_dienstleister!.name),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
         actions: [
           IconButton(
             icon: Icon(
@@ -135,7 +135,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             width: double.infinity,
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: AppColors.background,
+              color: scheme.surfaceVariant,
               boxShadow: [
                 BoxShadow(
                   color: Colors.grey.withOpacity(0.1),
@@ -152,7 +152,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                     Icon(
                       _dienstleister!.kategorie.icon,
                       size: 28,
-                      color: AppColors.primary,
+                      color: scheme.primary,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -201,13 +201,13 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
 
           // Tabs
           Container(
-            color: Colors.white,
+            color: scheme.surface,
             child: TabBar(
               controller: _tabController,
               isScrollable: true,
-              labelColor: AppColors.primary,
+              labelColor: scheme.primary,
               unselectedLabelColor: Colors.grey,
-              indicatorColor: AppColors.primary,
+              indicatorColor: scheme.primary,
               tabs: const [
                 Tab(text: 'Übersicht'),
                 Tab(text: 'Angebot'),
@@ -241,13 +241,13 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
   // Tab 1: Übersicht
   Widget _buildUebersichtTab() {
     final statusAktionen = _getAvailableStatusActions();
+    final scheme = Theme.of(context).colorScheme;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Status-Aktionen
           if (statusAktionen.isNotEmpty) ...[
             Card(
               child: Padding(
@@ -272,8 +272,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                           icon: Icon(aktion['icon'], size: 18),
                           label: Text(aktion['label']),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
+                            backgroundColor: scheme.primary,
+                            foregroundColor: scheme.onPrimary,
                           ),
                         );
                       }).toList(),
@@ -400,6 +400,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
 
   // Tab 2: Angebot
   Widget _buildAngebotTab() {
+    final scheme = Theme.of(context).colorScheme;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -429,10 +431,10 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                             const SizedBox(height: 4),
                             Text(
                               '€${_formatEuro(_dienstleister!.angebotsSumme?.betrag ?? 0)}',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
+                                color: scheme.primary,
                               ),
                             ),
                           ],
@@ -500,6 +502,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
         .where((z) => z.bezahlt)
         .fold<double>(0, (sum, z) => sum + z.betrag.betrag);
     final offen = gesamt - bezahlt;
+    final scheme = Theme.of(context).colorScheme;
 
     return Column(
       children: [
@@ -554,8 +557,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             icon: const Icon(Icons.add),
             label: const Text('Zahlung hinzufügen'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              foregroundColor: Colors.white,
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
               minimumSize: const Size(double.infinity, 48),
             ),
           ),
@@ -651,9 +654,10 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
 
   // Tab 5: Kommunikation
   Widget _buildKommunikationTab() {
+    final scheme = Theme.of(context).colorScheme;
+
     return Column(
       children: [
-        // Notizen Section
         Expanded(
           child: _notizen.isEmpty
               ? Center(
@@ -678,7 +682,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                 ),
         ),
 
-        // Aufgaben Section
         if (_aufgaben.isNotEmpty) ...[
           const Divider(height: 1),
           Container(
@@ -697,7 +700,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
           ),
         ],
 
-        // Add Buttons
         Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -708,8 +710,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                   icon: const Icon(Icons.note_add),
                   label: const Text('Notiz'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
                   ),
                 ),
               ),
@@ -720,8 +722,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                   icon: const Icon(Icons.task_alt),
                   label: const Text('Aufgabe'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    foregroundColor: Colors.white,
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
                   ),
                 ),
               ),
@@ -756,6 +758,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     String value, {
     VoidCallback? onTap,
   }) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -777,14 +781,14 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: onTap != null ? AppColors.primary : Colors.black87,
+                      color: onTap != null ? scheme.primary : Colors.black87,
                     ),
                   ),
                 ],
               ),
             ),
             if (onTap != null)
-              Icon(Icons.open_in_new, size: 16, color: AppColors.primary),
+              Icon(Icons.open_in_new, size: 16, color: scheme.primary),
           ],
         ),
       ),
@@ -1126,6 +1130,8 @@ class _ZahlungDialogState extends State<_ZahlungDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return AlertDialog(
       title: Text(
         widget.zahlung != null ? 'Zahlung bearbeiten' : 'Neue Zahlung',
@@ -1220,6 +1226,10 @@ class _ZahlungDialogState extends State<_ZahlungDialog> {
               if (context.mounted) Navigator.pop(context);
             }
           },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: scheme.primary,
+            foregroundColor: scheme.onPrimary,
+          ),
           child: const Text('Speichern'),
         ),
       ],

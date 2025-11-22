@@ -11,93 +11,123 @@ class ThemePickerGrid extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(themeControllerProvider);
+    final controller = ref.read(themeControllerProvider.notifier);
 
-    final items = <_ThemeChoice>[
-      _ThemeChoice(ThemeVariant.vintageMint, 'Vintage Mint'),
-      _ThemeChoice(ThemeVariant.sandVintageCream, 'Sand Vintage Cream'),
-      _ThemeChoice(ThemeVariant.mintFresh, 'Fresh Mint & Sand'),
-      _ThemeChoice(ThemeVariant.mintStone, 'Soft Mint & Stone'),
-      _ThemeChoice(ThemeVariant.seafoamNavy, 'Seafoam & Navy'),
-      _ThemeChoice(ThemeVariant.champagne, 'Champagne + Midnight'),
-      _ThemeChoice(ThemeVariant.vintageMintDark, 'Vintage Mint (Dark)'),
+    // Alle Varianten, die du im Enum hast
+    final variants = <ThemeVariant>[
+      ThemeVariant.vintageMint,
+      ThemeVariant.vintageMintDark,
+      ThemeVariant.sandVintageCream,
+      ThemeVariant.mintFresh,
+      ThemeVariant.mintStone,
+      ThemeVariant.seafoamNavy,
+      ThemeVariant.champagne,
+      ThemeVariant.romanticPink,
+      ThemeVariant.cremeElegance,
+      ThemeVariant.blackWhite,
+      ThemeVariant.royalGold,
+      ThemeVariant.frozenMint,
     ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1.4,
-      ),
-      itemCount: items.length,
-      itemBuilder: (ctx, i) {
-        final item = items[i];
-        final c = colorsFor(item.variant);
-        final selected = current == item.variant;
+    String labelFor(ThemeVariant v) {
+      switch (v) {
+        case ThemeVariant.vintageMint:
+          return 'Vintage Mint';
+        case ThemeVariant.vintageMintDark:
+          return 'Vintage Mint (dunkel)';
+        case ThemeVariant.sandVintageCream:
+          return 'Sand / Creme';
+        case ThemeVariant.mintFresh:
+          return 'Mint Fresh';
+        case ThemeVariant.mintStone:
+          return 'Mint & Stone';
+        case ThemeVariant.seafoamNavy:
+          return 'Seafoam & Navy';
+        case ThemeVariant.champagne:
+          return 'Champagner';
+        case ThemeVariant.romanticPink:
+          return 'Romantic Pink';
+        case ThemeVariant.cremeElegance:
+          return 'Creme Elegance';
+        case ThemeVariant.blackWhite:
+          return 'Black & White';
+        case ThemeVariant.royalGold:
+          return 'Royal Gold';
+        case ThemeVariant.frozenMint:
+          return 'Frozen Mint';
+      }
+    }
 
-        return InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => ref
-              .read(themeControllerProvider.notifier)
-              .setVariant(item.variant),
-          child: DecoratedBox(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: variants.map((variant) {
+        final colors = colorsFor(variant);
+        final isSelected = variant == current;
+
+        return GestureDetector(
+          onTap: () => controller.setVariant(variant),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 90,
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: c.cardColor,
-              borderRadius: BorderRadius.circular(14),
+              color: colors.cardColor,
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: selected
-                    ? Theme.of(ctx).colorScheme.primary
-                    : c.cardBorder,
-                width: selected ? 2 : 1,
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : colors.cardBorder,
+                width: isSelected ? 2 : 1,
               ),
             ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(14),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(child: Container(color: c.primary)),
-                        Expanded(child: Container(color: c.secondary)),
-                        Expanded(child: Container(color: c.homeColor)),
-                      ],
-                    ),
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _ColorDot(color: colors.primary),
+                    const SizedBox(width: 4),
+                    _ColorDot(color: colors.secondary),
+                    const SizedBox(width: 4),
+                    _ColorDot(color: colors.homeColor),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Row(
-                    children: [
-                      if (selected)
-                        const Icon(Icons.check, size: 16)
-                      else
-                        const SizedBox(width: 16),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          item.label,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
+                const SizedBox(height: 6),
+                Text(
+                  labelFor(variant),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(fontSize: 10),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
         );
-      },
+      }).toList(),
     );
   }
 }
 
-class _ThemeChoice {
-  final ThemeVariant variant;
-  final String label;
-  const _ThemeChoice(this.variant, this.label);
+class _ColorDot extends StatelessWidget {
+  const _ColorDot({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.black.withOpacity(0.08), width: 1),
+      ),
+    );
+  }
 }

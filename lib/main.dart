@@ -1,13 +1,13 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Core
-import 'app_colors.dart';
-
-// Theme / State
+// Core / Theme
+import 'app_colors.dart'; // wird evtl. später in Screens noch genutzt
 import 'services/theme_providers.dart';
 import 'services/profile_providers.dart';
+import 'theme/theme_variant.dart';
 
 // Models
 import 'models/wedding_models.dart';
@@ -33,12 +33,12 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [
-        // Theme-State (Farbschema) – bekommt prefs von außen
+        // Theme-State (Farbschema)
         themeControllerProvider.overrideWith(
           (ref) => ThemeController(prefs, initialTheme),
         ),
-        // ❌ Profil-State NICHT mehr overriden – ProfileController kümmert sich
-        // selbst um SharedPreferences.
+        // Profil-State (Profilbild)
+        profileControllerProvider.overrideWith((ref) => ProfileController()),
       ],
       child: const WeddingApp(),
     ),
@@ -51,6 +51,7 @@ class WeddingApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Theme aus Riverpod (ThemeVariant, etc.)
     final theme = ref.watch(themeDataProvider);
 
     return MaterialApp(
@@ -62,14 +63,15 @@ class WeddingApp extends ConsumerWidget {
   }
 }
 
-class HochzeitsApp extends StatefulWidget {
+/// Haupt-App mit BottomNavigation, Drawer usw.
+class HochzeitsApp extends ConsumerStatefulWidget {
   const HochzeitsApp({Key? key}) : super(key: key);
 
   @override
-  State<HochzeitsApp> createState() => _HochzeitsAppState();
+  ConsumerState<HochzeitsApp> createState() => _HochzeitsAppState();
 }
 
-class _HochzeitsAppState extends State<HochzeitsApp> {
+class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   int _currentIndex = 0;
 
   // State
@@ -80,7 +82,9 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
+  // Key für Budget-Page um sie neu zu erstellen
   Key _budgetPageKey = UniqueKey();
+  // Für Task-Navigation
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
@@ -92,6 +96,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
 
   Future<void> _loadData() async {
     try {
+      // Wedding data laden
       final weddingData = await DatabaseHelper.instance.getWeddingData();
       if (weddingData != null) {
         setState(() {
@@ -102,11 +107,14 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
           _groomName = weddingData['groom_name'] ?? '';
         });
       }
-
+      // Gäste laden
       final guests = await DatabaseHelper.instance.getAllGuests();
-      final tasks = await DatabaseHelper.instance.getAllTasks();
       setState(() {
         _guests = guests;
+      });
+      // Tasks laden
+      final tasks = await DatabaseHelper.instance.getAllTasks();
+      setState(() {
         _tasks = tasks;
         _isLoading = false;
       });
@@ -118,6 +126,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
+  // Callback-Funktionen für Gäste
   Future<void> _addGuest(Guest guest) async {
     try {
       final newGuest = await DatabaseHelper.instance.createGuest(guest);
@@ -158,6 +167,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
+  // Callback-Funktionen für Aufgaben
   Future<void> _addTask(Task task) async {
     try {
       final newTask = await DatabaseHelper.instance.createTask(task);
@@ -194,6 +204,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
+  // Hochzeitsdaten-Callback
   Future<void> _updateWeddingData(
     DateTime date,
     String bride,
@@ -211,42 +222,45 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     }
   }
 
+  // Navigation Callback
   void _navigateToPage(int pageIndex) {
     setState(() {
       _currentIndex = pageIndex;
     });
   }
 
+  // Navigation zu Task mit spezifischer ID
   void _navigateToTaskWithId(int taskId) {
     setState(() {
       _selectedTaskId = taskId;
-      _taskPageKey = UniqueKey();
-      _currentIndex = 4;
+      _taskPageKey = UniqueKey(); // Neue Instanz erstellen
+      _currentIndex = 4; // Task-Seite Index
     });
   }
 
+  // Callback zum Zurücksetzen der ausgewählten Task
   void _clearSelectedTask() {
     setState(() {
       _selectedTaskId = null;
     });
   }
 
-  Color _getNavColor(int index) {
+  Color _getNavColor(int index, BrandColors brand) {
     switch (index) {
       case 0:
-        return AppColors.homeColor;
+        return brand.homeColor;
       case 1:
-        return AppColors.guestColor;
+        return brand.guestColor;
       case 2:
-        return AppColors.tableColor;
+        return brand.tableColor;
       case 3:
-        return AppColors.budgetColor;
+        return brand.budgetColor;
       case 4:
-        return AppColors.taskColor;
+        return brand.taskColor;
       case 5:
-        return AppColors.serviceColor;
+        return brand.serviceColor;
       default:
-        return AppColors.primary;
+        return brand.primary;
     }
   }
 
@@ -255,6 +269,11 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
     if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    // aktuelles ThemeVariant aus Riverpod
+    final variant = ref.watch(themeControllerProvider);
+    final brand = colorsFor(variant);
+    final scheme = Theme.of(context).colorScheme;
 
     final List<Widget> pages = [
       DashboardPage(
@@ -317,15 +336,16 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             ),
           ],
         ),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: brand.primary,
+        foregroundColor: scheme.onPrimary,
       ),
+
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: const BoxDecoration(color: AppColors.primary),
+              decoration: BoxDecoration(color: brand.primary),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -428,11 +448,13 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
           ],
         ),
       ),
+
       body: IndexedStack(index: _currentIndex, children: pages),
+
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
-        selectedItemColor: _getNavColor(_currentIndex),
+        selectedItemColor: _getNavColor(_currentIndex, brand),
         unselectedItemColor: Colors.grey,
         selectedFontSize: 10,
         unselectedFontSize: 10,
@@ -458,7 +480,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             icon: Icon(
               Icons.home,
               size: 20,
-              color: _currentIndex == 0 ? AppColors.homeColor : Colors.grey,
+              color: _currentIndex == 0 ? _getNavColor(0, brand) : Colors.grey,
             ),
             label: 'Home',
           ),
@@ -466,7 +488,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             icon: Icon(
               Icons.people,
               size: 20,
-              color: _currentIndex == 1 ? AppColors.guestColor : Colors.grey,
+              color: _currentIndex == 1 ? _getNavColor(1, brand) : Colors.grey,
             ),
             label: 'Gäste',
           ),
@@ -474,7 +496,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             icon: Icon(
               Icons.table_restaurant,
               size: 20,
-              color: _currentIndex == 2 ? AppColors.tableColor : Colors.grey,
+              color: _currentIndex == 2 ? _getNavColor(2, brand) : Colors.grey,
             ),
             label: 'Tisch',
           ),
@@ -482,7 +504,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             icon: Icon(
               Icons.euro,
               size: 20,
-              color: _currentIndex == 3 ? AppColors.budgetColor : Colors.grey,
+              color: _currentIndex == 3 ? _getNavColor(3, brand) : Colors.grey,
             ),
             label: 'Budget',
           ),
@@ -490,7 +512,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             icon: Icon(
               Icons.assignment,
               size: 20,
-              color: _currentIndex == 4 ? AppColors.taskColor : Colors.grey,
+              color: _currentIndex == 4 ? _getNavColor(4, brand) : Colors.grey,
             ),
             label: 'Checkliste',
           ),
@@ -498,7 +520,7 @@ class _HochzeitsAppState extends State<HochzeitsApp> {
             icon: Icon(
               Icons.business,
               size: 20,
-              color: _currentIndex == 5 ? AppColors.serviceColor : Colors.grey,
+              color: _currentIndex == 5 ? _getNavColor(5, brand) : Colors.grey,
             ),
             label: 'Dienstleister',
           ),

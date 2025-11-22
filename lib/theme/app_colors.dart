@@ -112,3 +112,83 @@ class AppColorsChampagne {
   static const tableColor = Color(0xFF607BA0);
   static const serviceColor = Color(0xFF7796BE);
 }
+
+// 💗 Romantic Pink
+class AppColorsRomanticPink {
+  static const primary = Color(0xFFE45CA0); // Rosenpink
+  static const background = Color(0xFFFFF6FA); // Zartrosa
+  static const cardColor = Color(0xFFFFFFFF); // Weiß
+  static const cardBorder = Color(0xFFF2D9E6); // Rosa-Beige
+  static const secondary = Color(0xFFFCE4EC); // Pastell-Pink
+
+  static const homeColor = Color(0xFFB56587);
+  static const guestColor = Color(0xFFE91E63);
+  static const budgetColor = Color(0xFFF48FB1);
+  static const taskColor = Color(0xFFAD5389);
+  static const tableColor = Color(0xFFFFC1E3);
+  static const serviceColor = Color(0xFFCE93D8);
+}
+
+// 🧁 Creme Elegance
+class AppColorsCremeElegance {
+  static const primary = Color(0xFFD8C7A1); // Creme-Gold
+  static const background = Color(0xFFFAF5ED); // Cremeweiß
+  static const cardColor = Color(0xFFFFFFFF);
+  static const cardBorder = Color(0xFFE8DFD0); // Beige
+  static const secondary = Color(0xFFF3E9D6); // Vanille
+
+  static const homeColor = Color(0xFFCDB89B);
+  static const guestColor = Color(0xFFA0907A);
+  static const budgetColor = Color(0xFFD7C3A1);
+  static const taskColor = Color(0xFFB49C6A);
+  static const tableColor = Color(0xFFE8CFC3);
+  static const serviceColor = Color(0xFFC9D2C1);
+}
+
+// ⚫️⚪️ Black & White Minimal
+class AppColorsBlackWhite {
+  static const primary = Color(0xFF000000); // Schwarz
+  static const background = Color(0xFFF7F7F7); // fast Weiß
+  static const cardColor = Color(0xFFFFFFFF);
+  static const cardBorder = Color(0xFFE0E0E0); // Hellgrau
+  static const secondary = Color(0xFF333333); // Dunkelgrau
+
+  static const homeColor = Color(0xFF000000);
+  static const guestColor = Color(0xFF424242);
+  static const budgetColor = Color(0xFF616161);
+  static const taskColor = Color(0xFF757575);
+  static const tableColor = Color(0xFF9E9E9E);
+  static const serviceColor = Color(0xFF212121);
+}
+
+// ✨ Royal Gold
+class AppColorsRoyalGold {
+  static const primary = Color(0xFFE0B44D); // Gold
+  static const background = Color(0xFFFBF6E8); // Creme-Gold
+  static const cardColor = Color(0xFFFFFFFF);
+  static const cardBorder = Color(0xFFF0E0B7); // Goldbeige
+  static const secondary = Color(0xFFF5E4B8); // Light Gold
+
+  static const homeColor = Color(0xFFB8923A);
+  static const guestColor = Color(0xFFD1AB56);
+  static const budgetColor = Color(0xFFF2C777);
+  static const taskColor = Color(0xFFC2A45E);
+  static const tableColor = Color(0xFFFFE3A8);
+  static const serviceColor = Color(0xFFE5D6A7);
+}
+
+// 🍃 Frozen Mint
+class AppColorsFrozenMint {
+  static const primary = Color(0xFF7ECFC0); // Iced Mint
+  static const background = Color(0xFFF2FBF8); // Mint-Weiß
+  static const cardColor = Color(0xFFFFFFFF);
+  static const cardBorder = Color(0xFFD5EFEA);
+  static const secondary = Color(0xFFBCEDE4);
+
+  static const homeColor = Color(0xFF60B7A8);
+  static const guestColor = Color(0xFF4AAE9B);
+  static const budgetColor = Color(0xFF8FD9CD);
+  static const taskColor = Color(0xFF5FAE9C);
+  static const tableColor = Color(0xFFA8E5D8);
+  static const serviceColor = Color(0xFF79C9BB);
+}

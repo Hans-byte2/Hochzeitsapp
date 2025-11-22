@@ -4,7 +4,6 @@ import '../models/dienstleister_models.dart';
 import '../data/dienstleister_database.dart';
 import 'dienstleister_detail_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../app_colors.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 
@@ -35,7 +34,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   @override
   void initState() {
     super.initState();
-    // GlobalKeys für jede Kategorie erstellen
     for (var kategorie in DienstleisterKategorie.values) {
       _kategorieKeys[kategorie] = GlobalKey();
     }
@@ -178,7 +176,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   void _scrollToKategorie(DienstleisterKategorie kategorie) {
     final key = _kategorieKeys[kategorie];
     if (key?.currentContext != null) {
-      // Kurze Verzögerung, damit sich der Filter erst setzt
       Future.delayed(const Duration(milliseconds: 100), () {
         Scrollable.ensureVisible(
           key!.currentContext!,
@@ -201,11 +198,13 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   }
 
   Future<void> _showExportDialog() async {
+    final scheme = Theme.of(context).colorScheme;
+
     if (_alleDienstleister.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Keine Dienstleister zum Exportieren vorhanden'),
-          backgroundColor: Colors.orange,
+        SnackBar(
+          content: const Text('Keine Dienstleister zum Exportieren vorhanden'),
+          backgroundColor: scheme.tertiary,
         ),
       );
       return;
@@ -258,6 +257,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   }
 
   Future<void> _exportAsPdf() async {
+    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
@@ -271,16 +271,16 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
+          SnackBar(
+            content: const Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
                 Text('PDF erfolgreich erstellt!'),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            backgroundColor: scheme.primary,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -297,7 +297,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: scheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -306,6 +306,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   }
 
   Future<void> _exportAsExcel() async {
+    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
@@ -321,16 +322,16 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
+          SnackBar(
+            content: const Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
                 Text('Excel-Datei erfolgreich erstellt!'),
               ],
             ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
+            backgroundColor: scheme.primary,
+            duration: const Duration(seconds: 2),
           ),
         );
       }
@@ -347,7 +348,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: scheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -356,6 +357,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   }
 
   Future<void> _importFromExcel() async {
+    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
@@ -384,7 +386,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   ),
                 ],
               ),
-              backgroundColor: Colors.green,
+              backgroundColor: scheme.primary,
               duration: const Duration(seconds: 3),
             ),
           );
@@ -403,7 +405,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 Expanded(child: Text('Fehler beim Importieren: $e')),
               ],
             ),
-            backgroundColor: Colors.red,
+            backgroundColor: scheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -417,6 +419,9 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     final stats = _gesamtStats;
     final kategorieStats = _kategorieStats;
     final gefilterteListe = _gefilterteDienstleister;
@@ -428,7 +433,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header - überarbeitet
+            // Header
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -441,11 +446,10 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                         children: [
                           Text(
                             'Dienstleister',
-                            style: Theme.of(context).textTheme.headlineMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primary,
-                                ),
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: scheme.primary,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -462,7 +466,8 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                           icon: const Icon(Icons.upload_file),
                           tooltip: 'Importieren',
                           style: IconButton.styleFrom(
-                            backgroundColor: AppColors.secondary,
+                            backgroundColor: scheme.secondaryContainer,
+                            foregroundColor: scheme.onSecondaryContainer,
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -471,7 +476,8 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                           icon: const Icon(Icons.share),
                           tooltip: 'Exportieren',
                           style: IconButton.styleFrom(
-                            backgroundColor: AppColors.secondary,
+                            backgroundColor: scheme.secondaryContainer,
+                            foregroundColor: scheme.onSecondaryContainer,
                           ),
                         ),
                       ],
@@ -479,7 +485,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Hinzufügen Button in eigener Zeile
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -487,8 +492,8 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                     icon: const Icon(Icons.add, size: 20),
                     label: const Text('Dienstleister hinzufügen'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
                   ),
@@ -543,8 +548,9 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                     children: [
                       Text(
                         'Kostenaufteilung nach Kategorien',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
@@ -572,7 +578,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
 
                             return InkWell(
                               onTap: () {
-                                // Filter setzen und zur Kategorie scrollen
                                 setState(() {
                                   _selectedKategorien.clear();
                                   _selectedKategorien.add(kategorie);
@@ -748,8 +753,8 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                             style: const TextStyle(fontSize: 11),
                           ),
                           selected: isSelected,
-                          selectedColor: AppColors.primary.withOpacity(0.2),
-                          checkmarkColor: AppColors.primary,
+                          selectedColor: scheme.primary.withOpacity(0.2),
+                          checkmarkColor: scheme.primary,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 6,
                             vertical: 2,
@@ -769,7 +774,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                               }
                             });
 
-                            // Zur Kategorie scrollen wenn ausgewählt
                             if (selected) {
                               _scrollToKategorie(kategorie);
                             }
@@ -797,7 +801,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 ),
               )
             else
-              ...kategorieStats.entries.map((entry) {
+              ..._kategorieStats.entries.map((entry) {
                 final kategorie = entry.key;
                 final data = entry.value;
                 final gefiltert = gefilterteListe
@@ -818,7 +822,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                             padding: const EdgeInsets.all(16),
                             child: Row(
                               children: [
-                                Icon(kategorie.icon, color: AppColors.primary),
+                                Icon(kategorie.icon, color: scheme.primary),
                                 const SizedBox(width: 12),
                                 Text(
                                   kategorie.label,
@@ -1197,6 +1201,8 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Dialog(
       child: Container(
         width: 600,
@@ -1219,8 +1225,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
             ),
             Expanded(
               child: SingleChildScrollView(
-                physics:
-                    const AlwaysScrollableScrollPhysics(), // ✅ FIX für Scroll-Problem
+                physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24),
                 child: Form(
                   key: _formKey,
@@ -1394,8 +1399,8 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                   ElevatedButton(
                     onPressed: _save,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
                     ),
                     child: const Text('Speichern'),
                   ),

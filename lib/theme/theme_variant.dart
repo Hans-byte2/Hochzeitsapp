@@ -10,6 +10,13 @@ enum ThemeVariant {
   mintStone,
   seafoamNavy,
   champagne,
+
+  // 👇 NEU
+  romanticPink,
+  cremeElegance,
+  blackWhite,
+  royalGold,
+  frozenMint,
 }
 
 class BrandColors {
@@ -135,6 +142,86 @@ BrandColors colorsFor(ThemeVariant v) {
         taskColor: AppColorsChampagne.taskColor,
         tableColor: AppColorsChampagne.tableColor,
         serviceColor: AppColorsChampagne.serviceColor,
+      );
+
+    // 👇 NEU: Romantic Pink
+    case ThemeVariant.romanticPink:
+      return const BrandColors(
+        primary: AppColorsRomanticPink.primary,
+        background: AppColorsRomanticPink.background,
+        cardColor: AppColorsRomanticPink.cardColor,
+        cardBorder: AppColorsRomanticPink.cardBorder,
+        secondary: AppColorsRomanticPink.secondary,
+        homeColor: AppColorsRomanticPink.homeColor,
+        guestColor: AppColorsRomanticPink.guestColor,
+        budgetColor: AppColorsRomanticPink.budgetColor,
+        taskColor: AppColorsRomanticPink.taskColor,
+        tableColor: AppColorsRomanticPink.tableColor,
+        serviceColor: AppColorsRomanticPink.serviceColor,
+      );
+
+    // 👇 NEU: Creme Elegance
+    case ThemeVariant.cremeElegance:
+      return const BrandColors(
+        primary: AppColorsCremeElegance.primary,
+        background: AppColorsCremeElegance.background,
+        cardColor: AppColorsCremeElegance.cardColor,
+        cardBorder: AppColorsCremeElegance.cardBorder,
+        secondary: AppColorsCremeElegance.secondary,
+        homeColor: AppColorsCremeElegance.homeColor,
+        guestColor: AppColorsCremeElegance.guestColor,
+        budgetColor: AppColorsCremeElegance.budgetColor,
+        taskColor: AppColorsCremeElegance.taskColor,
+        tableColor: AppColorsCremeElegance.tableColor,
+        serviceColor: AppColorsCremeElegance.serviceColor,
+      );
+
+    // 👇 NEU: Black & White
+    case ThemeVariant.blackWhite:
+      return const BrandColors(
+        primary: AppColorsBlackWhite.primary,
+        background: AppColorsBlackWhite.background,
+        cardColor: AppColorsBlackWhite.cardColor,
+        cardBorder: AppColorsBlackWhite.cardBorder,
+        secondary: AppColorsBlackWhite.secondary,
+        homeColor: AppColorsBlackWhite.homeColor,
+        guestColor: AppColorsBlackWhite.guestColor,
+        budgetColor: AppColorsBlackWhite.budgetColor,
+        taskColor: AppColorsBlackWhite.taskColor,
+        tableColor: AppColorsBlackWhite.tableColor,
+        serviceColor: AppColorsBlackWhite.serviceColor,
+      );
+
+    // 👇 NEU: Royal Gold
+    case ThemeVariant.royalGold:
+      return const BrandColors(
+        primary: AppColorsRoyalGold.primary,
+        background: AppColorsRoyalGold.background,
+        cardColor: AppColorsRoyalGold.cardColor,
+        cardBorder: AppColorsRoyalGold.cardBorder,
+        secondary: AppColorsRoyalGold.secondary,
+        homeColor: AppColorsRoyalGold.homeColor,
+        guestColor: AppColorsRoyalGold.guestColor,
+        budgetColor: AppColorsRoyalGold.budgetColor,
+        taskColor: AppColorsRoyalGold.taskColor,
+        tableColor: AppColorsRoyalGold.tableColor,
+        serviceColor: AppColorsRoyalGold.serviceColor,
+      );
+
+    // 👇 NEU: Frozen Mint
+    case ThemeVariant.frozenMint:
+      return const BrandColors(
+        primary: AppColorsFrozenMint.primary,
+        background: AppColorsFrozenMint.background,
+        cardColor: AppColorsFrozenMint.cardColor,
+        cardBorder: AppColorsFrozenMint.cardBorder,
+        secondary: AppColorsFrozenMint.secondary,
+        homeColor: AppColorsFrozenMint.homeColor,
+        guestColor: AppColorsFrozenMint.guestColor,
+        budgetColor: AppColorsFrozenMint.budgetColor,
+        taskColor: AppColorsFrozenMint.taskColor,
+        tableColor: AppColorsFrozenMint.tableColor,
+        serviceColor: AppColorsFrozenMint.serviceColor,
       );
   }
 }

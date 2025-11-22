@@ -136,6 +136,8 @@ class _AppearanceCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(themeControllerProvider.notifier);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -149,27 +151,44 @@ class _AppearanceCard extends ConsumerWidget {
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 4,
           children: [
             _ModeChip(
               label: 'Sand (hell)',
-              onTap: () => ref
-                  .read(themeControllerProvider.notifier)
-                  .setVariant(ThemeVariant.sandVintageCream),
+              onTap: () => controller.setVariant(ThemeVariant.sandVintageCream),
             ),
             _ModeChip(
-              label: 'Mint',
-              onTap: () => ref
-                  .read(themeControllerProvider.notifier)
-                  .setVariant(ThemeVariant.vintageMint),
+              label: 'Vintage Mint',
+              onTap: () => controller.setVariant(ThemeVariant.vintageMint),
+            ),
+            _ModeChip(
+              label: 'Mint Fresh',
+              onTap: () => controller.setVariant(ThemeVariant.mintFresh),
+            ),
+            _ModeChip(
+              label: 'Frozen Mint',
+              onTap: () => controller.setVariant(ThemeVariant.frozenMint),
+            ),
+            _ModeChip(
+              label: 'Pink',
+              onTap: () => controller.setVariant(ThemeVariant.romanticPink),
+            ),
+            _ModeChip(
+              label: 'Creme',
+              onTap: () => controller.setVariant(ThemeVariant.cremeElegance),
+            ),
+            _ModeChip(
+              label: 'Gold',
+              onTap: () => controller.setVariant(ThemeVariant.royalGold),
+            ),
+            _ModeChip(
+              label: 'Schwarz/Weiß',
+              onTap: () => controller.setVariant(ThemeVariant.blackWhite),
             ),
             _ModeChip(
               label: 'Dunkel',
-              onTap: () => ref
-                  .read(themeControllerProvider.notifier)
-                  .setVariant(ThemeVariant.vintageMintDark),
+              onTap: () => controller.setVariant(ThemeVariant.vintageMintDark),
             ),
-            // hier kannst du gleich noch die neuen Varianten einbauen:
-            // _ModeChip(label: 'Pink', onTap: () => ...),
           ],
         ),
       ],

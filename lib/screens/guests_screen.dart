@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+
 import '../models/wedding_models.dart';
-import '../app_colors.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 
@@ -53,7 +53,6 @@ class _GuestPageState extends State<GuestPage> {
             _editingGuest != null ? 'Gast bearbeiten' : 'Neuen Gast hinzufügen',
           ),
           content: SingleChildScrollView(
-            // <- NEU: ScrollView hinzugefügt
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -106,12 +105,10 @@ class _GuestPageState extends State<GuestPage> {
             ElevatedButton(
               onPressed: _saveGuest,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
               ),
-              child: const Text(
-                'Speichern',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('Speichern'),
             ),
           ],
         ),
@@ -298,6 +295,8 @@ class _GuestPageState extends State<GuestPage> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     final totalGuests = widget.guests.length;
     final confirmedGuests = widget.guests
         .where((g) => g.confirmed == 'yes')
@@ -312,8 +311,8 @@ class _GuestPageState extends State<GuestPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gästeliste'),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.share),
@@ -344,7 +343,7 @@ class _GuestPageState extends State<GuestPage> {
                     child: _buildStatCard(
                       'Gesamt',
                       '$totalGuests',
-                      AppColors.primary,
+                      scheme.primary,
                       Icons.people,
                       _filterStatus == null,
                     ),
@@ -479,8 +478,8 @@ class _GuestPageState extends State<GuestPage> {
                           margin: const EdgeInsets.only(bottom: 8),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
-                            side: const BorderSide(
-                              color: AppColors.cardBorder,
+                            side: BorderSide(
+                              color: Theme.of(context).dividerColor,
                               width: 1,
                             ),
                           ),
@@ -570,8 +569,8 @@ class _GuestPageState extends State<GuestPage> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showGuestDialog(),
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
         icon: const Icon(Icons.add),
         label: const Text('Gast hinzufügen'),
       ),

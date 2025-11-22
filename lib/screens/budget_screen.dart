@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:sqflite/sqflite.dart';
-import '../app_colors.dart';
+
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
 import '../models/budget_models.dart';
@@ -20,9 +20,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   List<Map<String, dynamic>> _budgetItems = [];
   bool _isLoading = true;
   bool _showForm = false;
-  double _totalBudget = 0.0; // NEU: Gesamtbudget
-  final _totalBudgetController =
-      TextEditingController(); // NEU: Controller für Gesamtbudget
+  double _totalBudget = 0.0;
+  final _totalBudgetController = TextEditingController();
 
   final Map<String, String> _categoryLabels = {
     'location': 'Location & Catering',
@@ -68,16 +67,16 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     super.initState();
     _initializeDatabase();
     _loadBudgetItems();
-    _loadTotalBudget(); // NEU: Gesamtbudget laden
+    _loadTotalBudget();
   }
 
   @override
   void dispose() {
-    _totalBudgetController.dispose(); // NEU: Controller entsorgen
+    _totalBudgetController.dispose();
     super.dispose();
   }
 
-  // NEU: Gesamtbudget aus Datenbank laden
+  // Gesamtbudget aus Datenbank laden
   Future<void> _loadTotalBudget() async {
     try {
       final db = await DatabaseHelper.instance.database;
@@ -99,7 +98,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     }
   }
 
-  // NEU: Gesamtbudget in Datenbank speichern
+  // Gesamtbudget speichern
   Future<void> _saveTotalBudget(double budget) async {
     try {
       final db = await DatabaseHelper.instance.database;
@@ -116,7 +115,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     }
   }
 
-  // NEU: Dialog zum Bearbeiten des Gesamtbudgets
+  // Dialog zum Bearbeiten des Gesamtbudgets
   Future<void> _showEditTotalBudgetDialog() async {
     final controller = TextEditingController(
       text: _totalBudget.toStringAsFixed(0),
@@ -173,38 +172,26 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     try {
       final db = await DatabaseHelper.instance.database;
 
-      // Bestehende Spalten hinzufügen falls nicht vorhanden - FEHLER WERDEN IGNORIERT
+      // Spalten hinzufügen (Fehler ignorieren, wenn schon vorhanden)
       try {
-        await db.execute('''
-          ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT 'other'
-        ''');
-        print('✅ Spalte category hinzugefügt');
-      } catch (e) {
-        // Spalte existiert bereits - kein Problem
-        print('ℹ️ Spalte category existiert bereits');
-      }
+        await db.execute(
+          'ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT \'other\'',
+        );
+      } catch (_) {}
 
       try {
-        await db.execute('''
-          ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT ''
-        ''');
-        print('✅ Spalte notes hinzugefügt');
-      } catch (e) {
-        // Spalte existiert bereits - kein Problem
-        print('ℹ️ Spalte notes existiert bereits');
-      }
+        await db.execute(
+          'ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT \'\'',
+        );
+      } catch (_) {}
 
       try {
-        await db.execute('''
-          ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0
-        ''');
-        print('✅ Spalte paid hinzugefügt');
-      } catch (e) {
-        // Spalte existiert bereits - kein Problem
-        print('ℹ️ Spalte paid existiert bereits');
-      }
+        await db.execute(
+          'ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0',
+        );
+      } catch (_) {}
 
-      // NEU: Tabelle für Einstellungen erstellen (für Gesamtbudget)
+      // app_settings Tabelle
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS app_settings (
@@ -212,12 +199,11 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             value TEXT
           )
         ''');
-        print('✅ app_settings Tabelle erstellt/existiert');
       } catch (e) {
-        print('❌ Fehler bei app_settings Tabelle: $e');
+        print('Fehler bei app_settings Tabelle: $e');
       }
     } catch (e) {
-      print('❌ Fehler beim Initialisieren der Datenbank: $e');
+      print('Fehler beim Initialisieren der Datenbank: $e');
     }
   }
 
@@ -247,8 +233,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   double get totalPlanned =>
       _budgetItems.fold(0, (sum, item) => sum + (item['planned'] ?? 0));
+
   double get totalActual =>
       _budgetItems.fold(0, (sum, item) => sum + (item['actual'] ?? 0));
+
   double get remaining => totalPlanned - totalActual;
 
   Map<String, Map<String, dynamic>> get categoryStats {
@@ -383,7 +371,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             content: Row(
               children: [
                 const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
@@ -432,7 +420,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             content: Row(
               children: [
                 const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
@@ -499,6 +487,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       builder: (builderContext) {
         String dialogCategory = editCategory;
         bool dialogPaid = editPaid;
+
+        final dialogScheme = Theme.of(builderContext).colorScheme;
 
         return StatefulBuilder(
           builder: (statefulContext, setDialogState) {
@@ -685,12 +675,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     });
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: dialogScheme.primary,
+                    foregroundColor: dialogScheme.onPrimary,
                   ),
-                  child: const Text(
-                    'Speichern',
-                    style: TextStyle(color: Colors.white),
-                  ),
+                  child: const Text('Speichern'),
                 ),
               ],
             );
@@ -750,6 +738,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    final scheme = Theme.of(context).colorScheme;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -784,7 +774,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 icon: const Icon(Icons.share),
                 tooltip: 'Exportieren',
                 style: IconButton.styleFrom(
-                  backgroundColor: AppColors.secondary,
+                  backgroundColor: scheme.secondaryContainer,
+                  foregroundColor: scheme.onSecondaryContainer,
                 ),
               ),
               const SizedBox(width: 4),
@@ -793,7 +784,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('Neu', style: TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 8,
@@ -803,13 +795,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             ],
           ),
           const SizedBox(height: 16),
-          // NEU: Gesamtbudget Card ganz oben
           _buildTotalBudgetCard(),
           const SizedBox(height: 16),
-          //           _buildBudgetOverview(),
-          //           const SizedBox(height: 16),
-          //           _buildStatsCards(),
-          //           const SizedBox(height: 16),
           if (_showForm) ...[_buildAddItemForm(), const SizedBox(height: 16)],
           _buildCategoryBreakdown(),
           const SizedBox(height: 16),
@@ -819,8 +806,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // NEU: Widget für Gesamtbudget Card
+  // Gesamtbudget Card
   Widget _buildTotalBudgetCard() {
+    final scheme = Theme.of(context).colorScheme;
+
     final budgetRemaining = _totalBudget - totalActual;
     final percentageUsed = _totalBudget > 0
         ? (totalActual / _totalBudget) * 100
@@ -832,7 +821,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [AppColors.primary, AppColors.primary.withOpacity(0.7)],
+            colors: [scheme.primary, scheme.primary.withOpacity(0.7)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -843,7 +832,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Gesamtbudget, Betrag und Edit-Button in einer Zeile
+              // Gesamtbudget, Betrag und Edit-Button
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -879,7 +868,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ),
                 child: Column(
                   children: [
-                    // NEU: Geplant-Zeile
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -963,6 +951,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   Widget _buildBudgetOverview() {
+    final scheme = Theme.of(context).colorScheme;
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1043,10 +1033,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                               ),
                               Text(
                                 '€${_formatCurrency(totalActual)}',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.orange,
+                                  color: scheme.primary,
                                 ),
                               ),
                             ],
@@ -1083,7 +1073,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               value: totalPlanned > 0 ? totalActual / totalPlanned : 0,
               backgroundColor: Colors.grey[300],
               valueColor: AlwaysStoppedAnimation<Color>(
-                totalActual > totalPlanned ? Colors.red : AppColors.primary,
+                totalActual > totalPlanned ? Colors.red : scheme.primary,
               ),
             ),
           ],
@@ -1184,6 +1174,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   Widget _buildAddItemForm() {
+    final scheme = Theme.of(context).colorScheme;
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1197,7 +1189,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            // Kategorie - volle Breite
+            // Kategorie
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1227,7 +1219,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               ],
             ),
             const SizedBox(height: 16),
-            // Bezeichnung - volle Breite
+            // Bezeichnung
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1250,7 +1242,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               ],
             ),
             const SizedBox(height: 16),
-            // Geplant und Tatsächlich - nebeneinander
+            // Geplant / Tatsächlich
             Row(
               children: [
                 Expanded(
@@ -1307,6 +1299,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               ],
             ),
             const SizedBox(height: 16),
+            // Notizen
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1341,12 +1334,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ElevatedButton(
                   onPressed: _addBudgetItem,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
                   ),
-                  child: const Text(
-                    'Hinzufügen',
-                    style: TextStyle(color: Colors.white),
-                  ),
+                  child: const Text('Hinzufügen'),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
@@ -1406,7 +1397,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         ),
                       ),
                     );
-                    // Nach Rückkehr von Detail-Seite neu laden
                     _loadBudgetItems();
                   },
                   child: Container(
@@ -1490,6 +1480,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   Widget _buildBudgetItemsList() {
+    final dividerColor = Theme.of(context).dividerColor;
+
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -1529,7 +1521,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         margin: const EdgeInsets.only(bottom: 6),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey.shade200),
+                          border: Border.all(color: dividerColor),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Row(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../app_colors.dart';
 import '../data/database_helper.dart';
 
 class CategoryDetailPage extends StatefulWidget {
@@ -22,8 +21,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   bool _isLoading = true;
   double _categoryPlanned = 0.0;
   double _categoryActual = 0.0;
-  int _paidItems = 0;
 
+  // Optional: aktuell nicht genutzt, aber kannst du später verwenden
   final Map<String, String> _categoryLabels = {
     'location': 'Location & Catering',
     'catering': 'Verpflegung',
@@ -37,6 +36,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     'other': 'Sonstiges',
   };
 
+  // Basis-Farben pro Kategorie – fallen auf Theme-Farben zurück
   final Map<String, Color> _categoryColors = {
     'location': Colors.blue,
     'catering': Colors.green,
@@ -75,12 +75,12 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
       double planned = 0.0;
       double actual = 0.0;
-      int paid = 0;
 
       for (final item in categoryItems) {
-        planned += item['planned'] ?? 0.0;
-        actual += item['actual'] ?? 0.0;
-        if ((item['paid'] ?? 0) == 1) paid++;
+        final p = (item['planned'] ?? 0);
+        final a = (item['actual'] ?? 0);
+        planned += p is num ? p.toDouble() : 0.0;
+        actual += a is num ? a.toDouble() : 0.0;
       }
 
       if (mounted) {
@@ -88,12 +88,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           _categoryItems = categoryItems;
           _categoryPlanned = planned;
           _categoryActual = actual;
-          _paidItems = paid;
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('Fehler beim Laden der Kategorie-Items: $e');
+      debugPrint('Fehler beim Laden der Kategorie-Items: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -113,7 +112,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       );
       await _loadCategoryItems();
     } catch (e) {
-      print('Fehler beim Aktualisieren des Bezahlt-Status: $e');
+      debugPrint('Fehler beim Aktualisieren des Bezahlt-Status: $e');
     }
   }
 
@@ -172,7 +171,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                               ),
                               const SizedBox(height: 4),
                               TextField(
-                                keyboardType: TextInputType.number,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 decoration: const InputDecoration(
                                   border: OutlineInputBorder(),
                                   contentPadding: EdgeInsets.symmetric(
@@ -181,8 +183,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                   ),
                                   hintText: '',
                                 ),
-                                onChanged: (value) =>
-                                    newPlanned = double.tryParse(value) ?? 0.0,
+                                onChanged: (value) => newPlanned =
+                                    double.tryParse(
+                                      value.replaceAll(',', '.'),
+                                    ) ??
+                                    0.0,
                               ),
                             ],
                           ),
@@ -198,7 +203,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                               ),
                               const SizedBox(height: 4),
                               TextField(
-                                keyboardType: TextInputType.number,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 decoration: const InputDecoration(
                                   border: OutlineInputBorder(),
                                   contentPadding: EdgeInsets.symmetric(
@@ -207,8 +215,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                   ),
                                   hintText: '',
                                 ),
-                                onChanged: (value) =>
-                                    newActual = double.tryParse(value) ?? 0.0,
+                                onChanged: (value) => newActual =
+                                    double.tryParse(
+                                      value.replaceAll(',', '.'),
+                                    ) ??
+                                    0.0,
                               ),
                             ],
                           ),
@@ -255,7 +266,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(builderContext),
                   child: const Text('Abbrechen'),
                 ),
                 ElevatedButton(
@@ -269,7 +280,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       return;
                     }
 
-                    Navigator.pop(context, {
+                    Navigator.pop(builderContext, {
                       'name': newName,
                       'planned': newPlanned,
                       'actual': newActual,
@@ -314,9 +325,13 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   }
 
   Future<void> _editBudgetItemInDetail(Map<String, dynamic> item) async {
-    String editName = item['name'];
-    double editPlanned = item['planned'];
-    double editActual = item['actual'] ?? 0.0;
+    String editName = item['name'] ?? '';
+    double editPlanned = (item['planned'] is num)
+        ? (item['planned'] as num).toDouble()
+        : 0.0;
+    double editActual = (item['actual'] is num)
+        ? (item['actual'] as num).toDouble()
+        : 0.0;
     String editNotes = item['notes'] ?? '';
     bool editPaid = (item['paid'] ?? 0) == 1;
 
@@ -326,6 +341,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     final actualController = TextEditingController(
       text: editActual.toStringAsFixed(0),
     );
+    final notesController = TextEditingController(text: editNotes);
+    final nameController = TextEditingController(text: editName);
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -349,7 +366,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                         ),
                         const SizedBox(height: 4),
                         TextField(
-                          controller: TextEditingController(text: editName),
+                          controller: nameController,
                           autofocus: true,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
@@ -376,7 +393,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                               const SizedBox(height: 4),
                               TextField(
                                 controller: plannedController,
-                                keyboardType: TextInputType.number,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 decoration: const InputDecoration(
                                   border: OutlineInputBorder(),
                                   contentPadding: EdgeInsets.symmetric(
@@ -384,8 +404,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                     vertical: 8,
                                   ),
                                 ),
-                                onChanged: (value) =>
-                                    editPlanned = double.tryParse(value) ?? 0.0,
+                                onChanged: (value) => editPlanned =
+                                    double.tryParse(
+                                      value.replaceAll(',', '.'),
+                                    ) ??
+                                    0.0,
                               ),
                             ],
                           ),
@@ -402,7 +425,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                               const SizedBox(height: 4),
                               TextField(
                                 controller: actualController,
-                                keyboardType: TextInputType.number,
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
                                 decoration: const InputDecoration(
                                   border: OutlineInputBorder(),
                                   contentPadding: EdgeInsets.symmetric(
@@ -410,8 +436,11 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                     vertical: 8,
                                   ),
                                 ),
-                                onChanged: (value) =>
-                                    editActual = double.tryParse(value) ?? 0.0,
+                                onChanged: (value) => editActual =
+                                    double.tryParse(
+                                      value.replaceAll(',', '.'),
+                                    ) ??
+                                    0.0,
                               ),
                             ],
                           ),
@@ -428,7 +457,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                         ),
                         const SizedBox(height: 4),
                         TextField(
-                          controller: TextEditingController(text: editNotes),
+                          controller: notesController,
                           maxLines: 2,
                           decoration: const InputDecoration(
                             border: OutlineInputBorder(),
@@ -458,7 +487,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () => Navigator.pop(builderContext),
                   child: const Text('Abbrechen'),
                 ),
                 TextButton(
@@ -504,7 +533,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                       return;
                     }
 
-                    Navigator.pop(context, {
+                    Navigator.pop(builderContext, {
                       'name': editName,
                       'planned': editPlanned,
                       'actual': editActual,
@@ -523,7 +552,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
     if (result != null) {
       if (result['delete'] == true) {
-        await _deleteItem(item['id']);
+        await _deleteItem(item['id'] as int);
       } else {
         try {
           final db = await DatabaseHelper.instance.database;
@@ -577,7 +606,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final categoryColor = _categoryColors[widget.category] ?? AppColors.primary;
+    final scheme = Theme.of(context).colorScheme;
+    final categoryColor = _categoryColors[widget.category] ?? scheme.primary;
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
@@ -680,8 +710,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                       Row(
                                         children: [
                                           GestureDetector(
-                                            onTap: () =>
-                                                _togglePaid(item['id'], isPaid),
+                                            onTap: () => _togglePaid(
+                                              item['id'] as int,
+                                              isPaid,
+                                            ),
                                             child: Container(
                                               padding: const EdgeInsets.all(4),
                                               decoration: BoxDecoration(
@@ -702,7 +734,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: Text(
-                                              item['name'],
+                                              item['name'] ?? '',
                                               style: TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.bold,
@@ -720,7 +752,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                               if (value == 'edit') {
                                                 _editBudgetItemInDetail(item);
                                               } else if (value == 'delete') {
-                                                _deleteItem(item['id']);
+                                                _deleteItem(item['id'] as int);
                                               }
                                             },
                                             itemBuilder: (context) => const [
@@ -760,16 +792,16 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Geplant',
-                                              '€${_formatCurrency(item['planned'])}',
-                                              Colors.blue,
+                                              '€${_formatCurrency((item['planned'] is num) ? (item['planned'] as num).toDouble() : 0.0)}',
+                                              scheme.primary,
                                             ),
                                           ),
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Tatsächlich',
-                                              '€${_formatCurrency(item['actual'] ?? 0)}',
-                                              Colors.orange,
+                                              '€${_formatCurrency((item['actual'] is num) ? (item['actual'] as num).toDouble() : 0.0)}',
+                                              scheme.secondary,
                                             ),
                                           ),
                                         ],
@@ -777,6 +809,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                       if (item['notes'] != null &&
                                           item['notes']
                                               .toString()
+                                              .trim()
                                               .isNotEmpty) ...[
                                         const SizedBox(height: 12),
                                         Container(

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/wedding_models.dart';
-import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/task_donut_chart.dart';
 import '../services/excel_export_service.dart';
@@ -40,15 +39,14 @@ class _TaskPageState extends State<TaskPage>
   String _selectedFilter = 'all';
   bool _isSubmitting = false;
   Task? _editingTask;
-  String _searchQuery = ''; // NEU: Für Suchfunktion
+  String _searchQuery = '';
 
   late TabController _tabController;
   int _currentTab = 0;
 
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _searchController =
-      TextEditingController(); // NEU: Controller für Suche
+  final _searchController = TextEditingController();
   String _selectedCategory = 'other';
   String _selectedPriority = 'medium';
   DateTime? _selectedDeadline;
@@ -136,7 +134,8 @@ class _TaskPageState extends State<TaskPage>
         builder: (ctx) => AlertDialog(
           title: const Text('Warnung'),
           content: Text(
-            'Es sind bereits ${timelineTasks.length} Timeline-Aufgaben vorhanden. Möchten Sie diese löschen und die Standard-Checkliste neu erstellen?',
+            'Es sind bereits ${timelineTasks.length} Timeline-Aufgaben vorhanden. '
+            'Möchten Sie diese löschen und die Standard-Checkliste neu erstellen?',
           ),
           actions: [
             TextButton(
@@ -363,7 +362,7 @@ class _TaskPageState extends State<TaskPage>
     _tabController.dispose();
     _titleController.dispose();
     _descriptionController.dispose();
-    _searchController.dispose(); // NEU: Controller aufräumen
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -400,13 +399,11 @@ class _TaskPageState extends State<TaskPage>
     }
   }
 
-  // GEÄNDERT: Erweiterte Filter-Logik mit Suchfunktion
   List<Task> get _filteredTasks {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
     return widget.tasks.where((task) {
-      // Erst nach Filter filtern
       bool matchesFilter = false;
       switch (_selectedFilter) {
         case 'all':
@@ -428,7 +425,6 @@ class _TaskPageState extends State<TaskPage>
           matchesFilter = task.category == _selectedFilter;
       }
 
-      // Dann nach Suchbegriff filtern
       if (!matchesFilter) return false;
 
       if (_searchQuery.isEmpty) return true;
@@ -454,14 +450,12 @@ class _TaskPageState extends State<TaskPage>
         .length;
   }
 
-  // NEU: Suchfunktion
   void _handleSearch() {
     setState(() {
       _searchQuery = _searchController.text.trim();
     });
   }
 
-  // NEU: Suche zurücksetzen
   void _clearSearch() {
     setState(() {
       _searchQuery = '';
@@ -494,6 +488,8 @@ class _TaskPageState extends State<TaskPage>
   }
 
   void _showFormDialog() {
+    final scheme = Theme.of(context).colorScheme;
+
     showDialog(
       context: context,
       builder: (builderContext) => AlertDialog(
@@ -588,11 +584,11 @@ class _TaskPageState extends State<TaskPage>
               _handleSubmit();
               Navigator.pop(builderContext);
             },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: Text(
-              _editingTask != null ? 'Speichern' : 'Erstellen',
-              style: const TextStyle(color: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
             ),
+            child: Text(_editingTask != null ? 'Speichern' : 'Erstellen'),
           ),
         ],
       ),
@@ -695,7 +691,7 @@ class _TaskPageState extends State<TaskPage>
             content: Row(
               children: [
                 const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
+                SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
@@ -709,22 +705,24 @@ class _TaskPageState extends State<TaskPage>
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Column(
       children: [
         Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: Colors.grey.shade100,
+            color: scheme.surfaceVariant,
             borderRadius: BorderRadius.circular(12),
           ),
           child: TabBar(
             controller: _tabController,
             indicator: BoxDecoration(
-              color: AppColors.primary,
+              color: scheme.primary,
               borderRadius: BorderRadius.circular(10),
             ),
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.grey.shade600,
+            labelColor: scheme.onPrimary,
+            unselectedLabelColor: scheme.onSurfaceVariant,
             labelStyle: const TextStyle(fontWeight: FontWeight.bold),
             tabs: const [
               Tab(icon: Icon(Icons.assignment, size: 20), text: 'Aufgaben'),
@@ -743,6 +741,9 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Widget _buildTasksTab() {
+    final scheme = Theme.of(context).colorScheme;
+    final dividerColor = Theme.of(context).dividerColor;
+
     return Padding(
       padding: const EdgeInsets.all(8),
       child: Column(
@@ -750,7 +751,7 @@ class _TaskPageState extends State<TaskPage>
           Card(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: AppColors.cardBorder, width: 1),
+              side: BorderSide(color: dividerColor, width: 1),
             ),
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -774,7 +775,8 @@ class _TaskPageState extends State<TaskPage>
                         icon: const Icon(Icons.share, size: 20),
                         tooltip: 'Exportieren',
                         style: IconButton.styleFrom(
-                          backgroundColor: AppColors.secondary,
+                          backgroundColor: scheme.secondaryContainer,
+                          foregroundColor: scheme.onSecondaryContainer,
                         ),
                       ),
                       const SizedBox(width: 4),
@@ -783,8 +785,8 @@ class _TaskPageState extends State<TaskPage>
                         icon: const Icon(Icons.add, size: 16),
                         label: const Text('Neu'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
+                          backgroundColor: scheme.primary,
+                          foregroundColor: scheme.onPrimary,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
@@ -877,11 +879,10 @@ class _TaskPageState extends State<TaskPage>
             ),
           ),
           const SizedBox(height: 8),
-          // GEÄNDERT: Kompakte Suchfunktion
           Card(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
-              side: const BorderSide(color: AppColors.cardBorder, width: 1),
+              side: BorderSide(color: dividerColor, width: 1),
             ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -915,17 +916,15 @@ class _TaskPageState extends State<TaskPage>
                   ElevatedButton(
                     onPressed: _handleSearch,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 8,
                       ),
                       minimumSize: const Size(0, 32),
                     ),
-                    child: const Text(
-                      'Suche',
-                      style: TextStyle(color: Colors.white, fontSize: 12),
-                    ),
+                    child: const Text('Suche', style: TextStyle(fontSize: 12)),
                   ),
                 ],
               ),
@@ -1010,26 +1009,28 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Widget _buildCompactFilter() {
+    final scheme = Theme.of(context).colorScheme;
+
     return SizedBox(
       height: 35,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          _buildFilterChip('all', 'Alle'),
-          _buildFilterChip('pending', 'Offen'),
-          _buildFilterChip('completed', 'Erledigt'),
-          _buildFilterChip('overdue', 'Überfällig'),
-          _buildFilterChip('timeline', 'Checkliste'),
+          _buildFilterChip('all', 'Alle', scheme),
+          _buildFilterChip('pending', 'Offen', scheme),
+          _buildFilterChip('completed', 'Erledigt', scheme),
+          _buildFilterChip('overdue', 'Überfällig', scheme),
+          _buildFilterChip('timeline', 'Checkliste', scheme),
           ..._categoryLabels.entries
               .where((entry) => entry.key != 'timeline')
               .take(3)
-              .map((entry) => _buildFilterChip(entry.key, entry.value)),
+              .map((entry) => _buildFilterChip(entry.key, entry.value, scheme)),
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(String value, String label) {
+  Widget _buildFilterChip(String value, String label, ColorScheme scheme) {
     final isSelected = _selectedFilter == value;
     return Container(
       margin: const EdgeInsets.only(right: 6),
@@ -1037,8 +1038,8 @@ class _TaskPageState extends State<TaskPage>
         selected: isSelected,
         label: Text(label, style: const TextStyle(fontSize: 12)),
         onSelected: (selected) => setState(() => _selectedFilter = value),
-        selectedColor: AppColors.primary,
-        checkmarkColor: Colors.white,
+        selectedColor: scheme.primary,
+        checkmarkColor: scheme.onPrimary,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
@@ -1046,6 +1047,8 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Widget _buildCompactTaskCard(Task task) {
+    final dividerColor = Theme.of(context).dividerColor;
+
     final isOverdue =
         task.deadline != null &&
         task.deadline!.isBefore(DateTime.now()) &&
@@ -1055,7 +1058,7 @@ class _TaskPageState extends State<TaskPage>
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: AppColors.cardBorder, width: 1),
+        side: BorderSide(color: dividerColor, width: 1),
       ),
       margin: const EdgeInsets.only(bottom: 6),
       color: task.completed
@@ -1158,9 +1161,9 @@ class _TaskPageState extends State<TaskPage>
               ),
             ),
             PopupMenuButton<String>(
-              itemBuilder: (menuContext) => [
-                const PopupMenuItem(value: 'edit', child: Text('Bearbeiten')),
-                const PopupMenuItem(value: 'delete', child: Text('Löschen')),
+              itemBuilder: (menuContext) => const [
+                PopupMenuItem(value: 'edit', child: Text('Bearbeiten')),
+                PopupMenuItem(value: 'delete', child: Text('Löschen')),
               ],
               onSelected: (value) {
                 if (value == 'edit') {
@@ -1197,6 +1200,8 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Widget _buildTimelineTab() {
+    final scheme = Theme.of(context).colorScheme;
+
     if (widget.weddingDate == null) {
       return Center(
         child: Padding(
@@ -1238,11 +1243,11 @@ class _TaskPageState extends State<TaskPage>
           margin: const EdgeInsets.all(8),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: AppColors.background,
+            color: scheme.surface,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withOpacity(0.1),
+                color: Colors.black.withOpacity(0.03),
                 spreadRadius: 1,
                 blurRadius: 3,
               ),
@@ -1274,7 +1279,7 @@ class _TaskPageState extends State<TaskPage>
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
+                  color: scheme.primary,
                 ),
               ),
               const SizedBox(height: 4),
@@ -1293,8 +1298,8 @@ class _TaskPageState extends State<TaskPage>
                     icon: const Icon(Icons.add, size: 16),
                     label: const Text('Aufgabe'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
+                      backgroundColor: scheme.primary,
+                      foregroundColor: scheme.onPrimary,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 8,
@@ -1429,6 +1434,8 @@ class _TaskPageState extends State<TaskPage>
   }
 
   List<Map<String, dynamic>> _generateTimeline() {
+    final scheme = Theme.of(context).colorScheme;
+
     List<Map<String, dynamic>> items = [];
     if (widget.weddingDate == null) return items;
 
@@ -1454,7 +1461,7 @@ class _TaskPageState extends State<TaskPage>
       'title': 'Hochzeitstag',
       'date': weddingDate,
       'description': 'Der große Tag ist da! 🎉',
-      'color': AppColors.primary,
+      'color': scheme.primary,
       'type': 'wedding_day',
       'isCompleted': false,
     });
@@ -1468,7 +1475,7 @@ class _TaskPageState extends State<TaskPage>
     if (sectionTitle.contains('4-3')) return Colors.amber;
     if (sectionTitle.contains('2-1')) return Colors.green;
     if (sectionTitle.contains('1 Woche')) return Colors.blue;
-    if (sectionTitle.contains('große Tag')) return AppColors.primary;
+    if (sectionTitle.contains('große Tag')) return Colors.pink;
     if (sectionTitle.contains('Nach')) return Colors.purple;
     return Colors.grey;
   }
@@ -1582,6 +1589,8 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Widget _buildCompactTimelineItem(Map<String, dynamic> item) {
+    final scheme = Theme.of(context).colorScheme;
+
     final task = item['task'] as Task?;
     final isCompleted = item['isCompleted'] as bool;
     final isWeddingDay = item['type'] == 'wedding_day';
@@ -1628,7 +1637,7 @@ class _TaskPageState extends State<TaskPage>
                 width: 24,
                 height: 24,
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
+                  color: scheme.primary,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -1771,6 +1780,8 @@ class _TaskPageState extends State<TaskPage>
   }
 
   void _showTaskForm([Task? editingTask]) {
+    final scheme = Theme.of(context).colorScheme;
+
     String title = editingTask?.title ?? '';
     String description = editingTask?.description ?? '';
     DateTime? deadline = editingTask?.deadline;
@@ -1897,12 +1908,10 @@ class _TaskPageState extends State<TaskPage>
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
               ),
-              child: const Text(
-                'Speichern',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('Speichern'),
             ),
           ],
         ),
@@ -1916,7 +1925,9 @@ class _TaskPageState extends State<TaskPage>
       builder: (dialogContext) => AlertDialog(
         title: const Text('Alle Timeline-Aufgaben löschen'),
         content: const Text(
-          'Möchten Sie ALLE Timeline-Aufgaben unwiderruflich löschen?\n\nDies umfasst sowohl automatisch erstellte als auch manuell hinzugefügte Timeline-Aufgaben.',
+          'Möchten Sie ALLE Timeline-Aufgaben unwiderruflich löschen?\n\n'
+          'Dies umfasst sowohl automatisch erstellte als auch manuell '
+          'hinzugefügte Timeline-Aufgaben.',
         ),
         actions: [
           TextButton(
