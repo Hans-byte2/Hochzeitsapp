@@ -197,6 +197,57 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
     );
   }
 
+  // NEUE METHODE: Dienstleister löschen mit Bestätigung
+  Future<void> _deleteDienstleister(Dienstleister dienstleister) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Dienstleister löschen?'),
+        content: Text(
+          'Möchten Sie "${dienstleister.name}" wirklich löschen? '
+          'Dies löscht auch alle zugehörigen Zahlungen, Notizen und Aufgaben.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await DienstleisterDatabase.instance.deleteDienstleister(
+          dienstleister.id,
+        );
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${dienstleister.name} wurde gelöscht'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Fehler beim Löschen: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
   Future<void> _showExportDialog() async {
     final scheme = Theme.of(context).colorScheme;
 
@@ -989,14 +1040,29 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
+                // Bearbeiten Button
                 IconButton(
                   icon: const Icon(Icons.edit, size: 18),
+                  color: Colors.blue,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(
                     minWidth: 30,
                     minHeight: 30,
                   ),
                   onPressed: () => _showDienstleisterDialog(dienstleister),
+                  tooltip: 'Bearbeiten',
+                ),
+                // Löschen Button
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  color: Colors.red,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 30,
+                    minHeight: 30,
+                  ),
+                  onPressed: () => _deleteDienstleister(dienstleister),
+                  tooltip: 'Löschen',
                 ),
               ],
             ),
