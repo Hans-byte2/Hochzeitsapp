@@ -39,7 +39,7 @@ android {
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
 
-        // Aus local.properties via Flutter gesetzt (z. B. version: 1.0.0+3)
+        // Aus local.properties via Flutter gesetzt (z. B. version: 1.1.1+1)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
