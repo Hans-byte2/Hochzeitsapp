@@ -5,14 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../services/profile_providers.dart';
 import '../services/theme_providers.dart';
+import '../services/sync_service.dart'; // NEU
 import '../theme/theme_variant.dart';
 import '../widgets/theme_picker_grid.dart';
 
 class SettingsPage extends ConsumerWidget {
-  const SettingsPage({super.key});
+  final Future<void> Function()? onDataReloaded;
+
+  const SettingsPage({super.key, this.onDataReloaded});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -20,12 +24,19 @@ class SettingsPage extends ConsumerWidget {
       appBar: AppBar(title: const Text('Einstellungen')),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: const [
-          _Section(title: 'Profil', child: _ProfileCard()),
-          SizedBox(height: 16),
-          _Section(title: 'Erscheinungsbild', child: _AppearanceCard()),
-          SizedBox(height: 16),
-          _Section(title: 'Allgemein', child: _GeneralCard()),
+        children: [
+          const _Section(title: 'Profil', child: _ProfileCard()),
+          const SizedBox(height: 16),
+          const _Section(title: 'Erscheinungsbild', child: _AppearanceCard()),
+          const SizedBox(height: 16),
+          _Section(
+            title: 'Synchronisation',
+            child: _SyncCard(onDataReloaded: onDataReloaded),
+          ), // NEU: Callback übergeben
+          const SizedBox(height: 16),
+          const _Section(title: 'Allgemein', child: _GeneralCard()),
+          const SizedBox(height: 16),
+          const _Section(title: 'Über HeartPebble', child: _AboutCard()),
         ],
       ),
     );
@@ -125,9 +136,11 @@ class _ProfileCard extends ConsumerWidget {
 
     await ref.read(profileControllerProvider.notifier).setImagePath(file.path);
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Profilbild aktualisiert')));
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Profilbild aktualisiert')));
+    }
   }
 }
 
@@ -205,6 +218,389 @@ class _ModeChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ActionChip(label: Text(label), onPressed: onTap);
+  }
+}
+
+// ============================================================================
+// NEU: SYNC CARD - Export/Import Funktionalität
+// ============================================================================
+
+class _SyncCard extends ConsumerStatefulWidget {
+  final Future<void> Function()? onDataReloaded;
+
+  const _SyncCard({this.onDataReloaded});
+
+  @override
+  ConsumerState<_SyncCard> createState() => _SyncCardState();
+}
+
+class _SyncCardState extends ConsumerState<_SyncCard> {
+  final SyncService _syncService = SyncService();
+
+  bool _isExporting = false;
+  bool _isImporting = false;
+  String _databaseSize = '...';
+  Map<String, int> _recordCounts = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDatabaseInfo();
+  }
+
+  Future<void> _loadDatabaseInfo() async {
+    final size = await _syncService.getDatabaseSize();
+    final counts = await _syncService.countAllRecords();
+
+    if (mounted) {
+      setState(() {
+        _databaseSize = size;
+        _recordCounts = counts;
+      });
+    }
+  }
+
+  Future<void> _handleExport() async {
+    setState(() => _isExporting = true);
+
+    try {
+      // Erstelle Export-Datei (ohne Share für Dev-Testing)
+      final file = await _syncService.exportAllData();
+
+      if (mounted && file != null) {
+        // Zeige Dateipfad für Development
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Export erfolgreich! 📤'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Die Datei wurde erstellt:'),
+                const SizedBox(height: 12),
+                SelectableText(
+                  file.path,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Für Development Testing:\n'
+                  'adb pull ${file.path} ./',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Schließen'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  // Versuche zu teilen
+                  await _syncService.shareExportedData();
+                },
+                child: const Text('Teilen'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Export fehlgeschlagen'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Fehler beim Export: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
+  }
+
+  Future<void> _handleImport() async {
+    // Datei auswählen
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['heartpebble'],
+      dialogTitle: 'Backup-Datei auswählen',
+    );
+
+    if (result == null || result.files.single.path == null) {
+      return;
+    }
+
+    final filePath = result.files.single.path!;
+
+    // Bestätigung anzeigen
+    if (!mounted) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Daten importieren?'),
+        content: const Text(
+          'Die importierten Daten werden mit deinen aktuellen Daten zusammengeführt. '
+          'Neuere Einträge überschreiben ältere.\n\n'
+          'Möchtest du fortfahren?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Importieren'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isImporting = true);
+
+    try {
+      final result = await _syncService.importData(filePath, mergeData: true);
+
+      if (mounted) {
+        if (result.success) {
+          // Erfolgs-Dialog mit Details
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  SizedBox(width: 8),
+                  Text('Import erfolgreich!'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (result.statistics != null) ...[
+                    Text(result.statistics!.toDetailedString()),
+                    const SizedBox(height: 16),
+                  ],
+                  const Text(
+                    'Die App wird jetzt die Daten neu laden.',
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () async {
+                    Navigator.pop(context);
+
+                    // NEU: Trigger kompletten App-Reload via Callback
+                    if (widget.onDataReloaded != null) {
+                      debugPrint('🔄 Triggering app data reload...');
+                      await widget.onDataReloaded!();
+                    } else {
+                      // Fallback: Nur lokale DB-Info refreshen
+                      _loadDatabaseInfo();
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Hinweis: Bitte App neu starten um alle Daten zu sehen.',
+                            ),
+                            duration: Duration(seconds: 3),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.message),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Fehler beim Import: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isImporting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Datenbank Info
+        Row(
+          children: [
+            const Icon(Icons.info_outline, size: 20),
+            const SizedBox(width: 8),
+            Text('Datenbankgröße: $_databaseSize'),
+          ],
+        ),
+
+        if (_recordCounts.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              _StatChip('Gäste', _recordCounts['guests'] ?? 0),
+              _StatChip('Budget', _recordCounts['budgetItems'] ?? 0),
+              _StatChip('Aufgaben', _recordCounts['tasks'] ?? 0),
+              _StatChip('Tische', _recordCounts['tables'] ?? 0),
+              _StatChip(
+                'Dienstleister',
+                _recordCounts['serviceProviders'] ?? 0,
+              ),
+            ],
+          ),
+        ],
+
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 12),
+
+        // Export Button
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: _isExporting
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.upload),
+          title: const Text('Daten exportieren'),
+          subtitle: const Text(
+            'Teile deine Hochzeitsplanung mit deinem Partner',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          enabled: !_isExporting && !_isImporting,
+          onTap: _handleExport,
+        ),
+
+        const Divider(height: 1),
+
+        // Import Button
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: _isImporting
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.download),
+          title: const Text('Daten importieren'),
+          subtitle: const Text('Lade eine Backup-Datei von deinem Partner'),
+          trailing: const Icon(Icons.chevron_right),
+          enabled: !_isExporting && !_isImporting,
+          onTap: _handleImport,
+        ),
+      ],
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  const _StatChip(this.label, this.count);
+
+  final String label;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text('$label: $count', style: const TextStyle(fontSize: 12)),
+      visualDensity: VisualDensity.compact,
+    );
+  }
+}
+
+// ============================================================================
+// NEU: ABOUT CARD - App Info & Datenschutz
+// ============================================================================
+
+class _AboutCard extends StatelessWidget {
+  const _AboutCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.info_outline),
+          title: const Text('Version'),
+          subtitle: const Text('1.0.0'),
+        ),
+        const Divider(height: 1),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.description_outlined),
+          title: const Text('Datenschutz'),
+          subtitle: const Text('Alle Daten bleiben lokal auf deinem Gerät'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () {
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Datenschutz'),
+                content: const Text(
+                  'HeartPebble funktioniert komplett offline. '
+                  'Alle deine Daten werden nur lokal auf deinem Gerät gespeichert. '
+                  'Wir sammeln keine Daten und es gibt keine Cloud-Synchronisation.\n\n'
+                  'Beim Export erstellst du eine Datei, die du manuell teilen kannst.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
   }
 }
 

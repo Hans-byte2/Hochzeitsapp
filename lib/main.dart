@@ -126,6 +126,36 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
+  // NEU: Reload-Callback für Settings/Import
+  Future<void> _reloadAllData() async {
+    debugPrint('🔄 Reloading all data after import...');
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    await _loadData();
+
+    // Refresh auch die Keys für Budget/Tasks
+    setState(() {
+      _budgetPageKey = UniqueKey();
+      _taskPageKey = UniqueKey();
+    });
+
+    debugPrint('✅ Data reload complete!');
+
+    // Optional: Zeige kurze Bestätigung
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Daten erfolgreich aktualisiert! ✅'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
   // Callback-Funktionen für Gäste
   Future<void> _addGuest(Guest guest) async {
     try {
@@ -440,9 +470,13 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
               title: const Text('Einstellungen'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.of(
-                  context,
-                ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
+                // NEU: Übergebe Reload-Callback an SettingsPage
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        SettingsPage(onDataReloaded: _reloadAllData),
+                  ),
+                );
               },
             ),
           ],

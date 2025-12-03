@@ -112,19 +112,11 @@ class DatabaseHelper {
       'groom_name': '',
     });
 
-    // KEINE Beispiel-Budget-Einträge mehr
-    // await _insertSampleBudgetItems(db); // ← ENTFERNT
-
     // Insert default timeline milestones
     await _insertDefaultMilestones(db);
 
     // Insert default tables
     await _insertDefaultTables(db);
-  }
-
-  // Diese Funktion ist jetzt leer und wird nicht mehr aufgerufen
-  Future _insertSampleBudgetItems(Database db) async {
-    // Keine Beispiel-Einträge mehr - Budget startet leer
   }
 
   Future _insertDefaultMilestones(Database db) async {
@@ -421,6 +413,103 @@ class DatabaseHelper {
   Future<void> deleteTable(int id) async {
     final db = await instance.database;
     await db.delete('tables', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ================================
+  // SYNC HELPER METHODS
+  // ================================
+
+  /// Get Guest by ID als Map (für Sync)
+  Future<Map<String, dynamic>?> getGuestByIdRaw(int id) async {
+    final db = await database;
+    final results = await db.query('guests', where: 'id = ?', whereArgs: [id]);
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  /// Get Budget Item by ID als Map (für Sync)
+  Future<Map<String, dynamic>?> getBudgetItemByIdRaw(int id) async {
+    final db = await database;
+    final results = await db.query(
+      'budget_items',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  /// Get Task by ID als Map (für Sync)
+  Future<Map<String, dynamic>?> getTaskByIdRaw(int id) async {
+    final db = await database;
+    final results = await db.query('tasks', where: 'id = ?', whereArgs: [id]);
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  /// Get Table by ID als Map (für Sync)
+  Future<Map<String, dynamic>?> getTableByIdRaw(int id) async {
+    final db = await database;
+    final results = await db.query('tables', where: 'id = ?', whereArgs: [id]);
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  /// Get Service Provider by ID als Map (für Sync)
+  Future<Map<String, dynamic>?> getServiceProviderByIdRaw(int id) async {
+    final db = await database;
+    final results = await db.query(
+      'service_providers',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  /// Insert Table (für Sync)
+  Future<void> insertTable(Map<String, dynamic> table) async {
+    final db = await database;
+    await db.insert('tables', table);
+  }
+
+  /// Insert Guest (für Sync)
+  Future<void> insertGuest(Guest guest) async {
+    final db = await database;
+    await db.insert('guests', guest.toMap());
+  }
+
+  /// Insert Task (für Sync)
+  Future<void> insertTask(Task task) async {
+    final db = await database;
+    await db.insert('tasks', task.toMap());
+  }
+
+  /// Insert Budget Item (für Sync)
+  Future<void> insertBudgetItem(Map<String, dynamic> item) async {
+    final db = await database;
+    await db.insert('budget_items', item);
+  }
+
+  /// Get all service providers (für Sync)
+  Future<List<Map<String, dynamic>>> getAllServiceProviders() async {
+    final db = await database;
+    return await db.query('service_providers');
+  }
+
+  /// Insert Service Provider (für Sync)
+  Future<void> insertServiceProvider(Map<String, dynamic> provider) async {
+    final db = await database;
+    await db.insert('service_providers', provider);
+  }
+
+  /// Update Service Provider (für Sync)
+  Future<void> updateServiceProvider(
+    int id,
+    Map<String, dynamic> provider,
+  ) async {
+    final db = await database;
+    await db.update(
+      'service_providers',
+      provider,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future close() async {
