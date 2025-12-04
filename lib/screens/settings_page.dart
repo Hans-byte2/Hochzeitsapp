@@ -264,55 +264,22 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
     setState(() => _isExporting = true);
 
     try {
-      // Erstelle Export-Datei (ohne Share für Dev-Testing)
-      final file = await _syncService.exportAllData();
+      final success = await _syncService.shareExportedData();
 
-      if (mounted && file != null) {
-        // Zeige Dateipfad für Development
-        await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Export erfolgreich! 📤'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Die Datei wurde erstellt:'),
-                const SizedBox(height: 12),
-                SelectableText(
-                  file.path,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Für Development Testing:\n'
-                  'adb pull ${file.path} ./',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Schließen'),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  // Versuche zu teilen
-                  await _syncService.shareExportedData();
-                },
-                child: const Text('Teilen'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        if (mounted) {
+      if (mounted) {
+        if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Export fehlgeschlagen'),
-              backgroundColor: Colors.red,
+              content: Text('Daten erfolgreich exportiert! 📤'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Export abgebrochen'),
+              backgroundColor: Colors.orange,
             ),
           );
         }

@@ -157,15 +157,45 @@ class SyncService {
     final tables = await _db.getAllTables();
     final sanitizedTables = tables.map((t) => _sanitizeMap(t)).toList();
 
-    // Dienstleister (mit separater Datenbank-Klasse)
+    // Dienstleister (mit allen Unter-Tabellen: Zahlungen, Notizen, Aufgaben)
     List<Map<String, dynamic>> dienstleister = [];
     try {
       final dienstleisterDb = DienstleisterDatabase.instance;
       final alleDienstleister = await dienstleisterDb.getAlleDienstleister();
-      dienstleister = alleDienstleister
-          .map((d) => _sanitizeMap(d.toMap()))
-          .toList();
-      debugPrint('✅ Exported ${dienstleister.length} Dienstleister');
+
+      debugPrint(
+        '📦 Exporting ${alleDienstleister.length} Dienstleister with sub-tables...',
+      );
+
+      // Für jeden Dienstleister auch Zahlungen, Notizen, Aufgaben exportieren
+      for (final dl in alleDienstleister) {
+        final dlMap = _sanitizeMap(dl.toMap());
+
+        // Zahlungen hinzufügen
+        final zahlungen = await dienstleisterDb.getZahlungenFuer(dl.id);
+        dlMap['zahlungen'] = zahlungen
+            .map((z) => _sanitizeMap(z.toMap()))
+            .toList();
+        debugPrint('   └─ ${dl.name}: ${zahlungen.length} Zahlungen');
+
+        // Notizen hinzufügen
+        final notizen = await dienstleisterDb.getNotizenFuer(dl.id);
+        dlMap['notizen'] = notizen.map((n) => _sanitizeMap(n.toMap())).toList();
+        debugPrint('   └─ ${dl.name}: ${notizen.length} Notizen');
+
+        // Aufgaben hinzufügen
+        final aufgaben = await dienstleisterDb.getAufgabenFuer(dl.id);
+        dlMap['aufgaben'] = aufgaben
+            .map((a) => _sanitizeMap(a.toMap()))
+            .toList();
+        debugPrint('   └─ ${dl.name}: ${aufgaben.length} Aufgaben');
+
+        dienstleister.add(dlMap);
+      }
+
+      debugPrint(
+        '✅ Exported ${dienstleister.length} Dienstleister (complete with sub-tables)',
+      );
     } catch (e) {
       debugPrint('ℹ️  Dienstleister export error (skipping): $e');
       dienstleister = [];
@@ -413,7 +443,7 @@ class SyncService {
         }
       }
 
-      // Dienstleister importieren (mit UUID-IDs)
+      // Dienstleister importieren (mit UUID-IDs und Unter-Tabellen)
       final dienstleisterDb = DienstleisterDatabase.instance;
       for (final dlMap in data.serviceProviders) {
         try {
@@ -435,24 +465,124 @@ class SyncService {
             return match;
           }).firstOrNull;
 
+          String dienstleisterId;
+
           if (existing == null) {
             // Neu erstellen - UUID aus Import übernehmen
             debugPrint('   ➕ Creating new Dienstleister...');
-            final dienstleister = Dienstleister.fromMap(dlMap);
+            final dienstleisterMapClean = Map<String, dynamic>.from(dlMap);
+            // Entferne Unter-Tabellen für Haupt-Insert
+            dienstleisterMapClean.remove('zahlungen');
+            dienstleisterMapClean.remove('notizen');
+            dienstleisterMapClean.remove('aufgaben');
+
+            final dienstleister = Dienstleister.fromMap(dienstleisterMapClean);
             await dienstleisterDb.createDienstleister(dienstleister);
-            debugPrint('   ✅ Created with ID: ${dienstleister.id}');
+            dienstleisterId = dienstleister.id;
+            debugPrint('   ✅ Created with ID: $dienstleisterId');
             providersAdded++;
-          } else if (mergeData) {
+          } else {
             // Aktualisieren - bestehende UUID beibehalten
             debugPrint(
               '   🔄 Updating existing Dienstleister ID: ${existing.id}...',
             );
             final updatedMap = Map<String, dynamic>.from(dlMap);
             updatedMap['id'] = existing.id; // Behalte bestehende UUID
+            // Entferne Unter-Tabellen für Haupt-Update
+            updatedMap.remove('zahlungen');
+            updatedMap.remove('notizen');
+            updatedMap.remove('aufgaben');
+
             final dienstleister = Dienstleister.fromMap(updatedMap);
             await dienstleisterDb.updateDienstleister(dienstleister);
-            debugPrint('   ✅ Updated Dienstleister ID: ${existing.id}');
+            dienstleisterId = existing.id;
+            debugPrint('   ✅ Updated Dienstleister ID: $dienstleisterId');
             providersUpdated++;
+          }
+
+          // Zahlungen importieren
+          if (dlMap['zahlungen'] != null) {
+            final zahlungenList = dlMap['zahlungen'] as List;
+            debugPrint('   💰 Importing ${zahlungenList.length} Zahlungen...');
+
+            // Lösche alte Zahlungen für diesen Dienstleister
+            final oldZahlungen = await dienstleisterDb.getZahlungenFuer(
+              dienstleisterId,
+            );
+            for (final z in oldZahlungen) {
+              await dienstleisterDb.deleteZahlung(z.id);
+            }
+
+            // Erstelle neue Zahlungen
+            for (final zahlungMap in zahlungenList) {
+              try {
+                final zahlung = DienstleisterZahlung.fromMap({
+                  ...zahlungMap,
+                  'dienstleister_id':
+                      dienstleisterId, // Verbinde mit Dienstleister
+                });
+                await dienstleisterDb.createZahlung(zahlung);
+              } catch (e) {
+                debugPrint('   ⚠️  Error importing Zahlung: $e');
+              }
+            }
+            debugPrint('   ✅ Imported ${zahlungenList.length} Zahlungen');
+          }
+
+          // Notizen importieren
+          if (dlMap['notizen'] != null) {
+            final notizenList = dlMap['notizen'] as List;
+            debugPrint('   📝 Importing ${notizenList.length} Notizen...');
+
+            // Lösche alte Notizen
+            final oldNotizen = await dienstleisterDb.getNotizenFuer(
+              dienstleisterId,
+            );
+            for (final n in oldNotizen) {
+              await dienstleisterDb.deleteNotiz(n.id);
+            }
+
+            // Erstelle neue Notizen
+            for (final notizMap in notizenList) {
+              try {
+                final notiz = DienstleisterNotiz.fromMap({
+                  ...notizMap,
+                  'dienstleister_id': dienstleisterId,
+                });
+                await dienstleisterDb.createNotiz(notiz);
+              } catch (e) {
+                debugPrint('   ⚠️  Error importing Notiz: $e');
+              }
+            }
+            debugPrint('   ✅ Imported ${notizenList.length} Notizen');
+          }
+
+          // Aufgaben importieren
+          if (dlMap['aufgaben'] != null) {
+            final aufgabenList = dlMap['aufgaben'] as List;
+            debugPrint('   ✅ Importing ${aufgabenList.length} Aufgaben...');
+
+            // Lösche alte Aufgaben
+            final oldAufgaben = await dienstleisterDb.getAufgabenFuer(
+              dienstleisterId,
+            );
+            for (final a in oldAufgaben) {
+              await dienstleisterDb.deleteAufgabe(a.id);
+            }
+
+            // Erstelle neue Aufgaben
+            for (final aufgabeMap in aufgabenList) {
+              try {
+                final aufgabe = DienstleisterAufgabe.fromMap({
+                  ...aufgabeMap,
+                  'dienstleister_id': dienstleisterId,
+                });
+                await dienstleisterDb.createAufgabe(aufgabe);
+              } catch (e) {
+                debugPrint('   ⚠️  Error importing Aufgabe: $e');
+              }
+            }
+            debugPrint('   ✅ Imported ${aufgabenList.length} Aufgaben');
           }
         } catch (e) {
           debugPrint('⚠️  Error importing Dienstleister: $e');
@@ -460,7 +590,7 @@ class SyncService {
       }
 
       debugPrint(
-        '📊 Dienstleister: $providersAdded added, $providersUpdated updated',
+        '📊 Dienstleister: $providersAdded added, $providersUpdated updated (with sub-tables)',
       );
 
       return ImportStatistics(
