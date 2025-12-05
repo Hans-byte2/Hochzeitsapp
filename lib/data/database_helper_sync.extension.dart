@@ -72,7 +72,7 @@ extension SyncHelpers on DatabaseHelper {
     final db = await database;
     item['updated_at'] = DateTime.now().toIso8601String();
 
-    await db.update('budget', item, where: 'id = ?', whereArgs: [item['id']]);
+    await db.update('budget', item, where: 'id = ?', whereArgs: [item.id]);
   }
 
   // ============================================================================

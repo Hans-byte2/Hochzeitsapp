@@ -21,7 +21,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       pathString,
-      version: 4,
+      version: 5, // BUMPED: 4 → 5 (Triggers DB rebuild für Tester)
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -38,7 +38,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // Guests Table
+    // Guests Table - MIT TIMESTAMPS + SOFT DELETE
     await db.execute('''
       CREATE TABLE guests (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,11 +47,14 @@ class DatabaseHelper {
         email TEXT,
         confirmed TEXT DEFAULT 'pending',
         dietary_requirements TEXT,
-        table_number INTEGER
+        table_number INTEGER,
+        updated_at TEXT,
+        deleted INTEGER DEFAULT 0,
+        deleted_at TEXT
       )
     ''');
 
-    // Tasks Table
+    // Tasks Table - MIT TIMESTAMPS + SOFT DELETE
     await db.execute('''
       CREATE TABLE tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,11 +64,14 @@ class DatabaseHelper {
         priority TEXT DEFAULT 'medium',
         deadline TEXT,
         completed INTEGER DEFAULT 0,
-        created_date TEXT NOT NULL
+        created_date TEXT NOT NULL,
+        updated_at TEXT,
+        deleted INTEGER DEFAULT 0,
+        deleted_at TEXT
       )
     ''');
 
-    // Budget Table
+    // Budget Table - MIT TIMESTAMPS + SOFT DELETE
     await db.execute('''
       CREATE TABLE budget_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,17 +80,23 @@ class DatabaseHelper {
         actual REAL DEFAULT 0.0,
         category TEXT DEFAULT 'other',
         notes TEXT DEFAULT '',
-        paid INTEGER DEFAULT 0
+        paid INTEGER DEFAULT 0,
+        updated_at TEXT,
+        deleted INTEGER DEFAULT 0,
+        deleted_at TEXT
       )
     ''');
 
-    // Tables Table (für Tischplanung)
+    // Tables Table - MIT TIMESTAMPS + SOFT DELETE
     await db.execute('''
       CREATE TABLE tables (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         table_name TEXT NOT NULL,
         table_number INTEGER NOT NULL,
-        seats INTEGER DEFAULT 8
+        seats INTEGER DEFAULT 8,
+        updated_at TEXT,
+        deleted INTEGER DEFAULT 0,
+        deleted_at TEXT
       )
     ''');
 
@@ -101,419 +113,368 @@ class DatabaseHelper {
       )
     ''');
 
-    // Dienstleister Tabellen
+    // Dienstleister tables (external)
     await DienstleisterDatabase.createTables(db);
-
-    // Insert default wedding data
-    await db.insert('wedding_data', {
-      'id': 1,
-      'wedding_date': null,
-      'bride_name': '',
-      'groom_name': '',
-    });
-
-    // Insert default timeline milestones
-    await _insertDefaultMilestones(db);
-
-    // Insert default tables
-    await _insertDefaultTables(db);
-  }
-
-  Future _insertDefaultMilestones(Database db) async {
-    final milestones = [
-      {
-        'title': 'Standesamt, Kirche oder beides?',
-        'description': 'Entscheidung über die Art der Trauung treffen',
-        'months': 12,
-        'order': 1,
-      },
-      {
-        'title': 'Hochzeitsdatum fixieren',
-        'description': 'Finales Datum für die Hochzeit festlegen',
-        'months': 12,
-        'order': 2,
-      },
-    ];
-
-    for (final milestone in milestones) {
-      await db.insert('timeline_milestones', {
-        'title': milestone['title'],
-        'description': milestone['description'],
-        'months_before': milestone['months'],
-        'order_index': milestone['order'],
-        'is_completed': 0,
-        'created_date': DateTime.now().toIso8601String(),
-      });
-    }
-  }
-
-  Future _insertDefaultTables(Database db) async {
-    await db.insert('tables', {
-      'table_name': 'Brautpaar',
-      'table_number': 1,
-      'seats': 8,
-    });
-    await db.insert('tables', {
-      'table_name': 'Familie Braut',
-      'table_number': 2,
-      'seats': 6,
-    });
-    await db.insert('tables', {
-      'table_name': 'Familie Bräutigam',
-      'table_number': 3,
-      'seats': 6,
-    });
-    await db.insert('tables', {
-      'table_name': 'Freunde',
-      'table_number': 4,
-      'seats': 10,
-    });
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute('''
-        CREATE TABLE timeline_milestones (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          title TEXT NOT NULL,
-          description TEXT,
-          months_before INTEGER NOT NULL,
-          order_index INTEGER NOT NULL,
-          is_completed INTEGER DEFAULT 0,
-          created_date TEXT NOT NULL
-        )
-      ''');
-      await _insertDefaultMilestones(db);
-    }
+    // Für Tester: Einfach alles neu erstellen bei Version-Bump
+    if (newVersion > oldVersion) {
+      // Drop alte Tabellen
+      await db.execute('DROP TABLE IF EXISTS guests');
+      await db.execute('DROP TABLE IF EXISTS tasks');
+      await db.execute('DROP TABLE IF EXISTS budget_items');
+      await db.execute('DROP TABLE IF EXISTS tables');
 
-    if (oldVersion < 3) {
-      await DienstleisterDatabase.createTables(db);
-    }
-
-    if (oldVersion < 4) {
-      // Add tables table
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS tables (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          table_name TEXT NOT NULL,
-          table_number INTEGER NOT NULL,
-          seats INTEGER DEFAULT 8
-        )
-      ''');
-      await _insertDefaultTables(db);
-
-      // Add category, notes, paid to budget_items
-      await db
-          .execute(
-            'ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT "other"',
-          )
-          .catchError((e) {});
-      await db
-          .execute('ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT ""')
-          .catchError((e) {});
-      await db
-          .execute('ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0')
-          .catchError((e) {});
+      // Neu erstellen mit neuen Spalten
+      await _createDB(db, newVersion);
     }
   }
 
-  // ================================
-  // WEDDING DATA CRUD
-  // ================================
-
-  Future<Map<String, dynamic>?> getWeddingData() async {
-    final db = await instance.database;
-    final maps = await db.query('wedding_data', limit: 1);
-    return maps.isNotEmpty ? maps.first : null;
-  }
-
-  Future<void> updateWeddingData(
-    DateTime? date,
-    String brideName,
-    String groomName,
-  ) async {
-    final db = await instance.database;
-    await db.update(
-      'wedding_data',
-      {
-        'wedding_date': date?.toIso8601String(),
-        'bride_name': brideName,
-        'groom_name': groomName,
-      },
-      where: 'id = ?',
-      whereArgs: [1],
-    );
-  }
-
-  // ================================
-  // GUESTS CRUD
-  // ================================
-
-  Future<List<Guest>> getAllGuests() async {
-    final db = await instance.database;
-    final result = await db.query('guests');
-    return result.map((json) => Guest.fromMap(json)).toList();
-  }
+  // ================================================================
+  // GUESTS - Mit Timestamps + Soft Deletes
+  // ================================================================
 
   Future<Guest> createGuest(Guest guest) async {
-    final db = await instance.database;
-    final id = await db.insert('guests', guest.toMap());
-    return guest.copyWith(id: id);
+    final db = await database;
+
+    // Setze updated_at automatisch
+    final guestWithTimestamp = guest.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+      deleted: 0,
+    );
+
+    final id = await db.insert('guests', guestWithTimestamp.toMap());
+    return guestWithTimestamp.copyWith(id: id);
   }
 
   Future<void> updateGuest(Guest guest) async {
-    final db = await instance.database;
+    final db = await database;
+
+    // Aktualisiere updated_at
+    final guestWithTimestamp = guest.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
     await db.update(
       'guests',
-      guest.toMap(),
+      guestWithTimestamp.toMap(),
       where: 'id = ?',
       whereArgs: [guest.id],
     );
   }
 
   Future<void> deleteGuest(int id) async {
-    final db = await instance.database;
-    await db.delete('guests', where: 'id = ?', whereArgs: [id]);
+    final db = await database;
+
+    // SOFT DELETE: Markiere als gelöscht
+    await db.update(
+      'guests',
+      {
+        'deleted': 1,
+        'deleted_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
-  // ================================
-  // TASKS CRUD
-  // ================================
+  Future<List<Guest>> getAllGuests() async {
+    final db = await database;
 
-  Future<List<Task>> getAllTasks() async {
-    final db = await instance.database;
-    final result = await db.query('tasks');
-    return result.map((json) => Task.fromMap(json)).toList();
+    // Nur aktive Gäste (deleted = 0)
+    final List<Map<String, dynamic>> maps = await db.query(
+      'guests',
+      where: 'deleted = ?',
+      whereArgs: [0],
+      orderBy: 'last_name ASC, first_name ASC',
+    );
+
+    return List.generate(maps.length, (i) => Guest.fromMap(maps[i]));
   }
+
+  // Für Sync: Alle Gäste inkl. gelöschte
+  Future<List<Guest>> getAllGuestsIncludingDeleted() async {
+    final db = await database;
+
+    final List<Map<String, dynamic>> maps = await db.query(
+      'guests',
+      orderBy: 'last_name ASC, first_name ASC',
+    );
+
+    return List.generate(maps.length, (i) => Guest.fromMap(maps[i]));
+  }
+
+  // RAW für Sync-Service
+  Future<void> insertGuest(Map<String, dynamic> guestMap) async {
+    final db = await database;
+    await db.insert('guests', guestMap);
+  }
+
+  // ================================================================
+  // TASKS - Mit Timestamps + Soft Deletes
+  // ================================================================
 
   Future<Task> createTask(Task task) async {
-    final db = await instance.database;
-    final id = await db.insert('tasks', task.toMap());
-    return task.copyWith(id: id);
+    final db = await database;
+
+    final taskWithTimestamp = task.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+      deleted: 0,
+    );
+
+    final id = await db.insert('tasks', taskWithTimestamp.toMap());
+    return taskWithTimestamp.copyWith(id: id);
   }
 
   Future<void> updateTask(Task task) async {
-    final db = await instance.database;
+    final db = await database;
+
+    final taskWithTimestamp = task.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
     await db.update(
       'tasks',
-      task.toMap(),
+      taskWithTimestamp.toMap(),
       where: 'id = ?',
       whereArgs: [task.id],
     );
   }
 
   Future<void> deleteTask(int id) async {
-    final db = await instance.database;
-    await db.delete('tasks', where: 'id = ?', whereArgs: [id]);
-  }
+    final db = await database;
 
-  // ================================
-  // BUDGET CRUD
-  // ================================
-
-  Future<List<Map<String, dynamic>>> getAllBudgetItems() async {
-    final db = await instance.database;
-    return await db.query('budget_items');
-  }
-
-  Future<void> createBudgetItem(
-    String name,
-    double planned,
-    double actual,
-  ) async {
-    final db = await instance.database;
-    await db.insert('budget_items', {
-      'name': name,
-      'planned': planned,
-      'actual': actual,
-    });
-  }
-
-  Future<void> updateBudgetItem(
-    int id,
-    String name,
-    double planned,
-    double actual,
-  ) async {
-    final db = await instance.database;
+    // SOFT DELETE
     await db.update(
-      'budget_items',
-      {'name': name, 'planned': planned, 'actual': actual},
+      'tasks',
+      {
+        'deleted': 1,
+        'deleted_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
+    );
+  }
+
+  Future<List<Task>> getAllTasks() async {
+    final db = await database;
+
+    final List<Map<String, dynamic>> maps = await db.query(
+      'tasks',
+      where: 'deleted = ?',
+      whereArgs: [0],
+      orderBy: 'deadline ASC',
+    );
+
+    return List.generate(maps.length, (i) => Task.fromMap(maps[i]));
+  }
+
+  Future<List<Task>> getAllTasksIncludingDeleted() async {
+    final db = await database;
+
+    final List<Map<String, dynamic>> maps = await db.query(
+      'tasks',
+      orderBy: 'deadline ASC',
+    );
+
+    return List.generate(maps.length, (i) => Task.fromMap(maps[i]));
+  }
+
+  Future<void> insertTask(Map<String, dynamic> taskMap) async {
+    final db = await database;
+    await db.insert('tasks', taskMap);
+  }
+
+  // ================================================================
+  // BUDGET ITEMS - Mit Timestamps + Soft Deletes
+  // ================================================================
+
+  Future<BudgetItem> createBudgetItem(BudgetItem item) async {
+    final db = await database;
+
+    final itemWithTimestamp = item.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+      deleted: 0,
+    );
+
+    final id = await db.insert('budget_items', itemWithTimestamp.toMap());
+    return itemWithTimestamp.copyWith(id: id);
+  }
+
+  Future<void> updateBudgetItem(BudgetItem item) async {
+    final db = await database;
+
+    final itemWithTimestamp = item.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
+    await db.update(
+      'budget_items',
+      itemWithTimestamp.toMap(),
+      where: 'id = ?',
+      whereArgs: [item.id],
     );
   }
 
   Future<void> deleteBudgetItem(int id) async {
-    final db = await instance.database;
-    await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
-  }
+    final db = await database;
 
-  // ================================
-  // TIMELINE MILESTONES CRUD
-  // ================================
-
-  Future<List<Map<String, dynamic>>> getAllTimelineMilestones() async {
-    final db = await instance.database;
-    return await db.query('timeline_milestones', orderBy: 'order_index ASC');
-  }
-
-  Future<int> createTimelineMilestone(Map<String, dynamic> milestone) async {
-    final db = await instance.database;
-    return await db.insert('timeline_milestones', milestone);
-  }
-
-  Future<void> updateTimelineMilestone(
-    int id,
-    Map<String, dynamic> milestone,
-  ) async {
-    final db = await instance.database;
+    // SOFT DELETE
     await db.update(
-      'timeline_milestones',
-      milestone,
+      'budget_items',
+      {
+        'deleted': 1,
+        'deleted_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
   }
 
-  Future<void> deleteTimelineMilestone(int id) async {
-    final db = await instance.database;
-    await db.delete('timeline_milestones', where: 'id = ?', whereArgs: [id]);
-  }
+  Future<List<BudgetItem>> getAllBudgetItems() async {
+    final db = await database;
 
-  Future<void> toggleMilestoneComplete(int id, bool isCompleted) async {
-    final db = await instance.database;
-    await db.update(
-      'timeline_milestones',
-      {'is_completed': isCompleted ? 1 : 0},
-      where: 'id = ?',
-      whereArgs: [id],
+    final List<Map<String, dynamic>> maps = await db.query(
+      'budget_items',
+      where: 'deleted = ?',
+      whereArgs: [0],
+      orderBy: 'name ASC',
     );
+
+    return List.generate(maps.length, (i) => BudgetItem.fromMap(maps[i]));
   }
 
-  // ================================
-  // TABLES CRUD
-  // ================================
+  Future<List<BudgetItem>> getAllBudgetItemsIncludingDeleted() async {
+    final db = await database;
 
-  Future<List<Map<String, dynamic>>> getAllTables() async {
-    final db = await instance.database;
-    return await db.query('tables', orderBy: 'table_number ASC');
+    final List<Map<String, dynamic>> maps = await db.query(
+      'budget_items',
+      orderBy: 'name ASC',
+    );
+
+    return List.generate(maps.length, (i) => BudgetItem.fromMap(maps[i]));
   }
 
-  Future<int> createTable(Map<String, dynamic> table) async {
-    final db = await instance.database;
-    return await db.insert('tables', table);
+  Future<void> insertBudgetItem(Map<String, dynamic> itemMap) async {
+    final db = await database;
+    await db.insert('budget_items', itemMap);
   }
 
-  Future<void> updateTable(int id, Map<String, dynamic> table) async {
-    final db = await instance.database;
-    await db.update('tables', table, where: 'id = ?', whereArgs: [id]);
+  // ================================================================
+  // TABLES - Mit Timestamps + Soft Deletes
+  // ================================================================
+
+  Future<TableModel> createTable(TableModel table) async {
+    final db = await database;
+
+    final tableWithTimestamp = table.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+      deleted: 0,
+    );
+
+    final id = await db.insert('tables', tableWithTimestamp.toMap());
+    return tableWithTimestamp.copyWith(id: id);
+  }
+
+  Future<void> updateTable(TableModel table) async {
+    final db = await database;
+
+    final tableWithTimestamp = table.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
+    await db.update(
+      'tables',
+      tableWithTimestamp.toMap(),
+      where: 'id = ?',
+      whereArgs: [table.id],
+    );
   }
 
   Future<void> deleteTable(int id) async {
-    final db = await instance.database;
-    await db.delete('tables', where: 'id = ?', whereArgs: [id]);
-  }
-
-  // ================================
-  // SYNC HELPER METHODS
-  // ================================
-
-  /// Get Guest by ID als Map (für Sync)
-  Future<Map<String, dynamic>?> getGuestByIdRaw(int id) async {
     final db = await database;
-    final results = await db.query('guests', where: 'id = ?', whereArgs: [id]);
-    return results.isNotEmpty ? results.first : null;
-  }
 
-  /// Get Budget Item by ID als Map (für Sync)
-  Future<Map<String, dynamic>?> getBudgetItemByIdRaw(int id) async {
-    final db = await database;
-    final results = await db.query(
-      'budget_items',
+    // SOFT DELETE
+    await db.update(
+      'tables',
+      {
+        'deleted': 1,
+        'deleted_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
-    return results.isNotEmpty ? results.first : null;
   }
 
-  /// Get Task by ID als Map (für Sync)
-  Future<Map<String, dynamic>?> getTaskByIdRaw(int id) async {
+  Future<List<TableModel>> getAllTables() async {
     final db = await database;
-    final results = await db.query('tasks', where: 'id = ?', whereArgs: [id]);
-    return results.isNotEmpty ? results.first : null;
-  }
 
-  /// Get Table by ID als Map (für Sync)
-  Future<Map<String, dynamic>?> getTableByIdRaw(int id) async {
-    final db = await database;
-    final results = await db.query('tables', where: 'id = ?', whereArgs: [id]);
-    return results.isNotEmpty ? results.first : null;
-  }
-
-  /// Get Service Provider by ID als Map (für Sync)
-  Future<Map<String, dynamic>?> getServiceProviderByIdRaw(int id) async {
-    final db = await database;
-    final results = await db.query(
-      'service_providers',
-      where: 'id = ?',
-      whereArgs: [id],
+    final List<Map<String, dynamic>> maps = await db.query(
+      'tables',
+      where: 'deleted = ?',
+      whereArgs: [0],
+      orderBy: 'table_number ASC',
     );
-    return results.isNotEmpty ? results.first : null;
+
+    return List.generate(maps.length, (i) => TableModel.fromMap(maps[i]));
   }
 
-  /// Insert Table (für Sync)
-  Future<void> insertTable(Map<String, dynamic> table) async {
+  Future<List<TableModel>> getAllTablesIncludingDeleted() async {
     final db = await database;
-    await db.insert('tables', table);
+
+    final List<Map<String, dynamic>> maps = await db.query(
+      'tables',
+      orderBy: 'table_number ASC',
+    );
+
+    return List.generate(maps.length, (i) => TableModel.fromMap(maps[i]));
   }
 
-  /// Insert Guest (für Sync)
-  Future<void> insertGuest(Guest guest) async {
+  Future<void> insertTable(Map<String, dynamic> tableMap) async {
     final db = await database;
-    await db.insert('guests', guest.toMap());
+    await db.insert('tables', tableMap);
   }
 
-  /// Insert Task (für Sync)
-  Future<void> insertTask(Task task) async {
+  // ================================================================
+  // WEDDING DATA (unverändert, braucht keine Timestamps)
+  // ================================================================
+
+  Future<Map<String, dynamic>?> getWeddingData() async {
     final db = await database;
-    await db.insert('tasks', task.toMap());
+    final List<Map<String, dynamic>> maps = await db.query('wedding_data');
+    return maps.isNotEmpty ? maps.first : null;
   }
 
-  /// Insert Budget Item (für Sync)
-  Future<void> insertBudgetItem(Map<String, dynamic> item) async {
-    final db = await database;
-    await db.insert('budget_items', item);
-  }
-
-  /// Get all service providers (für Sync)
-  Future<List<Map<String, dynamic>>> getAllServiceProviders() async {
-    final db = await database;
-    return await db.query('service_providers');
-  }
-
-  /// Insert Service Provider (für Sync)
-  Future<void> insertServiceProvider(Map<String, dynamic> provider) async {
-    final db = await database;
-    await db.insert('service_providers', provider);
-  }
-
-  /// Update Service Provider (für Sync)
-  Future<void> updateServiceProvider(
-    int id,
-    Map<String, dynamic> provider,
+  Future<void> updateWeddingData(
+    DateTime date,
+    String brideName,
+    String groomName,
   ) async {
     final db = await database;
-    await db.update(
-      'service_providers',
-      provider,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
+    final existing = await getWeddingData();
 
-  Future close() async {
-    final db = await instance.database;
-    db.close();
+    if (existing == null) {
+      await db.insert('wedding_data', {
+        'wedding_date': date.toIso8601String(),
+        'bride_name': brideName,
+        'groom_name': groomName,
+      });
+    } else {
+      await db.update(
+        'wedding_data',
+        {
+          'wedding_date': date.toIso8601String(),
+          'bride_name': brideName,
+          'groom_name': groomName,
+        },
+        where: 'id = ?',
+        whereArgs: [existing['id']],
+      );
+    }
   }
 }

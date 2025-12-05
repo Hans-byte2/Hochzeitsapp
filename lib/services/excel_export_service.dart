@@ -5,7 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/wedding_models.dart';
 import '../models/dienstleister_models.dart';
-import '../models/budget_models.dart';
+/* import '../models/budget_models.dart';*/
 import '../models/table_models.dart';
 import '../data/dienstleister_database.dart';
 

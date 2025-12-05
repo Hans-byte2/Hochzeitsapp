@@ -1,3 +1,7 @@
+// lib/models/wedding_models.dart
+//
+// COMPLETE VERSION mit Timestamps + Soft Deletes
+
 // ================================
 // GUEST MODEL
 // ================================
@@ -11,6 +15,11 @@ class Guest {
   final String dietaryRequirements;
   final int? tableNumber;
 
+  // NEU: Timestamps + Soft Delete
+  final String? updatedAt;
+  final int deleted;
+  final String? deletedAt;
+
   Guest({
     this.id,
     required this.firstName,
@@ -19,6 +28,9 @@ class Guest {
     required this.confirmed,
     required this.dietaryRequirements,
     this.tableNumber,
+    this.updatedAt,
+    this.deleted = 0,
+    this.deletedAt,
   });
 
   Guest copyWith({
@@ -29,6 +41,9 @@ class Guest {
     String? confirmed,
     String? dietaryRequirements,
     int? tableNumber,
+    String? updatedAt,
+    int? deleted,
+    String? deletedAt,
   }) {
     return Guest(
       id: id ?? this.id,
@@ -38,6 +53,9 @@ class Guest {
       confirmed: confirmed ?? this.confirmed,
       dietaryRequirements: dietaryRequirements ?? this.dietaryRequirements,
       tableNumber: tableNumber ?? this.tableNumber,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deleted: deleted ?? this.deleted,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 
@@ -50,6 +68,9 @@ class Guest {
       'confirmed': confirmed,
       'dietary_requirements': dietaryRequirements,
       'table_number': tableNumber,
+      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+      'deleted': deleted,
+      'deleted_at': deletedAt,
     };
   }
 
@@ -62,8 +83,13 @@ class Guest {
       confirmed: map['confirmed'] ?? 'pending',
       dietaryRequirements: map['dietary_requirements'] ?? '',
       tableNumber: map['table_number']?.toInt(),
+      updatedAt: map['updated_at'],
+      deleted: map['deleted'] ?? 0,
+      deletedAt: map['deleted_at'],
     );
   }
+
+  bool get isDeleted => deleted == 1;
 }
 
 // ================================
@@ -80,6 +106,11 @@ class Task {
   final bool completed;
   final DateTime createdDate;
 
+  // NEU: Timestamps + Soft Delete
+  final String? updatedAt;
+  final int deleted;
+  final String? deletedAt;
+
   Task({
     this.id,
     required this.title,
@@ -89,6 +120,9 @@ class Task {
     this.deadline,
     this.completed = false,
     required this.createdDate,
+    this.updatedAt,
+    this.deleted = 0,
+    this.deletedAt,
   });
 
   Task copyWith({
@@ -100,6 +134,9 @@ class Task {
     DateTime? deadline,
     bool? completed,
     DateTime? createdDate,
+    String? updatedAt,
+    int? deleted,
+    String? deletedAt,
   }) {
     return Task(
       id: id ?? this.id,
@@ -110,6 +147,9 @@ class Task {
       deadline: deadline ?? this.deadline,
       completed: completed ?? this.completed,
       createdDate: createdDate ?? this.createdDate,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deleted: deleted ?? this.deleted,
+      deletedAt: deletedAt ?? this.deletedAt,
     );
   }
 
@@ -123,6 +163,9 @@ class Task {
       'deadline': deadline?.toIso8601String(),
       'completed': completed ? 1 : 0,
       'created_date': createdDate.toIso8601String(),
+      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+      'deleted': deleted,
+      'deleted_at': deletedAt,
     };
   }
 
@@ -138,6 +181,173 @@ class Task {
           : null,
       completed: map['completed'] == 1,
       createdDate: DateTime.parse(map['created_date']),
+      updatedAt: map['updated_at'],
+      deleted: map['deleted'] ?? 0,
+      deletedAt: map['deleted_at'],
     );
   }
+
+  bool get isDeleted => deleted == 1;
+}
+
+// ================================
+// BUDGET ITEM MODEL
+// ================================
+
+class BudgetItem {
+  final int? id;
+  final String name;
+  final double planned;
+  final double actual;
+  final String category;
+  final String notes;
+  final bool paid;
+
+  // NEU: Timestamps + Soft Delete
+  final String? updatedAt;
+  final int deleted;
+  final String? deletedAt;
+
+  BudgetItem({
+    this.id,
+    required this.name,
+    this.planned = 0.0,
+    this.actual = 0.0,
+    this.category = 'other',
+    this.notes = '',
+    this.paid = false,
+    this.updatedAt,
+    this.deleted = 0,
+    this.deletedAt,
+  });
+
+  BudgetItem copyWith({
+    int? id,
+    String? name,
+    double? planned,
+    double? actual,
+    String? category,
+    String? notes,
+    bool? paid,
+    String? updatedAt,
+    int? deleted,
+    String? deletedAt,
+  }) {
+    return BudgetItem(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      planned: planned ?? this.planned,
+      actual: actual ?? this.actual,
+      category: category ?? this.category,
+      notes: notes ?? this.notes,
+      paid: paid ?? this.paid,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deleted: deleted ?? this.deleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'planned': planned,
+      'actual': actual,
+      'category': category,
+      'notes': notes,
+      'paid': paid ? 1 : 0,
+      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+      'deleted': deleted,
+      'deleted_at': deletedAt,
+    };
+  }
+
+  factory BudgetItem.fromMap(Map<String, dynamic> map) {
+    return BudgetItem(
+      id: map['id']?.toInt(),
+      name: map['name'] ?? '',
+      planned: (map['planned'] ?? 0.0).toDouble(),
+      actual: (map['actual'] ?? 0.0).toDouble(),
+      category: map['category'] ?? 'other',
+      notes: map['notes'] ?? '',
+      paid: map['paid'] == 1,
+      updatedAt: map['updated_at'],
+      deleted: map['deleted'] ?? 0,
+      deletedAt: map['deleted_at'],
+    );
+  }
+
+  bool get isDeleted => deleted == 1;
+}
+
+// ================================
+// TABLE MODEL
+// ================================
+
+class TableModel {
+  final int? id;
+  final String tableName;
+  final int tableNumber;
+  final int seats;
+
+  // NEU: Timestamps + Soft Delete
+  final String? updatedAt;
+  final int deleted;
+  final String? deletedAt;
+
+  TableModel({
+    this.id,
+    required this.tableName,
+    required this.tableNumber,
+    this.seats = 8,
+    this.updatedAt,
+    this.deleted = 0,
+    this.deletedAt,
+  });
+
+  TableModel copyWith({
+    int? id,
+    String? tableName,
+    int? tableNumber,
+    int? seats,
+    String? updatedAt,
+    int? deleted,
+    String? deletedAt,
+  }) {
+    return TableModel(
+      id: id ?? this.id,
+      tableName: tableName ?? this.tableName,
+      tableNumber: tableNumber ?? this.tableNumber,
+      seats: seats ?? this.seats,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deleted: deleted ?? this.deleted,
+      deletedAt: deletedAt ?? this.deletedAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'table_name': tableName,
+      'table_number': tableNumber,
+      'seats': seats,
+      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+      'deleted': deleted,
+      'deleted_at': deletedAt,
+    };
+  }
+
+  factory TableModel.fromMap(Map<String, dynamic> map) {
+    return TableModel(
+      id: map['id']?.toInt(),
+      tableName: map['table_name'] ?? '',
+      tableNumber: map['table_number']?.toInt() ?? 0,
+      seats: map['seats']?.toInt() ?? 8,
+      updatedAt: map['updated_at'],
+      deleted: map['deleted'] ?? 0,
+      deletedAt: map['deleted_at'],
+    );
+  }
+
+  bool get isDeleted => deleted == 1;
 }

@@ -4,7 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
-import '../models/budget_models.dart';
+import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
@@ -17,7 +17,7 @@ class EnhancedBudgetPage extends StatefulWidget {
 }
 
 class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
-  List<Map<String, dynamic>> _budgetItems = [];
+  List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
   bool _showForm = false;
   double _totalBudget = 0.0;
@@ -232,10 +232,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   double get totalPlanned =>
-      _budgetItems.fold(0, (sum, item) => sum + (item['planned'] ?? 0));
+      _budgetItems.fold(0.0, (sum, item) => sum + item.planned);
 
   double get totalActual =>
-      _budgetItems.fold(0, (sum, item) => sum + (item['actual'] ?? 0));
+      _budgetItems.fold(0.0, (sum, item) => sum + item.actual);
 
   double get remaining => totalPlanned - totalActual;
 
@@ -243,16 +243,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     Map<String, Map<String, dynamic>> stats = {};
     for (var category in _categoryLabels.keys) {
       final items = _budgetItems
-          .where((item) => (item['category'] ?? 'other') == category)
+          .where((item) => item.category == category)
           .toList();
-      final plannedCat = items.fold(
-        0.0,
-        (sum, item) => sum + (item['planned'] ?? 0),
-      );
-      final actualCat = items.fold(
-        0.0,
-        (sum, item) => sum + (item['actual'] ?? 0),
-      );
+      final plannedCat = items.fold(0.0, (sum, item) => sum + item.planned);
+      final actualCat = items.fold(0.0, (sum, item) => sum + item.actual);
 
       stats[category] = {
         'plannedTotal': plannedCat,
@@ -320,20 +314,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  List<BudgetItem> _convertToBudgetItems() {
-    return _budgetItems.map((map) {
-      return BudgetItem(
-        id: map['id'],
-        name: map['name'] ?? '',
-        planned: (map['planned'] ?? 0).toDouble(),
-        actual: (map['actual'] ?? 0).toDouble(),
-        category: map['category'] ?? 'other',
-        notes: map['notes'] ?? '',
-        paid: (map['paid'] ?? 0) == 1,
-      );
-    }).toList();
-  }
-
   Future<void> _exportAsPdf() async {
     try {
       showDialog(
@@ -342,7 +322,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      final budgetItems = _convertToBudgetItems();
+      final budgetItems = _budgetItems;
       await PdfExportService.exportBudgetToPdf(budgetItems);
 
       if (mounted) Navigator.pop(context);
@@ -391,7 +371,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      final budgetItems = _convertToBudgetItems();
+      final budgetItems = _budgetItems;
       await ExcelExportService.exportBudgetToExcel(budgetItems);
 
       if (mounted) Navigator.pop(context);
@@ -434,13 +414,9 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   Future<void> _togglePaid(int id, bool currentPaidStatus) async {
     try {
-      final db = await DatabaseHelper.instance.database;
-      await db.update(
-        'budget_items',
-        {'paid': currentPaidStatus ? 0 : 1},
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      final item = _budgetItems.firstWhere((item) => item.id == id);
+      final updatedItem = item.copyWith(paid: !currentPaidStatus);
+      await DatabaseHelper.instance.updateBudgetItem(updatedItem);
       await _loadBudgetItems();
     } catch (e) {
       print('Fehler beim Aktualisieren des Bezahlt-Status: $e');
@@ -458,6 +434,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         'category': _selectedCategory,
         'notes': _notes,
         'paid': _isPaid ? 1 : 0,
+        'updated_at': DateTime.now().toIso8601String(), // NEU!
+        'deleted': 0, // NEU!
       });
       setState(() {
         _itemName = '';
@@ -474,20 +452,19 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     }
   }
 
-  Future<void> _editBudgetItem(Map<String, dynamic> item) async {
-    String editName = item['name'];
-    double editPlanned = item['planned']?.toDouble() ?? 0.0;
-    double editActual = item['actual']?.toDouble() ?? 0.0;
-    String editCategory = item['category'] ?? 'other';
-    String editNotes = item['notes'] ?? '';
-    bool editPaid = (item['paid'] ?? 0) == 1;
+  Future<void> _editBudgetItem(BudgetItem item) async {
+    String editName = item.name;
+    double editPlanned = item.planned;
+    double editActual = item.actual;
+    String editCategory = item.category;
+    String editNotes = item.notes;
+    bool editPaid = item.paid;
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (builderContext) {
         String dialogCategory = editCategory;
         bool dialogPaid = editPaid;
-
         final dialogScheme = Theme.of(builderContext).colorScheme;
 
         return StatefulBuilder(
@@ -498,153 +475,76 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Kategorie',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        DropdownButtonFormField<String>(
-                          value: dialogCategory,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                    DropdownButtonFormField<String>(
+                      value: dialogCategory,
+                      decoration: const InputDecoration(labelText: 'Kategorie'),
+                      items: _categoryLabels.entries
+                          .map(
+                            (e) => DropdownMenuItem(
+                              value: e.key,
+                              child: Text(e.value),
                             ),
-                          ),
-                          items: _categoryLabels.entries.map((entry) {
-                            return DropdownMenuItem(
-                              value: entry.key,
-                              child: Text(entry.value),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setDialogState(() {
-                              dialogCategory = value!;
-                              editCategory = value;
-                            });
-                          },
-                        ),
-                      ],
+                          )
+                          .toList(),
+                      onChanged: (v) => setDialogState(() {
+                        dialogCategory = v!;
+                        editCategory = v;
+                      }),
                     ),
                     const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Bezeichnung',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: TextEditingController(text: editName),
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                          ),
-                          onChanged: (value) => editName = value,
-                        ),
-                      ],
+                    TextField(
+                      controller: TextEditingController(text: editName),
+                      decoration: const InputDecoration(
+                        labelText: 'Bezeichnung',
+                      ),
+                      onChanged: (v) => editName = v,
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Geplant (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: TextEditingController(
-                                  text: editPlanned.toString(),
-                                ),
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onChanged: (value) =>
-                                    editPlanned = double.tryParse(value) ?? 0.0,
-                              ),
-                            ],
+                          child: TextField(
+                            controller: TextEditingController(
+                              text: editPlanned.toString(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Geplant (€)',
+                            ),
+                            onChanged: (v) =>
+                                editPlanned = double.tryParse(v) ?? 0.0,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Tatsächlich (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: TextEditingController(
-                                  text: editActual.toString(),
-                                ),
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onChanged: (value) =>
-                                    editActual = double.tryParse(value) ?? 0.0,
-                              ),
-                            ],
+                          child: TextField(
+                            controller: TextEditingController(
+                              text: editActual.toString(),
+                            ),
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'Tatsächlich (€)',
+                            ),
+                            onChanged: (v) =>
+                                editActual = double.tryParse(v) ?? 0.0,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notizen',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: TextEditingController(text: editNotes),
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            hintText: 'Zusätzliche Informationen',
-                          ),
-                          onChanged: (value) => editNotes = value,
-                        ),
-                      ],
+                    TextField(
+                      controller: TextEditingController(text: editNotes),
+                      decoration: const InputDecoration(labelText: 'Notizen'),
+                      onChanged: (v) => editNotes = v,
                     ),
                     const SizedBox(height: 16),
                     CheckboxListTile(
                       title: const Text('Bereits bezahlt'),
                       value: dialogPaid,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          dialogPaid = value ?? false;
-                          editPaid = value ?? false;
-                        });
-                      },
+                      onChanged: (v) => setDialogState(() {
+                        dialogPaid = v ?? false;
+                        editPaid = v ?? false;
+                      }),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ],
@@ -671,7 +571,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                       'actual': editActual,
                       'category': editCategory,
                       'notes': editNotes,
-                      'paid': editPaid ? 1 : 0,
+                      'paid': editPaid,
                     });
                   },
                   style: ElevatedButton.styleFrom(
@@ -690,7 +590,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     if (result != null) {
       if (result['delete'] == true) {
         try {
-          await DatabaseHelper.instance.deleteBudgetItem(item['id']);
+          await DatabaseHelper.instance.deleteBudgetItem(item.id!);
           await _loadBudgetItems();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -702,23 +602,15 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         }
       } else {
         try {
-          await DatabaseHelper.instance.updateBudgetItem(
-            item['id'],
-            result['name'],
-            result['planned'],
-            result['actual'],
+          final updatedItem = item.copyWith(
+            name: result['name'],
+            planned: result['planned'],
+            actual: result['actual'],
+            category: result['category'],
+            notes: result['notes'],
+            paid: result['paid'],
           );
-          final db = await DatabaseHelper.instance.database;
-          await db.update(
-            'budget_items',
-            {
-              'category': result['category'],
-              'notes': result['notes'],
-              'paid': result['paid'],
-            },
-            where: 'id = ?',
-            whereArgs: [item['id']],
-          );
+          await DatabaseHelper.instance.updateBudgetItem(updatedItem);
           await _loadBudgetItems();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1512,8 +1404,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   itemCount: _budgetItems.length,
                   itemBuilder: (context, index) {
                     final item = _budgetItems[index];
-                    final category = item['category'] ?? 'other';
-                    final isPaid = (item['paid'] ?? 0) == 1;
+                    final category = item.category ?? 'other';
+                    final isPaid = (item.paid ?? 0) == 1;
 
                     return InkWell(
                       onTap: () => _editBudgetItem(item),
@@ -1527,7 +1419,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         child: Row(
                           children: [
                             GestureDetector(
-                              onTap: () => _togglePaid(item['id'], isPaid),
+                              onTap: () => _togglePaid(item.id!, isPaid),
                               child: Icon(
                                 isPaid
                                     ? Icons.check_circle
@@ -1544,7 +1436,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    item['name'],
+                                    item.name,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w600,
                                       fontSize: 12,
@@ -1591,14 +1483,12 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                                           ),
                                         ),
                                       ),
-                                      if (item['notes'] != null &&
-                                          item['notes']
-                                              .toString()
-                                              .isNotEmpty) ...[
+                                      if (item.notes != null &&
+                                          item.notes.toString().isNotEmpty) ...[
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: Text(
-                                            item['notes'],
+                                            item.notes,
                                             style: const TextStyle(
                                               fontSize: 8,
                                               color: Colors.grey,
@@ -1617,7 +1507,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  '€${_formatCurrency(item['actual'] ?? 0)}',
+                                  '€${_formatCurrency(item.actual ?? 0)}',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.black87,
@@ -1625,7 +1515,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                                   ),
                                 ),
                                 Text(
-                                  'geplant: €${_formatCurrency(item['planned'])}',
+                                  'geplant: €${_formatCurrency(item.planned)}',
                                   style: const TextStyle(
                                     fontSize: 10,
                                     color: Colors.grey,

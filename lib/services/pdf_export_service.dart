@@ -5,7 +5,7 @@ import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/wedding_models.dart';
 import '../models/dienstleister_models.dart';
-import '../models/budget_models.dart'; // ← HINZUFÜGEN
+/*import '../models/budget_models.dart'; // ← HINZUFÜGEN */
 import '../models/table_models.dart'; // ← HINZUFÜGEN
 
 class PdfExportService {

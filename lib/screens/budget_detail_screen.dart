@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/database_helper.dart';
+import '../models/wedding_models.dart';
 
 class CategoryDetailPage extends StatefulWidget {
   final String category;
@@ -17,7 +18,7 @@ class CategoryDetailPage extends StatefulWidget {
 }
 
 class _CategoryDetailPageState extends State<CategoryDetailPage> {
-  List<Map<String, dynamic>> _categoryItems = [];
+  List<BudgetItem> _categoryItems = [];
   bool _isLoading = true;
   double _categoryPlanned = 0.0;
   double _categoryActual = 0.0;
@@ -70,15 +71,15 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
       final allItems = await DatabaseHelper.instance.getAllBudgetItems();
       final categoryItems = allItems
-          .where((item) => (item['category'] ?? 'other') == widget.category)
+          .where((item) => (item.category ?? 'other') == widget.category)
           .toList();
 
       double planned = 0.0;
       double actual = 0.0;
 
       for (final item in categoryItems) {
-        final p = (item['planned'] ?? 0);
-        final a = (item['actual'] ?? 0);
+        final p = item.planned;
+        final a = item.actual;
         planned += p is num ? p.toDouble() : 0.0;
         actual += a is num ? a.toDouble() : 0.0;
       }
@@ -307,6 +308,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           'category': widget.category,
           'notes': result['notes'] ?? '',
           'paid': result['paid'] ? 1 : 0,
+          'updated_at': DateTime.now().toIso8601String(), // NEU!
+          'deleted': 0, // NEU!
         });
         await _loadCategoryItems();
         if (mounted) {
@@ -324,16 +327,16 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
     }
   }
 
-  Future<void> _editBudgetItemInDetail(Map<String, dynamic> item) async {
-    String editName = item['name'] ?? '';
-    double editPlanned = (item['planned'] is num)
-        ? (item['planned'] as num).toDouble()
+  Future<void> _editBudgetItemInDetail(BudgetItem item) async {
+    String editName = item.name ?? '';
+    double editPlanned = (item.planned is num)
+        ? (item.planned as num).toDouble()
         : 0.0;
-    double editActual = (item['actual'] is num)
-        ? (item['actual'] as num).toDouble()
+    double editActual = (item.actual is num)
+        ? (item.actual as num).toDouble()
         : 0.0;
-    String editNotes = item['notes'] ?? '';
-    bool editPaid = (item['paid'] ?? 0) == 1;
+    String editNotes = item.notes ?? '';
+    bool editPaid = (item.paid ?? 0) == 1;
 
     final plannedController = TextEditingController(
       text: editPlanned.toStringAsFixed(0),
@@ -552,7 +555,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
     if (result != null) {
       if (result['delete'] == true) {
-        await _deleteItem(item['id'] as int);
+        await _deleteItem(item.id as int);
       } else {
         try {
           final db = await DatabaseHelper.instance.database;
@@ -566,7 +569,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
               'paid': result['paid'] ? 1 : 0,
             },
             where: 'id = ?',
-            whereArgs: [item['id']],
+            whereArgs: [item.id],
           );
           await _loadCategoryItems();
           if (mounted) {
@@ -690,7 +693,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                           itemCount: _categoryItems.length,
                           itemBuilder: (context, index) {
                             final item = _categoryItems[index];
-                            final isPaid = (item['paid'] ?? 0) == 1;
+                            final isPaid = (item.paid ?? 0) == 1;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -711,7 +714,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                         children: [
                                           GestureDetector(
                                             onTap: () => _togglePaid(
-                                              item['id'] as int,
+                                              item.id as int,
                                               isPaid,
                                             ),
                                             child: Container(
@@ -734,7 +737,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: Text(
-                                              item['name'] ?? '',
+                                              item.name ?? '',
                                               style: TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.bold,
@@ -752,7 +755,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                               if (value == 'edit') {
                                                 _editBudgetItemInDetail(item);
                                               } else if (value == 'delete') {
-                                                _deleteItem(item['id'] as int);
+                                                _deleteItem(item.id as int);
                                               }
                                             },
                                             itemBuilder: (context) => const [
@@ -792,7 +795,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Geplant',
-                                              '€${_formatCurrency((item['planned'] is num) ? (item['planned'] as num).toDouble() : 0.0)}',
+                                              '€${_formatCurrency((item.planned is num) ? (item.planned as num).toDouble() : 0.0)}',
                                               scheme.primary,
                                             ),
                                           ),
@@ -800,14 +803,14 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Tatsächlich',
-                                              '€${_formatCurrency((item['actual'] is num) ? (item['actual'] as num).toDouble() : 0.0)}',
+                                              '€${_formatCurrency((item.actual is num) ? (item.actual as num).toDouble() : 0.0)}',
                                               scheme.secondary,
                                             ),
                                           ),
                                         ],
                                       ),
-                                      if (item['notes'] != null &&
-                                          item['notes']
+                                      if (item.notes != null &&
+                                          item.notes
                                               .toString()
                                               .trim()
                                               .isNotEmpty) ...[
@@ -835,7 +838,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                               ),
                                               const SizedBox(height: 4),
                                               Text(
-                                                item['notes'],
+                                                item.notes,
                                                 style: const TextStyle(
                                                   fontSize: 14,
                                                 ),

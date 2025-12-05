@@ -4,7 +4,7 @@ import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
 import 'dart:io';
-
+import '../models/wedding_models.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/profile_providers.dart';
 
@@ -41,7 +41,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  List<Map<String, dynamic>> _budgetItems = [];
+  List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
 
   Map<String, dynamic> _stats = {
@@ -89,8 +89,8 @@ class _DashboardPageState extends State<DashboardPage> {
     double actualTotal = 0.0;
 
     for (final item in _budgetItems) {
-      plannedTotal += item['planned'] ?? 0.0;
-      actualTotal += item['actual'] ?? 0.0;
+      plannedTotal += item.planned;
+      actualTotal += item.actual;
     }
 
     double paidAmount = actualTotal * 0.6;
