@@ -3,6 +3,7 @@ import '../models/wedding_models.dart';
 import '../data/database_helper.dart';
 import '../widgets/task_donut_chart.dart';
 import '../services/excel_export_service.dart';
+import '../services/calendar_export_service.dart'; //
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -111,6 +112,63 @@ class _TaskPageState extends State<TaskPage>
         widget.onClearSelectedTask!();
       }
     }
+  }
+
+  Future<void> _showExportDialog() async {
+    if (widget.tasks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Keine Aufgaben zum Exportieren vorhanden'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Aufgaben exportieren'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(
+                Icons.table_chart,
+                color: Colors.green,
+                size: 32,
+              ),
+              title: const Text('Als Excel exportieren'),
+              subtitle: const Text('Alle Aufgaben mit Details'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportAsExcel();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(
+                Icons.calendar_today,
+                color: Colors.blue,
+                size: 32,
+              ),
+              title: const Text('In Kalender exportieren'),
+              subtitle: const Text('Alle Aufgaben mit Deadlines'),
+              onTap: () {
+                Navigator.pop(context);
+                _exportToCalendar(onlyTimeline: false);
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Abbrechen'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _initializeDefaultMilestonesManually() async {
@@ -621,7 +679,7 @@ class _TaskPageState extends State<TaskPage>
     widget.onUpdateTask(updatedTask);
   }
 
-  Future<void> _showExportDialog() async {
+  /* Future<void> _showExportDialog() async {
     if (widget.tasks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -653,7 +711,7 @@ class _TaskPageState extends State<TaskPage>
         ],
       ),
     );
-  }
+  } */
 
   Future<void> _exportAsExcel() async {
     try {
@@ -693,6 +751,94 @@ class _TaskPageState extends State<TaskPage>
                 const Icon(Icons.error, color: Colors.white),
                 SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportToCalendar({bool onlyTimeline = false}) async {
+    try {
+      final tasksToExport = onlyTimeline
+          ? widget.tasks.where((t) => t.category == 'timeline').toList()
+          : widget.tasks;
+
+      if (tasksToExport.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              onlyTimeline
+                  ? 'Keine Timeline-Aufgaben zum Exportieren vorhanden'
+                  : 'Keine Aufgaben zum Exportieren vorhanden',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      final tasksWithDeadline = tasksToExport
+          .where((t) => t.deadline != null)
+          .toList();
+
+      if (tasksWithDeadline.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Keine Aufgaben mit Deadlines zum Exportieren'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      await CalendarExportService.exportTasksToCalendar(
+        tasks: tasksWithDeadline,
+        brideName: widget.brideName,
+        groomName: widget.groomName,
+      );
+
+      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '${tasksWithDeadline.length} Aufgaben als Kalender-Datei exportiert',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Fehler beim Export: $e')),
               ],
             ),
             backgroundColor: Colors.red,
@@ -1319,6 +1465,21 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ),
                   ),
+                  // In der Wrap-Widget Sektion, nach dem "Checkliste" Button:
+                  ElevatedButton.icon(
+                    onPressed: () => _exportToCalendar(onlyTimeline: true),
+                    icon: const Icon(Icons.calendar_month, size: 16),
+                    label: const Text('Kalender'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+
                   IconButton(
                     onPressed: _showResetTimelineTasksDialog,
                     icon: const Icon(Icons.delete_sweep, size: 20),
