@@ -3,7 +3,7 @@ import '../models/wedding_models.dart';
 import '../data/database_helper.dart';
 import '../widgets/task_donut_chart.dart';
 import '../services/excel_export_service.dart';
-import '../services/calendar_export_service.dart'; //
+import '../services/calendar_export_service.dart';
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -153,10 +153,10 @@ class _TaskPageState extends State<TaskPage>
                 size: 32,
               ),
               title: const Text('In Kalender exportieren'),
-              subtitle: const Text('Alle Aufgaben mit Deadlines'),
+              subtitle: const Text('Mit konfigurierbaren Erinnerungen'),
               onTap: () {
                 Navigator.pop(context);
-                _exportToCalendar(onlyTimeline: false);
+                _showCalendarExportOptionsDialog(onlyTimeline: false);
               },
             ),
           ],
@@ -167,6 +167,196 @@ class _TaskPageState extends State<TaskPage>
             child: const Text('Abbrechen'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showCalendarExportOptionsDialog({
+    required bool onlyTimeline,
+  }) async {
+    final tasksToConsider = onlyTimeline
+        ? widget.tasks.where((t) => t.category == 'timeline').toList()
+        : widget.tasks;
+
+    if (tasksToConsider.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            onlyTimeline
+                ? 'Keine Timeline-Aufgaben zum Exportieren vorhanden'
+                : 'Keine Aufgaben zum Exportieren vorhanden',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // State variables for dialog
+    bool onlyOpenTasks = false;
+    Set<String> selectedReminders = {'1day'}; // Default: 1 Tag vorher
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Kalender-Export konfigurieren'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Filter-Optionen
+                  const Text(
+                    'Aufgaben-Filter',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    title: const Text('Nur offene Aufgaben'),
+                    subtitle: const Text('Erledigte Aufgaben ausschließen'),
+                    value: onlyOpenTasks,
+                    onChanged: (value) {
+                      setDialogState(() {
+                        onlyOpenTasks = value ?? false;
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                  ),
+                  const Divider(height: 24),
+
+                  // Erinnerungs-Optionen
+                  const Text(
+                    'Erinnerungen',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Wählen Sie, wann Sie erinnert werden möchten:',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+
+                  CheckboxListTile(
+                    title: const Text('1 Tag vorher'),
+                    value: selectedReminders.contains('1day'),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        if (value == true) {
+                          selectedReminders.add('1day');
+                        } else {
+                          selectedReminders.remove('1day');
+                        }
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                  ),
+                  CheckboxListTile(
+                    title: const Text('3 Tage vorher'),
+                    value: selectedReminders.contains('3days'),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        if (value == true) {
+                          selectedReminders.add('3days');
+                        } else {
+                          selectedReminders.remove('3days');
+                        }
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                  ),
+                  CheckboxListTile(
+                    title: const Text('1 Woche vorher'),
+                    value: selectedReminders.contains('1week'),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        if (value == true) {
+                          selectedReminders.add('1week');
+                        } else {
+                          selectedReminders.remove('1week');
+                        }
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                  ),
+                  CheckboxListTile(
+                    title: const Text('2 Wochen vorher'),
+                    value: selectedReminders.contains('2weeks'),
+                    onChanged: (value) {
+                      setDialogState(() {
+                        if (value == true) {
+                          selectedReminders.add('2weeks');
+                        } else {
+                          selectedReminders.remove('2weeks');
+                        }
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    dense: true,
+                  ),
+
+                  if (selectedReminders.isEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.orange,
+                            size: 20,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Keine Erinnerungen ausgewählt',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Abbrechen'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  _exportToCalendar(
+                    onlyTimeline: onlyTimeline,
+                    onlyOpenTasks: onlyOpenTasks,
+                    reminderOptions: selectedReminders.toList(),
+                  );
+                },
+                icon: const Icon(Icons.download, size: 18),
+                label: const Text('Exportieren'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -679,40 +869,6 @@ class _TaskPageState extends State<TaskPage>
     widget.onUpdateTask(updatedTask);
   }
 
-  /* Future<void> _showExportDialog() async {
-    if (widget.tasks.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Keine Aufgaben zum Exportieren vorhanden'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Aufgaben exportieren'),
-        content: ListTile(
-          leading: const Icon(Icons.table_chart, color: Colors.green, size: 32),
-          title: const Text('Als Excel exportieren'),
-          subtitle: const Text('Alle Aufgaben mit Details'),
-          onTap: () {
-            Navigator.pop(context);
-            _exportAsExcel();
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen'),
-          ),
-        ],
-      ),
-    );
-  } */
-
   Future<void> _exportAsExcel() async {
     try {
       showDialog(
@@ -749,7 +905,7 @@ class _TaskPageState extends State<TaskPage>
             content: Row(
               children: [
                 const Icon(Icons.error, color: Colors.white),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
@@ -761,34 +917,35 @@ class _TaskPageState extends State<TaskPage>
     }
   }
 
-  Future<void> _exportToCalendar({bool onlyTimeline = false}) async {
+  Future<void> _exportToCalendar({
+    required bool onlyTimeline,
+    bool onlyOpenTasks = false,
+    List<String> reminderOptions = const ['1day'],
+  }) async {
     try {
-      final tasksToExport = onlyTimeline
+      // Filter tasks based on options
+      List<Task> tasksToExport = onlyTimeline
           ? widget.tasks.where((t) => t.category == 'timeline').toList()
           : widget.tasks;
 
-      if (tasksToExport.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              onlyTimeline
-                  ? 'Keine Timeline-Aufgaben zum Exportieren vorhanden'
-                  : 'Keine Aufgaben zum Exportieren vorhanden',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        return;
+      // Apply open tasks filter
+      if (onlyOpenTasks) {
+        tasksToExport = tasksToExport.where((t) => !t.completed).toList();
       }
 
+      // Filter tasks with deadlines
       final tasksWithDeadline = tasksToExport
           .where((t) => t.deadline != null)
           .toList();
 
       if (tasksWithDeadline.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Keine Aufgaben mit Deadlines zum Exportieren'),
+          SnackBar(
+            content: Text(
+              onlyOpenTasks
+                  ? 'Keine offenen Aufgaben mit Deadlines zum Exportieren'
+                  : 'Keine Aufgaben mit Deadlines zum Exportieren',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -805,6 +962,7 @@ class _TaskPageState extends State<TaskPage>
         tasks: tasksWithDeadline,
         brideName: widget.brideName,
         groomName: widget.groomName,
+        reminderOptions: reminderOptions,
       );
 
       if (mounted) Navigator.pop(context);
@@ -1465,9 +1623,9 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ),
                   ),
-                  // In der Wrap-Widget Sektion, nach dem "Checkliste" Button:
                   ElevatedButton.icon(
-                    onPressed: () => _exportToCalendar(onlyTimeline: true),
+                    onPressed: () =>
+                        _showCalendarExportOptionsDialog(onlyTimeline: true),
                     icon: const Icon(Icons.calendar_month, size: 16),
                     label: const Text('Kalender'),
                     style: ElevatedButton.styleFrom(
@@ -1479,7 +1637,6 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ),
                   ),
-
                   IconButton(
                     onPressed: _showResetTimelineTasksDialog,
                     icon: const Icon(Icons.delete_sweep, size: 20),
