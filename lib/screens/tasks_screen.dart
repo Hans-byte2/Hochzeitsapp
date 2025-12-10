@@ -4,6 +4,8 @@ import '../data/database_helper.dart';
 import '../widgets/task_donut_chart.dart';
 import '../services/excel_export_service.dart';
 import '../services/calendar_export_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../utils/category_utils.dart';
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -48,23 +50,11 @@ class _TaskPageState extends State<TaskPage>
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _searchController = TextEditingController();
+  final _locationController = TextEditingController();
   String _selectedCategory = 'other';
   String _selectedPriority = 'medium';
   DateTime? _selectedDeadline;
   List<Map<String, dynamic>> _timelineMilestones = [];
-
-  final Map<String, String> _categoryLabels = {
-    'location': 'Location',
-    'catering': 'Catering',
-    'decoration': 'Dekoration',
-    'clothing': 'Kleidung',
-    'documentation': 'Dokumente',
-    'music': 'Musik',
-    'photography': 'Fotografie',
-    'flowers': 'Blumen',
-    'timeline': 'Timeline',
-    'other': 'Sonstiges',
-  };
 
   final Map<String, String> _priorityLabels = {
     'high': 'Hoch',
@@ -192,9 +182,8 @@ class _TaskPageState extends State<TaskPage>
       return;
     }
 
-    // State variables for dialog
     bool onlyOpenTasks = false;
-    Set<String> selectedReminders = {'1day'}; // Default: 1 Tag vorher
+    Set<String> selectedReminders = {'1day'};
 
     await showDialog(
       context: context,
@@ -207,7 +196,6 @@ class _TaskPageState extends State<TaskPage>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Filter-Optionen
                   const Text(
                     'Aufgaben-Filter',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -226,8 +214,6 @@ class _TaskPageState extends State<TaskPage>
                     dense: true,
                   ),
                   const Divider(height: 24),
-
-                  // Erinnerungs-Optionen
                   const Text(
                     'Erinnerungen',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -238,7 +224,6 @@ class _TaskPageState extends State<TaskPage>
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
-
                   CheckboxListTile(
                     title: const Text('1 Tag vorher'),
                     value: selectedReminders.contains('1day'),
@@ -299,7 +284,6 @@ class _TaskPageState extends State<TaskPage>
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                   ),
-
                   if (selectedReminders.isEmpty) ...[
                     const SizedBox(height: 8),
                     Container(
@@ -611,6 +595,7 @@ class _TaskPageState extends State<TaskPage>
     _titleController.dispose();
     _descriptionController.dispose();
     _searchController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -680,9 +665,10 @@ class _TaskPageState extends State<TaskPage>
       final query = _searchQuery.toLowerCase();
       return task.title.toLowerCase().contains(query) ||
           task.description.toLowerCase().contains(query) ||
-          (_categoryLabels[task.category] ?? task.category)
+          (CategoryUtils.categoryLabels[task.category] ?? task.category)
               .toLowerCase()
-              .contains(query);
+              .contains(query) ||
+          task.location.toLowerCase().contains(query);
     }).toList();
   }
 
@@ -716,6 +702,7 @@ class _TaskPageState extends State<TaskPage>
       _editingTask = null;
       _titleController.clear();
       _descriptionController.clear();
+      _locationController.clear();
       _selectedCategory = 'other';
       _selectedPriority = 'medium';
       _selectedDeadline = null;
@@ -728,6 +715,7 @@ class _TaskPageState extends State<TaskPage>
       _editingTask = task;
       _titleController.text = task.title;
       _descriptionController.text = task.description;
+      _locationController.text = task.location;
       _selectedCategory = task.category;
       _selectedPriority = task.priority;
       _selectedDeadline = task.deadline;
@@ -756,14 +744,30 @@ class _TaskPageState extends State<TaskPage>
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Kategorie',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: Icon(
+                    CategoryUtils.getCategoryIcon(_selectedCategory),
+                    color: CategoryUtils.getCategoryColor(_selectedCategory),
+                  ),
                 ),
-                items: _categoryLabels.entries
+                items: CategoryUtils.categoryLabels.entries
                     .map(
-                      (e) =>
-                          DropdownMenuItem(value: e.key, child: Text(e.value)),
+                      (e) => DropdownMenuItem(
+                        value: e.key,
+                        child: Row(
+                          children: [
+                            Icon(
+                              CategoryUtils.getCategoryIcon(e.key),
+                              color: CategoryUtils.getCategoryColor(e.key),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(e.value),
+                          ],
+                        ),
+                      ),
                     )
                     .toList(),
                 onChanged: (value) =>
@@ -793,6 +797,27 @@ class _TaskPageState extends State<TaskPage>
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _locationController,
+                decoration: InputDecoration(
+                  labelText: 'Ort',
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.place),
+                  suffixIcon: _locationController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.map, color: Colors.blue),
+                          onPressed: () {
+                            _openInGoogleMaps(_locationController.text);
+                          },
+                          tooltip: 'In Google Maps öffnen',
+                        )
+                      : null,
+                ),
+                onChanged: (value) {
+                  setState(() {});
+                },
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -855,6 +880,7 @@ class _TaskPageState extends State<TaskPage>
       deadline: _selectedDeadline,
       completed: _editingTask?.completed ?? false,
       createdDate: _editingTask?.createdDate ?? DateTime.now(),
+      location: _locationController.text,
     );
 
     if (_editingTask != null) {
@@ -867,6 +893,29 @@ class _TaskPageState extends State<TaskPage>
   void _toggleTaskComplete(Task task) {
     final updatedTask = task.copyWith(completed: !task.completed);
     widget.onUpdateTask(updatedTask);
+  }
+
+  Future<void> _openInGoogleMaps(String location) async {
+    if (location.isEmpty) return;
+
+    final encodedLocation = Uri.encodeComponent(location);
+    final googleMapsUrl =
+        'https://www.google.com/maps/search/?api=1&query=$encodedLocation';
+
+    final uri = Uri.parse(googleMapsUrl);
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Google Maps konnte nicht geöffnet werden'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _exportAsExcel() async {
@@ -923,17 +972,14 @@ class _TaskPageState extends State<TaskPage>
     List<String> reminderOptions = const ['1day'],
   }) async {
     try {
-      // Filter tasks based on options
       List<Task> tasksToExport = onlyTimeline
           ? widget.tasks.where((t) => t.category == 'timeline').toList()
           : widget.tasks;
 
-      // Apply open tasks filter
       if (onlyOpenTasks) {
         tasksToExport = tasksToExport.where((t) => !t.completed).toList();
       }
 
-      // Filter tasks with deadlines
       final tasksWithDeadline = tasksToExport
           .where((t) => t.deadline != null)
           .toList();
@@ -1325,9 +1371,8 @@ class _TaskPageState extends State<TaskPage>
           _buildFilterChip('completed', 'Erledigt', scheme),
           _buildFilterChip('overdue', 'Überfällig', scheme),
           _buildFilterChip('timeline', 'Checkliste', scheme),
-          ..._categoryLabels.entries
+          ...CategoryUtils.categoryLabels.entries
               .where((entry) => entry.key != 'timeline')
-              .take(3)
               .map((entry) => _buildFilterChip(entry.key, entry.value, scheme)),
         ],
       ),
@@ -1336,14 +1381,31 @@ class _TaskPageState extends State<TaskPage>
 
   Widget _buildFilterChip(String value, String label, ColorScheme scheme) {
     final isSelected = _selectedFilter == value;
+    final categoryColor = CategoryUtils.categoryLabels.containsKey(value)
+        ? CategoryUtils.getCategoryColor(value)
+        : null;
+
     return Container(
       margin: const EdgeInsets.only(right: 6),
       child: FilterChip(
         selected: isSelected,
-        label: Text(label, style: const TextStyle(fontSize: 12)),
+        label: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (categoryColor != null && isSelected) ...[
+              Icon(
+                CategoryUtils.getCategoryIcon(value),
+                size: 14,
+                color: Colors.white,
+              ),
+              const SizedBox(width: 4),
+            ],
+            Text(label, style: const TextStyle(fontSize: 12)),
+          ],
+        ),
         onSelected: (selected) => setState(() => _selectedFilter = value),
-        selectedColor: scheme.primary,
-        checkmarkColor: scheme.onPrimary,
+        selectedColor: categoryColor ?? scheme.primary,
+        checkmarkColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
@@ -1358,18 +1420,23 @@ class _TaskPageState extends State<TaskPage>
         task.deadline!.isBefore(DateTime.now()) &&
         !task.completed;
     final isTimelineTask = task.category == 'timeline';
+    final categoryColor = CategoryUtils.getCategoryColor(task.category);
+    final categoryLightColor = CategoryUtils.getCategoryLightColor(
+      task.category,
+    );
 
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: dividerColor, width: 1),
+        side: BorderSide(
+          color: task.completed
+              ? Colors.green.withOpacity(0.3)
+              : categoryColor.withOpacity(0.3),
+          width: 1.5,
+        ),
       ),
       margin: const EdgeInsets.only(bottom: 6),
-      color: task.completed
-          ? Colors.green.shade50
-          : isTimelineTask
-          ? Colors.amber.shade50
-          : Colors.white,
+      color: task.completed ? Colors.green.shade50 : categoryLightColor,
       child: Padding(
         padding: const EdgeInsets.all(10),
         child: Row(
@@ -1378,7 +1445,7 @@ class _TaskPageState extends State<TaskPage>
               onTap: () => _toggleTaskComplete(task),
               child: Icon(
                 task.completed ? Icons.check_circle : Icons.circle_outlined,
-                color: task.completed ? Colors.green : Colors.grey,
+                color: task.completed ? Colors.green : categoryColor,
                 size: 20,
               ),
             ),
@@ -1389,6 +1456,12 @@ class _TaskPageState extends State<TaskPage>
                 children: [
                   Row(
                     children: [
+                      Icon(
+                        CategoryUtils.getCategoryIcon(task.category),
+                        size: 14,
+                        color: categoryColor,
+                      ),
+                      const SizedBox(width: 4),
                       if (isTimelineTask)
                         Container(
                           margin: const EdgeInsets.only(right: 6),
@@ -1440,12 +1513,42 @@ class _TaskPageState extends State<TaskPage>
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
+                  if (task.location.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    GestureDetector(
+                      onTap: () => _openInGoogleMaps(task.location),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.place,
+                            size: 12,
+                            color: Colors.blue.shade700,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              task.location,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.w500,
+                                decoration: TextDecoration.underline,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Row(
                     children: [
                       _buildCompactBadge(
-                        _categoryLabels[task.category] ?? task.category,
-                        Colors.blue,
+                        CategoryUtils.categoryLabels[task.category] ??
+                            task.category,
+                        categoryColor,
                       ),
                       const SizedBox(width: 4),
                       _buildCompactBadge(
@@ -2017,6 +2120,35 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ),
                   ],
+                  if (task != null && task.location.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    GestureDetector(
+                      onTap: () => _openInGoogleMaps(task.location),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.place,
+                            size: 11,
+                            color: Colors.blue.shade700,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              task.location,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.w500,
+                                decoration: TextDecoration.underline,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (item['description'] != null &&
                       item['description'].toString().isNotEmpty &&
                       item['description'] != item['title']) ...[
@@ -2102,6 +2234,7 @@ class _TaskPageState extends State<TaskPage>
 
     String title = editingTask?.title ?? '';
     String description = editingTask?.description ?? '';
+    String location = editingTask?.location ?? '';
     DateTime? deadline = editingTask?.deadline;
     String priority = editingTask?.priority ?? 'medium';
     String category = editingTask?.category ?? 'timeline';
@@ -2132,14 +2265,51 @@ class _TaskPageState extends State<TaskPage>
                   onChanged: (value) => description = value,
                 ),
                 const SizedBox(height: 16),
+                TextField(
+                  controller: TextEditingController(text: location),
+                  decoration: InputDecoration(
+                    labelText: 'Ort',
+                    prefixIcon: const Icon(Icons.place),
+                    suffixIcon: location.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.map, color: Colors.blue),
+                            onPressed: () {
+                              _openInGoogleMaps(location);
+                            },
+                            tooltip: 'In Google Maps öffnen',
+                          )
+                        : null,
+                  ),
+                  onChanged: (value) {
+                    location = value;
+                    setDialogState(() {});
+                  },
+                ),
+                const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   value: category,
-                  decoration: const InputDecoration(labelText: 'Kategorie'),
-                  items: _categoryLabels.entries
+                  decoration: InputDecoration(
+                    labelText: 'Kategorie',
+                    prefixIcon: Icon(
+                      CategoryUtils.getCategoryIcon(category),
+                      color: CategoryUtils.getCategoryColor(category),
+                    ),
+                  ),
+                  items: CategoryUtils.categoryLabels.entries
                       .map(
                         (e) => DropdownMenuItem(
                           value: e.key,
-                          child: Text(e.value),
+                          child: Row(
+                            children: [
+                              Icon(
+                                CategoryUtils.getCategoryIcon(e.key),
+                                color: CategoryUtils.getCategoryColor(e.key),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(e.value),
+                            ],
+                          ),
                         ),
                       )
                       .toList(),
@@ -2216,6 +2386,7 @@ class _TaskPageState extends State<TaskPage>
                     deadline: deadline,
                     completed: editingTask?.completed ?? false,
                     createdDate: editingTask?.createdDate ?? DateTime.now(),
+                    location: location,
                   );
                   if (editingTask != null) {
                     widget.onUpdateTask(taskData);

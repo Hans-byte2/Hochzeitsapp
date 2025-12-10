@@ -1,6 +1,6 @@
 // lib/models/wedding_models.dart
 //
-// COMPLETE VERSION mit Timestamps + Soft Deletes
+// COMPLETE VERSION mit Timestamps + Soft Deletes + Location
 
 // ================================
 // GUEST MODEL
@@ -93,7 +93,7 @@ class Guest {
 }
 
 // ================================
-// TASK MODEL
+// TASK MODEL (MIT LOCATION!)
 // ================================
 
 class Task {
@@ -105,6 +105,9 @@ class Task {
   final DateTime? deadline;
   final bool completed;
   final DateTime createdDate;
+
+  // NEU: Location-Feld
+  final String location;
 
   // NEU: Timestamps + Soft Delete
   final String? updatedAt;
@@ -120,6 +123,7 @@ class Task {
     this.deadline,
     this.completed = false,
     required this.createdDate,
+    this.location = '', // NEU!
     this.updatedAt,
     this.deleted = 0,
     this.deletedAt,
@@ -134,6 +138,7 @@ class Task {
     DateTime? deadline,
     bool? completed,
     DateTime? createdDate,
+    String? location, // NEU!
     String? updatedAt,
     int? deleted,
     String? deletedAt,
@@ -147,6 +152,7 @@ class Task {
       deadline: deadline ?? this.deadline,
       completed: completed ?? this.completed,
       createdDate: createdDate ?? this.createdDate,
+      location: location ?? this.location, // NEU!
       updatedAt: updatedAt ?? this.updatedAt,
       deleted: deleted ?? this.deleted,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -163,6 +169,7 @@ class Task {
       'deadline': deadline?.toIso8601String(),
       'completed': completed ? 1 : 0,
       'created_date': createdDate.toIso8601String(),
+      'location': location, // NEU!
       'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
       'deleted': deleted,
       'deleted_at': deletedAt,
@@ -181,6 +188,7 @@ class Task {
           : null,
       completed: map['completed'] == 1,
       createdDate: DateTime.parse(map['created_date']),
+      location: map['location'] ?? '', // NEU!
       updatedAt: map['updated_at'],
       deleted: map['deleted'] ?? 0,
       deletedAt: map['deleted_at'],

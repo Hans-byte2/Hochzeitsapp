@@ -21,7 +21,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       pathString,
-      version: 5, // BUMPED: 4 → 5 (Triggers DB rebuild für Tester)
+      version: 6, // BUMPED: 5 → 6 (Location-Feld hinzugefügt)
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
@@ -54,7 +54,7 @@ class DatabaseHelper {
       )
     ''');
 
-    // Tasks Table - MIT TIMESTAMPS + SOFT DELETE
+    // Tasks Table - MIT TIMESTAMPS + SOFT DELETE + LOCATION
     await db.execute('''
       CREATE TABLE tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +65,7 @@ class DatabaseHelper {
         deadline TEXT,
         completed INTEGER DEFAULT 0,
         created_date TEXT NOT NULL,
+        location TEXT DEFAULT '',
         updated_at TEXT,
         deleted INTEGER DEFAULT 0,
         deleted_at TEXT
@@ -118,8 +119,20 @@ class DatabaseHelper {
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Für Tester: Einfach alles neu erstellen bei Version-Bump
-    if (newVersion > oldVersion) {
+    if (newVersion == 6 && oldVersion < 6) {
+      // Migration: Location-Spalte hinzufügen
+      try {
+        await db.execute(
+          'ALTER TABLE tasks ADD COLUMN location TEXT DEFAULT ""',
+        );
+      } catch (e) {
+        // Spalte existiert bereits oder Fehler - ignorieren
+        print('Migration Info: $e');
+      }
+    }
+
+    // Für ältere Versionen: Kompletter Rebuild
+    if (oldVersion < 5) {
       // Drop alte Tabellen
       await db.execute('DROP TABLE IF EXISTS guests');
       await db.execute('DROP TABLE IF EXISTS tasks');
@@ -213,7 +226,7 @@ class DatabaseHelper {
   }
 
   // ================================================================
-  // TASKS - Mit Timestamps + Soft Deletes
+  // TASKS - Mit Timestamps + Soft Deletes + LOCATION
   // ================================================================
 
   Future<Task> createTask(Task task) async {
