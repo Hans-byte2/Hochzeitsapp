@@ -6,6 +6,7 @@ import '../services/excel_export_service.dart';
 import '../services/calendar_export_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/category_utils.dart';
+import '../services/notification_service.dart';
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -1436,6 +1437,9 @@ class _TaskPageState extends State<TaskPage>
         ),
       ),
       margin: const EdgeInsets.only(bottom: 6),
+
+      // ERSETZE ALLES AB "color: task.completed ? Colors.green.shade50..."
+      // BIS "    );" (Ende der Card) mit diesem Code:
       color: task.completed ? Colors.green.shade50 : categoryLightColor,
       child: Padding(
         padding: const EdgeInsets.all(10),
@@ -1562,6 +1566,47 @@ class _TaskPageState extends State<TaskPage>
                           isOverdue ? Colors.red : Colors.grey,
                         ),
                       ],
+                      const SizedBox(width: 4),
+                      FutureBuilder<bool>(
+                        future: NotificationService().hasNotification(task.id!),
+                        builder: (context, snapshot) {
+                          if (snapshot.data == true) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.blue.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.notifications_active,
+                                    size: 10,
+                                    color: Colors.blue.shade700,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    'Aktiv',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: Colors.blue.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        },
+                      ),
                     ],
                   ),
                 ],
@@ -1570,6 +1615,7 @@ class _TaskPageState extends State<TaskPage>
             PopupMenuButton<String>(
               itemBuilder: (menuContext) => const [
                 PopupMenuItem(value: 'edit', child: Text('Bearbeiten')),
+                PopupMenuItem(value: 'notification', child: Text('Erinnerung')),
                 PopupMenuItem(value: 'delete', child: Text('Löschen')),
               ],
               onSelected: (value) {
@@ -1577,6 +1623,8 @@ class _TaskPageState extends State<TaskPage>
                   _editTask(task);
                 } else if (value == 'delete') {
                   widget.onDeleteTask(task.id!);
+                } else if (value == 'notification') {
+                  _showNotificationDialog(task);
                 }
               },
               padding: EdgeInsets.zero,
@@ -2522,5 +2570,296 @@ class _TaskPageState extends State<TaskPage>
         ],
       ),
     );
+  }
+  // ==================== NOTIFICATION METHODS ====================
+  // Diese Methoden VOR der letzten schließenden Klammer "}" einfügen
+
+  Future<void> _showNotificationDialog(Task task) async {
+    if (task.deadline == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Diese Aufgabe hat keine Deadline'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final notificationService = NotificationService();
+    final hasNotification = await notificationService.hasNotification(task.id!);
+    Duration? currentDuration;
+
+    if (hasNotification) {
+      currentDuration = await notificationService.getNotificationDuration(
+        task.id!,
+      );
+    }
+
+    if (!mounted) return;
+
+    Duration? selectedDuration = currentDuration;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.notifications_active,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Erinnerung einrichten')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Aufgabe: ${task.title}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Deadline: ${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Wann möchten Sie erinnert werden?',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 12),
+              _buildReminderOption(
+                context: dialogContext,
+                duration: Duration.zero,
+                label: 'Am selben Tag (08:00 Uhr)',
+                isSelected: selectedDuration == Duration.zero,
+                onTap: () =>
+                    setDialogState(() => selectedDuration = Duration.zero),
+              ),
+              _buildReminderOption(
+                context: dialogContext,
+                duration: const Duration(days: 1),
+                label: '1 Tag vorher',
+                isSelected: selectedDuration == const Duration(days: 1),
+                onTap: () => setDialogState(
+                  () => selectedDuration = const Duration(days: 1),
+                ),
+              ),
+              _buildReminderOption(
+                context: dialogContext,
+                duration: const Duration(days: 3),
+                label: '3 Tage vorher',
+                isSelected: selectedDuration == const Duration(days: 3),
+                onTap: () => setDialogState(
+                  () => selectedDuration = const Duration(days: 3),
+                ),
+              ),
+              _buildReminderOption(
+                context: dialogContext,
+                duration: const Duration(days: 7),
+                label: '1 Woche vorher',
+                isSelected: selectedDuration == const Duration(days: 7),
+                onTap: () => setDialogState(
+                  () => selectedDuration = const Duration(days: 7),
+                ),
+              ),
+              _buildReminderOption(
+                context: dialogContext,
+                duration: const Duration(days: 14),
+                label: '2 Wochen vorher',
+                isSelected: selectedDuration == const Duration(days: 14),
+                onTap: () => setDialogState(
+                  () => selectedDuration = const Duration(days: 14),
+                ),
+              ),
+              if (hasNotification) ...[
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.blue.shade700,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Aktuelle Erinnerung: ${_formatReminderDuration(currentDuration!)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            if (hasNotification)
+              TextButton(
+                onPressed: () async {
+                  await notificationService.cancelTaskNotification(task.id!);
+                  if (mounted) {
+                    Navigator.pop(dialogContext);
+                    setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Erinnerung wurde entfernt'),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  }
+                },
+                child: const Text(
+                  'Entfernen',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: selectedDuration == null
+                  ? null
+                  : () async {
+                      try {
+                        final success = await notificationService
+                            .scheduleTaskNotification(
+                              task: task,
+                              duration: selectedDuration!,
+                            );
+
+                        if (mounted) {
+                          Navigator.pop(dialogContext);
+
+                          if (success) {
+                            setState(() {});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Erinnerung gesetzt: ${_formatReminderDuration(selectedDuration!)}',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Fehler beim Setzen der Erinnerung. '
+                                  'Bitte Benachrichtigungsberechtigungen prüfen.',
+                                ),
+                                backgroundColor: Colors.red,
+                                duration: Duration(seconds: 4),
+                              ),
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          Navigator.pop(dialogContext);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Fehler: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Speichern'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReminderOption({
+    required BuildContext context,
+    required Duration duration,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+              : Colors.grey.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isSelected
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked,
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey.shade600,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  color: isSelected ? Colors.black87 : Colors.black54,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatReminderDuration(Duration duration) {
+    if (duration == Duration.zero) {
+      return 'Am selben Tag (08:00 Uhr)';
+    } else if (duration.inDays == 1) {
+      return '1 Tag vorher';
+    } else if (duration.inDays == 3) {
+      return '3 Tage vorher';
+    } else if (duration.inDays == 7) {
+      return '1 Woche vorher';
+    } else if (duration.inDays == 14) {
+      return '2 Wochen vorher';
+    } else {
+      return '${duration.inDays} Tage vorher';
+    }
   }
 }
