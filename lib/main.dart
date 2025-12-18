@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Core / Theme
-import 'app_colors.dart'; // wird evtl. später in Screens noch genutzt
+import 'app_colors.dart';
 import 'services/theme_providers.dart';
 import 'services/profile_providers.dart';
 import 'theme/theme_variant.dart';
@@ -24,6 +24,9 @@ import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
 import 'screens/settings_page.dart';
 
+// Debug
+import 'utils/error_logger.dart'; // ← NEU: Semikolon hinzugefügt!
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -33,11 +36,9 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [
-        // Theme-State (Farbschema)
         themeControllerProvider.overrideWith(
           (ref) => ThemeController(prefs, initialTheme),
         ),
-        // Profil-State (Profilbild)
         profileControllerProvider.overrideWith((ref) => ProfileController()),
       ],
       child: const WeddingApp(),
@@ -45,13 +46,11 @@ Future<void> main() async {
   );
 }
 
-/// Root-App mit Riverpod & globalem Theme
 class WeddingApp extends ConsumerWidget {
   const WeddingApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Theme aus Riverpod (ThemeVariant, etc.)
     final theme = ref.watch(themeDataProvider);
 
     return MaterialApp(
@@ -63,9 +62,8 @@ class WeddingApp extends ConsumerWidget {
   }
 }
 
-/// Haupt-App mit BottomNavigation, Drawer usw.
 class HochzeitsApp extends ConsumerStatefulWidget {
-  const HochzeitsApp({Key? key}) : super(key: key);
+  const HochzeitsApp({super.key});
 
   @override
   ConsumerState<HochzeitsApp> createState() => _HochzeitsAppState();
@@ -74,7 +72,6 @@ class HochzeitsApp extends ConsumerStatefulWidget {
 class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   int _currentIndex = 0;
 
-  // State
   List<Guest> _guests = [];
   List<Task> _tasks = [];
   DateTime? _weddingDate;
@@ -82,21 +79,21 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
-  // Key für Budget-Page um sie neu zu erstellen
   Key _budgetPageKey = UniqueKey();
-  // Für Task-Navigation
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
   @override
   void initState() {
     super.initState();
+    ErrorLogger.info('App gestartet'); // ← NEU
     _loadData();
   }
 
   Future<void> _loadData() async {
     try {
-      // Wedding data laden
+      ErrorLogger.info('Lade Daten...'); // ← NEU
+
       final weddingData = await DatabaseHelper.instance.getWeddingData();
       if (weddingData != null) {
         setState(() {
@@ -106,45 +103,41 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           _brideName = weddingData['bride_name'] ?? '';
           _groomName = weddingData['groom_name'] ?? '';
         });
+        ErrorLogger.success('Hochzeitsdaten geladen'); // ← NEU
       }
-      // Gäste laden
+
       final guests = await DatabaseHelper.instance.getAllGuests();
       setState(() {
         _guests = guests;
       });
-      // Tasks laden
+      ErrorLogger.success('${guests.length} Gäste geladen'); // ← NEU
+
       final tasks = await DatabaseHelper.instance.getAllTasks();
       setState(() {
         _tasks = tasks;
         _isLoading = false;
       });
-    } catch (e) {
-      print('Fehler beim Laden der Daten: $e');
+      ErrorLogger.success('${tasks.length} Tasks geladen'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error('Fehler beim Laden der Daten', e, stack); // ← NEU
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  // NEU: Reload-Callback für Settings/Import
   Future<void> _reloadAllData() async {
-    debugPrint('🔄 Reloading all data after import...');
-
     setState(() {
       _isLoading = true;
     });
 
     await _loadData();
 
-    // Refresh auch die Keys für Budget/Tasks
     setState(() {
       _budgetPageKey = UniqueKey();
       _taskPageKey = UniqueKey();
     });
 
-    debugPrint('✅ Data reload complete!');
-
-    // Optional: Zeige kurze Bestätigung
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -159,17 +152,27 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   // Callback-Funktionen für Gäste
   Future<void> _addGuest(Guest guest) async {
     try {
+      ErrorLogger.info(
+        'Füge Gast hinzu: ${guest.firstName} ${guest.lastName}',
+      ); // ← NEU
       final newGuest = await DatabaseHelper.instance.createGuest(guest);
       setState(() {
         _guests.add(newGuest);
       });
-    } catch (e) {
-      print('Fehler beim Hinzufügen des Gastes: $e');
+      ErrorLogger.success('Gast hinzugefügt'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error('Fehler beim Hinzufügen des Gastes', e, stack); // ← NEU
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
   Future<void> _updateGuest(Guest updatedGuest) async {
     try {
+      ErrorLogger.info('Aktualisiere Gast: ${updatedGuest.firstName}'); // ← NEU
       await DatabaseHelper.instance.updateGuest(updatedGuest);
       final index = _guests.indexWhere((g) => g.id == updatedGuest.id);
       if (index != -1) {
@@ -181,36 +184,55 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           ];
         });
       }
-    } catch (e) {
-      print('Fehler beim Aktualisieren des Gastes: $e');
+      ErrorLogger.success('Gast aktualisiert'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error(
+        'Fehler beim Aktualisieren des Gastes',
+        e,
+        stack,
+      ); // ← NEU
     }
   }
 
   Future<void> _deleteGuest(int guestId) async {
     try {
+      ErrorLogger.info('Lösche Gast: $guestId'); // ← NEU
       await DatabaseHelper.instance.deleteGuest(guestId);
       setState(() {
         _guests.removeWhere((g) => g.id == guestId);
       });
-    } catch (e) {
-      print('Fehler beim Löschen des Gastes: $e');
+      ErrorLogger.success('Gast gelöscht'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error('Fehler beim Löschen des Gastes', e, stack); // ← NEU
     }
   }
 
   // Callback-Funktionen für Aufgaben
   Future<void> _addTask(Task task) async {
     try {
+      ErrorLogger.info('Füge Task hinzu: ${task.title}'); // ← NEU
       final newTask = await DatabaseHelper.instance.createTask(task);
       setState(() {
         _tasks.add(newTask);
       });
-    } catch (e) {
-      print('Fehler beim Hinzufügen der Aufgabe: $e');
+      ErrorLogger.success('Task hinzugefügt'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error(
+        'Fehler beim Hinzufügen der Aufgabe',
+        e,
+        stack,
+      ); // ← NEU
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
   Future<void> _updateTask(Task updatedTask) async {
     try {
+      ErrorLogger.info('Aktualisiere Task: ${updatedTask.title}'); // ← NEU
       await DatabaseHelper.instance.updateTask(updatedTask);
       setState(() {
         final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
@@ -218,57 +240,71 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           _tasks[index] = updatedTask;
         }
       });
-    } catch (e) {
-      print('Fehler beim Aktualisieren der Aufgabe: $e');
+      ErrorLogger.success('Task aktualisiert'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error(
+        'Fehler beim Aktualisieren der Aufgabe',
+        e,
+        stack,
+      ); // ← NEU
     }
   }
 
   Future<void> _deleteTask(int taskId) async {
     try {
+      ErrorLogger.info('Lösche Task: $taskId'); // ← NEU
       await DatabaseHelper.instance.deleteTask(taskId);
       setState(() {
         _tasks.removeWhere((t) => t.id == taskId);
       });
-    } catch (e) {
-      print('Fehler beim Löschen der Aufgabe: $e');
+      ErrorLogger.success('Task gelöscht'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error('Fehler beim Löschen der Aufgabe', e, stack); // ← NEU
     }
   }
 
-  // Hochzeitsdaten-Callback
   Future<void> _updateWeddingData(
     DateTime date,
     String bride,
     String groom,
   ) async {
     try {
+      ErrorLogger.info('Aktualisiere Hochzeitsdaten'); // ← NEU
       await DatabaseHelper.instance.updateWeddingData(date, bride, groom);
       setState(() {
         _weddingDate = date;
         _brideName = bride;
         _groomName = groom;
       });
-    } catch (e) {
-      print('Fehler beim Aktualisieren der Hochzeitsdaten: $e');
+      ErrorLogger.success('Hochzeitsdaten aktualisiert'); // ← NEU
+    } catch (e, stack) {
+      ErrorLogger.error(
+        'Fehler beim Aktualisieren der Hochzeitsdaten',
+        e,
+        stack,
+      ); // ← NEU
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
-  // Navigation Callback
   void _navigateToPage(int pageIndex) {
     setState(() {
       _currentIndex = pageIndex;
     });
   }
 
-  // Navigation zu Task mit spezifischer ID
   void _navigateToTaskWithId(int taskId) {
     setState(() {
       _selectedTaskId = taskId;
-      _taskPageKey = UniqueKey(); // Neue Instanz erstellen
-      _currentIndex = 4; // Task-Seite Index
+      _taskPageKey = UniqueKey();
+      _currentIndex = 4;
     });
   }
 
-  // Callback zum Zurücksetzen der ausgewählten Task
   void _clearSelectedTask() {
     setState(() {
       _selectedTaskId = null;
@@ -300,7 +336,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // aktuelles ThemeVariant aus Riverpod
     final variant = ref.watch(themeControllerProvider);
     final brand = colorsFor(variant);
     final scheme = Theme.of(context).colorScheme;
@@ -369,7 +404,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         backgroundColor: brand.primary,
         foregroundColor: scheme.onPrimary,
       ),
-
       drawer: Drawer(
         child: ListView(
           padding: EdgeInsets.zero,
@@ -470,7 +504,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
               title: const Text('Einstellungen'),
               onTap: () {
                 Navigator.pop(context);
-                // NEU: Übergebe Reload-Callback an SettingsPage
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) =>
@@ -482,9 +515,21 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           ],
         ),
       ),
-
       body: IndexedStack(index: _currentIndex, children: pages),
 
+      // ═══════════════════════════════════════════════════════
+      // 🔴 ROTER DEBUG-BUTTON
+      // ═══════════════════════════════════════════════════════
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          ErrorLogger.showDialog(context);
+        },
+        backgroundColor: Colors.red,
+        child: const Icon(Icons.bug_report, color: Colors.white),
+        tooltip: 'Debug Logs',
+      ),
+
+      // ═══════════════════════════════════════════════════════
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
