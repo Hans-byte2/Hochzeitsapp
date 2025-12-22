@@ -7,6 +7,7 @@ import '../services/calendar_export_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/category_utils.dart';
 import '../services/notification_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -21,7 +22,7 @@ class TaskPage extends StatefulWidget {
   final VoidCallback? onNavigateToHome;
 
   const TaskPage({
-    Key? key,
+    super.key,
     required this.tasks,
     required this.onAddTask,
     required this.onUpdateTask,
@@ -32,7 +33,7 @@ class TaskPage extends StatefulWidget {
     this.selectedTaskId,
     this.onClearSelectedTask,
     this.onNavigateToHome,
-  }) : super(key: key);
+  });
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -41,7 +42,7 @@ class TaskPage extends StatefulWidget {
 class _TaskPageState extends State<TaskPage>
     with SingleTickerProviderStateMixin {
   String _selectedFilter = 'all';
-  bool _isSubmitting = false;
+  final bool _isSubmitting = false;
   Task? _editingTask;
   String _searchQuery = '';
 
@@ -744,7 +745,7 @@ class _TaskPageState extends State<TaskPage>
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _selectedCategory,
+                initialValue: _selectedCategory,
                 decoration: InputDecoration(
                   labelText: 'Kategorie',
                   border: const OutlineInputBorder(),
@@ -776,7 +777,7 @@ class _TaskPageState extends State<TaskPage>
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _selectedPriority,
+                initialValue: _selectedPriority,
                 decoration: const InputDecoration(
                   labelText: 'Priorität',
                   border: OutlineInputBorder(),
@@ -1063,7 +1064,7 @@ class _TaskPageState extends State<TaskPage>
         Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: scheme.surfaceVariant,
+            color: scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
           ),
           child: TabBar(
@@ -2335,7 +2336,7 @@ class _TaskPageState extends State<TaskPage>
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: category,
+                  initialValue: category,
                   decoration: InputDecoration(
                     labelText: 'Kategorie',
                     prefixIcon: Icon(
@@ -2365,7 +2366,7 @@ class _TaskPageState extends State<TaskPage>
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: priority,
+                  initialValue: priority,
                   decoration: const InputDecoration(labelText: 'Priorität'),
                   items: _priorityLabels.entries
                       .map(
@@ -2574,6 +2575,16 @@ class _TaskPageState extends State<TaskPage>
   // ==================== NOTIFICATION METHODS ====================
   // Diese Methoden VOR der letzten schließenden Klammer "}" einfügen
 
+  // ═══════════════════════════════════════════════════════════════
+  // ERSETZE DIESE METHODE in deiner tasks_screen.dart
+  // Suche nach: "Future<void> _showNotificationDialog(Task task)"
+  // ═══════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════
+  // ERSETZE DIESE METHODE in deiner tasks_screen.dart
+  // Suche nach: "Future<void> _showNotificationDialog(Task task)"
+  // ═══════════════════════════════════════════════════════════════
+
   Future<void> _showNotificationDialog(Task task) async {
     if (task.deadline == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2586,6 +2597,76 @@ class _TaskPageState extends State<TaskPage>
     }
 
     final notificationService = NotificationService();
+
+    // ═══════════════════════════════════════════════════════════
+    // NEU: Permission Check VOR dem Dialog
+    // ═══════════════════════════════════════════════════════════
+    final hasPermission = await notificationService.hasPermission();
+
+    if (!hasPermission && mounted) {
+      // Zeige Erklärung BEVOR Permission angefragt wird
+      final shouldRequest = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.notifications_active,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              const Text('Benachrichtigungen'),
+            ],
+          ),
+          content: const Text(
+            'HeartPebble möchte Ihnen Erinnerungen für Ihre '
+            'Hochzeitsaufgaben senden.\n\n'
+            'Erlauben Sie Benachrichtigungen?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Nein'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+              ),
+              child: const Text('Ja, erlauben'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldRequest != true) {
+        return; // User hat abgelehnt
+      }
+
+      // Fordere Permission an
+      final granted = await notificationService.requestPermission();
+
+      if (!granted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              '⚠️ Benachrichtigungen wurden nicht erlaubt.\n'
+              'Sie können dies in den Einstellungen ändern.',
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Einstellungen',
+              textColor: Colors.white,
+              onPressed: () => openAppSettings(),
+            ),
+          ),
+        );
+        return; // Abbrechen wenn nicht erlaubt
+      }
+    }
+    // ═══════════════════════════════════════════════════════════
+
     final hasNotification = await notificationService.hasNotification(task.id!);
     Duration? currentDuration;
 
@@ -2860,6 +2941,93 @@ class _TaskPageState extends State<TaskPage>
       return '2 Wochen vorher';
     } else {
       return '${duration.inDays} Tage vorher';
+    }
+  }
+
+  Future<void> _setTaskReminderWithDialog(
+    BuildContext context,
+    Task task,
+    Duration duration,
+  ) async {
+    final notificationService = NotificationService();
+
+    // Prüfe ob Permission bereits vorhanden ist
+    final hasPermission = await notificationService.hasPermission();
+
+    if (!hasPermission) {
+      // Zeige Erklärung BEVOR Permission angefragt wird
+      final shouldRequest = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('🔔 Benachrichtigungen'),
+          content: Text(
+            'HeartPebble möchte Ihnen Erinnerungen für Ihre '
+            'Hochzeitsaufgaben senden.\n\n'
+            'Erlauben Sie Benachrichtigungen?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Nein'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Erlauben'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldRequest != true) {
+        return; // User hat abgelehnt
+      }
+    }
+
+    // Setze Notification (fragt Permission an falls nötig)
+    final success = await notificationService.scheduleTaskNotification(
+      task: task,
+      duration: duration,
+    );
+
+    if (!context.mounted) return;
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Erinnerung gesetzt!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '⚠️ Benachrichtigung konnte nicht gesetzt werden.\n'
+            'Bitte erlauben Sie Benachrichtigungen in den Einstellungen.',
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Einstellungen',
+            textColor: Colors.white,
+            onPressed: () => openAppSettings(),
+          ),
+        ),
+      );
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // BEISPIEL: Permission Status prüfen
+  // ════════════════════════════════════════════════════════════════
+
+  Future<void> _checkPermissionStatus() async {
+    final notificationService = NotificationService();
+
+    if (await notificationService.hasPermission()) {
+      print('✅ Benachrichtigungen sind erlaubt');
+    } else {
+      print('❌ Benachrichtigungen sind NICHT erlaubt');
     }
   }
 }

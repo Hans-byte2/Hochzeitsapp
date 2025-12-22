@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,6 +52,53 @@ class NotificationService {
     _initialized = true;
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // NEU: Permission Handling für Android 13+
+  // ═══════════════════════════════════════════════════════════
+
+  /// Prüft ob Benachrichtigungsberechtigung vorhanden ist
+  Future<bool> hasPermission() async {
+    if (Platform.isAndroid) {
+      return await Permission.notification.isGranted;
+    }
+    // iOS Permissions werden bei initialize() abgefragt
+    return true;
+  }
+
+  /// Fordert Benachrichtigungsberechtigung an
+  ///
+  /// Gibt true zurück wenn erteilt, false wenn abgelehnt
+  Future<bool> requestPermission() async {
+    if (Platform.isAndroid) {
+      final status = await Permission.notification.request();
+      return status.isGranted;
+    }
+
+    // iOS
+    if (Platform.isIOS) {
+      final result = await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      return result ?? false;
+    }
+
+    return false;
+  }
+
+  /// Prüft Permission und fordert sie ggf. an
+  ///
+  /// Gibt true zurück wenn Permission vorhanden ist oder erteilt wurde
+  Future<bool> ensurePermission() async {
+    if (await hasPermission()) {
+      return true;
+    }
+    return await requestPermission();
+  }
+
+  // ═══════════════════════════════════════════════════════════
+
   Future<bool> scheduleTaskNotification({
     required Task task,
     required Duration duration,
@@ -58,6 +106,15 @@ class NotificationService {
     if (task.deadline == null || task.id == null) return false;
 
     await initialize();
+
+    // ══════════════════════════════════════════════════════════
+    // NEU: Permission Check BEVOR Notification geplant wird
+    // ══════════════════════════════════════════════════════════
+    if (!await ensurePermission()) {
+      print('❌ Benachrichtigungsberechtigung nicht erteilt');
+      return false;
+    }
+    // ══════════════════════════════════════════════════════════
 
     final scheduledDate = task.deadline!.subtract(duration);
 
@@ -123,9 +180,10 @@ class NotificationService {
       // Speichere die Notification-Info in SharedPreferences
       await _saveNotificationInfo(task.id!, duration);
 
+      print('✅ Notification geplant für: $notificationTime');
       return true;
     } catch (e) {
-      print('Fehler beim Planen der Notification: $e');
+      print('❌ Fehler beim Planen der Notification: $e');
       return false;
     }
   }
