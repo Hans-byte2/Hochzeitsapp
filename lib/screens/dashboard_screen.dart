@@ -6,6 +6,10 @@ import '../widgets/budget_donut_chart.dart';
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/profile_providers.dart';
+// Smart Validation Imports
+import '../mixins/smart_form_validation_mixin.dart';
+import '../widgets/forms/smart_text_field.dart';
+import '../widgets/forms/smart_date_picker.dart';
 
 class DashboardPage extends StatefulWidget {
   final DateTime? weddingDate;
@@ -18,7 +22,7 @@ class DashboardPage extends StatefulWidget {
   final Function(Task) onUpdateTask;
   final Function(int) onDeleteTask;
   final Function(int) onNavigateToPage;
-  final Function(int) onNavigateToTaskWithId; // NEU!
+  final Function(int) onNavigateToTaskWithId;
 
   const DashboardPage({
     super.key,
@@ -32,14 +36,15 @@ class DashboardPage extends StatefulWidget {
     required this.onUpdateTask,
     required this.onDeleteTask,
     required this.onNavigateToPage,
-    required this.onNavigateToTaskWithId, // NEU!
+    required this.onNavigateToTaskWithId,
   });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class _DashboardPageState extends State<DashboardPage>
+    with SmartFormValidation {
   List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
 
@@ -141,178 +146,14 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _showWeddingDataForm() {
-    String brideName = widget.brideName;
-    String groomName = widget.groomName;
-    DateTime? weddingDate = widget.weddingDate;
     showDialog(
       context: context,
       builder: (builderContext) {
-        return Consumer(
-          builder: (dialogContext, ref, _) {
-            final profile = ref.watch(profileControllerProvider);
-            final imagePath = profile.imagePath;
-
-            DateTime? weddingDate = widget.weddingDate;
-            String brideName = widget.brideName;
-            String groomName = widget.groomName;
-
-            return AlertDialog(
-              title: const Text('Hochzeitsdaten bearbeiten'),
-              content: StatefulBuilder(
-                builder: (statefulContext, setDialogState) {
-                  return Container(
-                    decoration: imagePath != null
-                        ? BoxDecoration(
-                            image: DecorationImage(
-                              image: FileImage(File(imagePath)),
-                              fit: BoxFit.cover,
-                              colorFilter: ColorFilter.mode(
-                                Colors.black.withOpacity(0.45),
-                                BlendMode.darken,
-                              ),
-                            ),
-                          )
-                        : null,
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextField(
-                          decoration: InputDecoration(
-                            labelText: 'Name der Braut',
-                            labelStyle: TextStyle(
-                              color: imagePath != null
-                                  ? Colors.white70
-                                  : AppColors.primary,
-                            ),
-                            enabledBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(
-                                color: imagePath != null
-                                    ? Colors.white54
-                                    : AppColors.primary.withOpacity(0.5),
-                              ),
-                            ),
-                            focusedBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(
-                                color: imagePath != null
-                                    ? Colors.white
-                                    : AppColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          style: TextStyle(
-                            color: imagePath != null
-                                ? Colors.white
-                                : Colors.black87,
-                          ),
-                          controller: TextEditingController(text: brideName),
-                          onChanged: (value) => brideName = value,
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          decoration: InputDecoration(
-                            labelText: 'Name des Bräutigams',
-                            labelStyle: TextStyle(
-                              color: imagePath != null
-                                  ? Colors.white70
-                                  : AppColors.primary,
-                            ),
-                            enabledBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(
-                                color: imagePath != null
-                                    ? Colors.white54
-                                    : AppColors.primary.withOpacity(0.5),
-                              ),
-                            ),
-                            focusedBorder: UnderlineInputBorder(
-                              borderSide: BorderSide(
-                                color: imagePath != null
-                                    ? Colors.white
-                                    : AppColors.primary,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          style: TextStyle(
-                            color: imagePath != null
-                                ? Colors.white
-                                : Colors.black87,
-                          ),
-                          controller: TextEditingController(text: groomName),
-                          onChanged: (value) => groomName = value,
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Text(
-                              'Hochzeitsdatum: ',
-                              style: TextStyle(
-                                color: imagePath != null
-                                    ? Colors.white
-                                    : Colors.black87,
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () async {
-                                final date = await showDatePicker(
-                                  context: statefulContext,
-                                  initialDate:
-                                      weddingDate ??
-                                      DateTime.now().add(
-                                        const Duration(days: 365),
-                                      ),
-                                  firstDate: DateTime.now(),
-                                  lastDate: DateTime.now().add(
-                                    const Duration(days: 1095),
-                                  ),
-                                );
-                                if (date != null) {
-                                  setDialogState(() => weddingDate = date);
-                                }
-                              },
-                              child: Text(
-                                weddingDate != null
-                                    ? '${weddingDate!.day}.${weddingDate!.month}.${weddingDate!.year}'
-                                    : 'Datum wählen',
-                                style: TextStyle(
-                                  color: imagePath != null
-                                      ? Colors.white
-                                      : AppColors.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(builderContext),
-                  child: const Text('Abbrechen'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    if (weddingDate != null &&
-                        brideName.isNotEmpty &&
-                        groomName.isNotEmpty) {
-                      widget.onUpdateWeddingData(
-                        weddingDate!,
-                        brideName,
-                        groomName,
-                      );
-                      Navigator.pop(builderContext);
-                    }
-                  },
-                  child: const Text('Speichern'),
-                ),
-              ],
-            );
-          },
+        return _WeddingDataDialog(
+          initialBrideName: widget.brideName,
+          initialGroomName: widget.groomName,
+          initialWeddingDate: widget.weddingDate,
+          onSave: widget.onUpdateWeddingData,
         );
       },
     );
@@ -366,13 +207,10 @@ class _DashboardPageState extends State<DashboardPage> {
             borderRadius: BorderRadius.circular(24),
             child: Stack(
               children: [
-                // Hintergrund: Profilbild, falls vorhanden
                 if (imagePath != null)
                   Positioned.fill(
                     child: Image.file(File(imagePath), fit: BoxFit.cover),
                   ),
-
-                // Overlay für bessere Lesbarkeit auf Bild
                 if (imagePath != null)
                   Positioned.fill(
                     child: Container(
@@ -388,8 +226,6 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                   ),
-
-                // Fallback: dein bisheriger Farbverlauf, wenn kein Bild
                 if (imagePath == null)
                   Positioned.fill(
                     child: Container(
@@ -405,13 +241,10 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                     ),
                   ),
-
-                // Inhalt
                 Padding(
                   padding: const EdgeInsets.all(32.0),
                   child: Column(
                     children: [
-                      // Logo-Container (lassen wir wie bisher)
                       Container(
                         width: 150,
                         height: 150,
@@ -436,8 +269,6 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ),
                       ),
-
-                      // Namen
                       Text(
                         coupleNames,
                         style: TextStyle(
@@ -448,8 +279,6 @@ class _DashboardPageState extends State<DashboardPage> {
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
-
-                      // Countdown / Text
                       if (_daysUntilWedding >= 0) ...[
                         Text(
                           _daysUntilWedding.toString(),
@@ -486,10 +315,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           textAlign: TextAlign.center,
                         ),
                       ],
-
                       const SizedBox(height: 16),
-
-                      // Datum mit Icon
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -510,10 +336,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 16),
-
-                      // Bearbeiten-Button (öffnet deinen Dialog)
                       ElevatedButton.icon(
                         onPressed: _showWeddingDataForm,
                         icon: const Icon(Icons.edit, size: 16),
@@ -1158,6 +981,211 @@ class _DashboardPageState extends State<DashboardPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ============================================================================
+// WEDDING DATA DIALOG - Mit allen Fixes
+// ============================================================================
+
+class _WeddingDataDialog extends StatefulWidget {
+  final String initialBrideName;
+  final String initialGroomName;
+  final DateTime? initialWeddingDate;
+  final Function(DateTime, String, String) onSave;
+
+  const _WeddingDataDialog({
+    required this.initialBrideName,
+    required this.initialGroomName,
+    required this.initialWeddingDate,
+    required this.onSave,
+  });
+
+  @override
+  State<_WeddingDataDialog> createState() => _WeddingDataDialogState();
+}
+
+class _WeddingDataDialogState extends State<_WeddingDataDialog> {
+  late final TextEditingController _brideController;
+  late final TextEditingController _groomController;
+  late DateTime? _selectedWeddingDate;
+
+  final Map<String, bool> _fieldValidation = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _brideController = TextEditingController(text: widget.initialBrideName);
+    _groomController = TextEditingController(text: widget.initialGroomName);
+    _selectedWeddingDate = widget.initialWeddingDate;
+  }
+
+  @override
+  void dispose() {
+    _brideController.dispose();
+    _groomController.dispose();
+    super.dispose();
+  }
+
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _areAllFieldsValid {
+    return (_fieldValidation['bride_name'] ?? false) &&
+        (_fieldValidation['groom_name'] ?? false) &&
+        (_fieldValidation['wedding_date'] ?? false);
+  }
+
+  void _handleSave(BuildContext context) {
+    widget.onSave(
+      _selectedWeddingDate!,
+      _brideController.text.trim(),
+      _groomController.text.trim(),
+    );
+
+    Navigator.of(context).pop();
+
+    Future.microtask(() {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Hochzeitsdaten gespeichert! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Hochzeitsdaten bearbeiten'),
+      content: Container(
+        width: double.maxFinite,
+        padding: const EdgeInsets.all(8),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_fieldValidation.isNotEmpty) ...[
+                LinearProgressIndicator(
+                  value: _fieldValidation.values.where((v) => v).length / 3.0,
+                  backgroundColor: Colors.grey[200],
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    _areAllFieldsValid ? Colors.green : AppColors.primary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${_fieldValidation.values.where((v) => v).length} von 3 Feldern ausgefüllt',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 16),
+              ],
+              SmartTextField(
+                label: 'Name der Braut',
+                fieldKey: 'bride_name',
+                isRequired: true,
+                controller: _brideController,
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Name der Braut ist erforderlich';
+                  }
+                  if (value.trim().length < 2) {
+                    return 'Mindestens 2 Zeichen';
+                  }
+                  return null;
+                },
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 16),
+              SmartTextField(
+                label: 'Name des Bräutigams',
+                fieldKey: 'groom_name',
+                isRequired: true,
+                controller: _groomController,
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Name des Bräutigams ist erforderlich';
+                  }
+                  if (value.trim().length < 2) {
+                    return 'Mindestens 2 Zeichen';
+                  }
+                  return null;
+                },
+                textInputAction: TextInputAction.done,
+              ),
+              const SizedBox(height: 16),
+              SmartDatePicker(
+                label: 'Hochzeitsdatum',
+                fieldKey: 'wedding_date',
+                isRequired: true,
+                selectedDate: _selectedWeddingDate,
+                onDateSelected: (date) {
+                  if (mounted) {
+                    setState(() {
+                      _selectedWeddingDate = date;
+                    });
+                  }
+                },
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 1095)),
+                validator: (date) {
+                  if (date == null) {
+                    return 'Hochzeitsdatum ist erforderlich';
+                  }
+                  if (date.isBefore(DateTime.now())) {
+                    return 'Datum muss in der Zukunft liegen';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Abbrechen'),
+        ),
+        ElevatedButton(
+          onPressed: _areAllFieldsValid ? () => _handleSave(context) : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _areAllFieldsValid
+                ? AppColors.primary
+                : Colors.grey[300],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_areAllFieldsValid ? Icons.save : Icons.save_outlined),
+              const SizedBox(width: 8),
+              const Text('Speichern'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
