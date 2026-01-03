@@ -520,7 +520,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       // ═══════════════════════════════════════════════════════
       // 🔴 ROTER DEBUG-BUTTON
       // ═══════════════════════════════════════════════════════
-      floatingActionButton: FloatingActionButton(
+      /*  floatingActionButton: FloatingActionButton(
         onPressed: () {
           ErrorLogger.showDialog(context);
         },
@@ -528,7 +528,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         child: const Icon(Icons.bug_report, color: Colors.white),
         tooltip: 'Debug Logs',
       ),
-
+ */
       // ═══════════════════════════════════════════════════════
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,

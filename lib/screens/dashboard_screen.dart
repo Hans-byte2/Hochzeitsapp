@@ -4,7 +4,6 @@ import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
 import 'dart:io';
-import '../models/wedding_models.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/profile_providers.dart';
 
@@ -22,7 +21,7 @@ class DashboardPage extends StatefulWidget {
   final Function(int) onNavigateToTaskWithId; // NEU!
 
   const DashboardPage({
-    Key? key,
+    super.key,
     this.weddingDate,
     required this.brideName,
     required this.groomName,
@@ -34,7 +33,7 @@ class DashboardPage extends StatefulWidget {
     required this.onDeleteTask,
     required this.onNavigateToPage,
     required this.onNavigateToTaskWithId, // NEU!
-  }) : super(key: key);
+  });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -179,28 +178,80 @@ class _DashboardPageState extends State<DashboardPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         TextField(
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Name der Braut',
+                            labelStyle: TextStyle(
+                              color: imagePath != null
+                                  ? Colors.white70
+                                  : AppColors.primary,
+                            ),
+                            enabledBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(
+                                color: imagePath != null
+                                    ? Colors.white54
+                                    : AppColors.primary.withOpacity(0.5),
+                              ),
+                            ),
+                            focusedBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(
+                                color: imagePath != null
+                                    ? Colors.white
+                                    : AppColors.primary,
+                                width: 2,
+                              ),
+                            ),
                           ),
-                          style: const TextStyle(color: Colors.white),
+                          style: TextStyle(
+                            color: imagePath != null
+                                ? Colors.white
+                                : Colors.black87,
+                          ),
                           controller: TextEditingController(text: brideName),
                           onChanged: (value) => brideName = value,
                         ),
                         const SizedBox(height: 16),
                         TextField(
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Name des Bräutigams',
+                            labelStyle: TextStyle(
+                              color: imagePath != null
+                                  ? Colors.white70
+                                  : AppColors.primary,
+                            ),
+                            enabledBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(
+                                color: imagePath != null
+                                    ? Colors.white54
+                                    : AppColors.primary.withOpacity(0.5),
+                              ),
+                            ),
+                            focusedBorder: UnderlineInputBorder(
+                              borderSide: BorderSide(
+                                color: imagePath != null
+                                    ? Colors.white
+                                    : AppColors.primary,
+                                width: 2,
+                              ),
+                            ),
                           ),
-                          style: const TextStyle(color: Colors.white),
+                          style: TextStyle(
+                            color: imagePath != null
+                                ? Colors.white
+                                : Colors.black87,
+                          ),
                           controller: TextEditingController(text: groomName),
                           onChanged: (value) => groomName = value,
                         ),
                         const SizedBox(height: 16),
                         Row(
                           children: [
-                            const Text(
+                            Text(
                               'Hochzeitsdatum: ',
-                              style: TextStyle(color: Colors.white),
+                              style: TextStyle(
+                                color: imagePath != null
+                                    ? Colors.white
+                                    : Colors.black87,
+                              ),
                             ),
                             TextButton(
                               onPressed: () async {
@@ -224,7 +275,12 @@ class _DashboardPageState extends State<DashboardPage> {
                                 weddingDate != null
                                     ? '${weddingDate!.day}.${weddingDate!.month}.${weddingDate!.year}'
                                     : 'Datum wählen',
-                                style: const TextStyle(color: Colors.white),
+                                style: TextStyle(
+                                  color: imagePath != null
+                                      ? Colors.white
+                                      : AppColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                           ],
