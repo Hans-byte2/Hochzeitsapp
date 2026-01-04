@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-
 import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
+// Smart Validation Imports
+import '../mixins/smart_form_validation_mixin.dart';
+import '../widgets/forms/smart_text_field.dart';
+import '../widgets/forms/smart_dropdown.dart';
 
 class GuestPage extends StatefulWidget {
   final List<Guest> guests;
@@ -22,7 +25,7 @@ class GuestPage extends StatefulWidget {
   State<GuestPage> createState() => _GuestPageState();
 }
 
-class _GuestPageState extends State<GuestPage> {
+class _GuestPageState extends State<GuestPage> with SmartFormValidation {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -45,87 +48,41 @@ class _GuestPageState extends State<GuestPage> {
       _resetForm();
     }
 
+    // Reset validation state
+    resetFormValidation();
+
     showDialog(
       context: context,
-      builder: (builderContext) => StatefulBuilder(
-        builder: (statefulContext, setDialogState) => AlertDialog(
-          title: Text(
-            _editingGuest != null ? 'Gast bearbeiten' : 'Neuen Gast hinzufügen',
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: _firstNameController,
-                  decoration: const InputDecoration(labelText: 'Vorname'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _lastNameController,
-                  decoration: const InputDecoration(labelText: 'Nachname'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'E-Mail'),
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _selectedStatus,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: const [
-                    DropdownMenuItem(value: 'pending', child: Text('Offen')),
-                    DropdownMenuItem(value: 'yes', child: Text('Zugesagt')),
-                    DropdownMenuItem(value: 'no', child: Text('Abgesagt')),
-                  ],
-                  onChanged: (value) =>
-                      setDialogState(() => _selectedStatus = value!),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _dietaryController,
-                  decoration: const InputDecoration(
-                    labelText: 'Besonderheiten',
-                  ),
-                  maxLines: 2,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                _resetForm();
-                Navigator.pop(builderContext);
-              },
-              child: const Text('Abbrechen'),
-            ),
-            ElevatedButton(
-              onPressed: _saveGuest,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              ),
-              child: const Text('Speichern'),
-            ),
-          ],
-        ),
-      ),
+      builder: (builderContext) {
+        return _GuestFormDialog(
+          editingGuest: _editingGuest,
+          firstNameController: _firstNameController,
+          lastNameController: _lastNameController,
+          emailController: _emailController,
+          dietaryController: _dietaryController,
+          selectedStatus: _selectedStatus,
+          onStatusChanged: (status) => _selectedStatus = status,
+          onSave: _saveGuest,
+          onCancel: () {
+            _resetForm();
+            Navigator.pop(builderContext);
+          },
+        );
+      },
     );
   }
 
   void _saveGuest() {
-    if (_firstNameController.text.isEmpty || _lastNameController.text.isEmpty) {
+    // NUR Vorname prüfen! Nachname ist optional
+    if (_firstNameController.text.isEmpty) {
       return;
     }
 
     final guest = Guest(
       id: _editingGuest?.id,
       firstName: _firstNameController.text,
-      lastName: _lastNameController.text,
-      email: _emailController.text,
+      lastName: _lastNameController.text, // Kann leer sein
+      email: _emailController.text, // Kann leer sein
       confirmed: _selectedStatus,
       dietaryRequirements: _dietaryController.text,
       tableNumber: _editingGuest?.tableNumber,
@@ -139,6 +96,25 @@ class _GuestPageState extends State<GuestPage> {
 
     _resetForm();
     Navigator.pop(context);
+
+    // Erfolgs-Feedback
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 8),
+            Text(
+              _editingGuest != null
+                  ? 'Gast aktualisiert! ✓'
+                  : 'Gast hinzugefügt! ✓',
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _resetForm() {
@@ -163,7 +139,6 @@ class _GuestPageState extends State<GuestPage> {
     }
   }
 
-  // Gefilterte Gästeliste
   List<Guest> _getFilteredGuests() {
     if (_filterStatus == null) {
       return widget.guests;
@@ -171,7 +146,6 @@ class _GuestPageState extends State<GuestPage> {
     return widget.guests.where((g) => g.confirmed == _filterStatus).toList();
   }
 
-  // Export-Funktionen
   Future<void> _showExportDialog() async {
     if (widget.guests.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -335,11 +309,7 @@ class _GuestPageState extends State<GuestPage> {
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _filterStatus = null;
-                      });
-                    },
+                    onTap: () => setState(() => _filterStatus = null),
                     child: _buildStatCard(
                       'Gesamt',
                       '$totalGuests',
@@ -352,13 +322,11 @@ class _GuestPageState extends State<GuestPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _filterStatus = _filterStatus == 'pending'
-                            ? null
-                            : 'pending';
-                      });
-                    },
+                    onTap: () => setState(
+                      () => _filterStatus = _filterStatus == 'pending'
+                          ? null
+                          : 'pending',
+                    ),
                     child: _buildStatCard(
                       'Offen',
                       '$pendingGuests',
@@ -371,11 +339,10 @@ class _GuestPageState extends State<GuestPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _filterStatus = _filterStatus == 'yes' ? null : 'yes';
-                      });
-                    },
+                    onTap: () => setState(
+                      () =>
+                          _filterStatus = _filterStatus == 'yes' ? null : 'yes',
+                    ),
                     child: _buildStatCard(
                       'Zugesagt',
                       '$confirmedGuests',
@@ -388,11 +355,9 @@ class _GuestPageState extends State<GuestPage> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _filterStatus = _filterStatus == 'no' ? null : 'no';
-                      });
-                    },
+                    onTap: () => setState(
+                      () => _filterStatus = _filterStatus == 'no' ? null : 'no',
+                    ),
                     child: _buildStatCard(
                       'Abgesagt',
                       '$declinedGuests',
@@ -434,11 +399,7 @@ class _GuestPageState extends State<GuestPage> {
                     ),
                     const Spacer(),
                     TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _filterStatus = null;
-                        });
-                      },
+                      onPressed: () => setState(() => _filterStatus = null),
                       child: const Text('Zurücksetzen'),
                     ),
                   ],
@@ -498,7 +459,7 @@ class _GuestPageState extends State<GuestPage> {
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(guest.email),
+                                if (guest.email.isNotEmpty) Text(guest.email),
                                 if (guest.dietaryRequirements.isNotEmpty)
                                   Text(
                                     'Besonderheiten: ${guest.dietaryRequirements}',
@@ -641,5 +602,230 @@ class _GuestPageState extends State<GuestPage> {
     _emailController.dispose();
     _dietaryController.dispose();
     super.dispose();
+  }
+}
+
+// ============================================================================
+// GUEST FORM DIALOG - Mit Smart Validation
+// ============================================================================
+
+class _GuestFormDialog extends StatefulWidget {
+  final Guest? editingGuest;
+  final TextEditingController firstNameController;
+  final TextEditingController lastNameController;
+  final TextEditingController emailController;
+  final TextEditingController dietaryController;
+  final String selectedStatus;
+  final Function(String) onStatusChanged;
+  final VoidCallback onSave;
+  final VoidCallback onCancel;
+
+  const _GuestFormDialog({
+    required this.editingGuest,
+    required this.firstNameController,
+    required this.lastNameController,
+    required this.emailController,
+    required this.dietaryController,
+    required this.selectedStatus,
+    required this.onStatusChanged,
+    required this.onSave,
+    required this.onCancel,
+  });
+
+  @override
+  State<_GuestFormDialog> createState() => _GuestFormDialogState();
+}
+
+class _GuestFormDialogState extends State<_GuestFormDialog> {
+  final Map<String, bool> _fieldValidation = {};
+  // NUR Vorname und Status sind Pflicht!
+  final List<String> _requiredFields = ['first_name', 'status'];
+
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _areAllFieldsValid {
+    return _requiredFields.every((field) => _fieldValidation[field] ?? false);
+  }
+
+  int get _validFieldsCount {
+    return _requiredFields
+        .where((field) => _fieldValidation[field] ?? false)
+        .length;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        widget.editingGuest != null
+            ? 'Gast bearbeiten'
+            : 'Neuen Gast hinzufügen',
+      ),
+      content: Container(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Fortschrittsanzeige
+              LinearProgressIndicator(
+                value: _validFieldsCount / _requiredFields.length,
+                backgroundColor: Colors.grey[200],
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  _areAllFieldsValid
+                      ? Colors.green
+                      : Theme.of(context).colorScheme.primary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$_validFieldsCount von ${_requiredFields.length} Pflichtfeldern ausgefüllt',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 16),
+
+              // Vorname - PFLICHT
+              SmartTextField(
+                label: 'Vorname',
+                fieldKey: 'first_name',
+                isRequired: true,
+                controller: widget.firstNameController,
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Vorname ist erforderlich';
+                  }
+                  if (value.trim().length < 2) {
+                    return 'Mindestens 2 Zeichen';
+                  }
+                  return null;
+                },
+                textInputAction: TextInputAction.next,
+              ),
+
+              const SizedBox(height: 16),
+
+              // Nachname - OPTIONAL
+              SmartTextField(
+                label: 'Nachname',
+                fieldKey: 'last_name',
+                isRequired: false,
+                controller: widget.lastNameController,
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                validator: (value) {
+                  // Optional, aber wenn angegeben min. 2 Zeichen
+                  if (value != null &&
+                      value.trim().isNotEmpty &&
+                      value.trim().length < 2) {
+                    return 'Mindestens 2 Zeichen';
+                  }
+                  return null;
+                },
+                textInputAction: TextInputAction.next,
+              ),
+
+              const SizedBox(height: 16),
+
+              // E-Mail - OPTIONAL
+              SmartTextField(
+                label: 'E-Mail',
+                fieldKey: 'email',
+                isRequired: false,
+                controller: widget.emailController,
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                keyboardType: TextInputType.emailAddress,
+                validator: (value) {
+                  // Optional, aber wenn angegeben muss Format stimmen
+                  if (value != null && value.trim().isNotEmpty) {
+                    final emailRegex = RegExp(
+                      r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
+                    );
+                    if (!emailRegex.hasMatch(value.trim())) {
+                      return 'Ungültige E-Mail-Adresse';
+                    }
+                  }
+                  return null;
+                },
+                textInputAction: TextInputAction.next,
+              ),
+
+              const SizedBox(height: 16),
+
+              // RSVP Status - PFLICHT
+              SmartDropdown<String>(
+                label: 'Status',
+                fieldKey: 'status',
+                isRequired: true,
+                value: widget.selectedStatus,
+                items: const ['pending', 'yes', 'no'],
+                itemLabel: (status) {
+                  switch (status) {
+                    case 'pending':
+                      return 'Offen';
+                    case 'yes':
+                      return 'Zugesagt';
+                    case 'no':
+                      return 'Abgesagt';
+                    default:
+                      return status;
+                  }
+                },
+                onChanged: (value) {
+                  if (value != null) {
+                    widget.onStatusChanged(value);
+                  }
+                },
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                hintText: 'Bitte wählen...',
+              ),
+
+              const SizedBox(height: 16),
+
+              // Besonderheiten - OPTIONAL
+              SmartTextField(
+                label: 'Besonderheiten (z.B. Diätwünsche)',
+                fieldKey: 'dietary',
+                isRequired: false,
+                controller: widget.dietaryController,
+                onValidationChanged: _updateFieldValidation,
+                isDisabled: false,
+                textInputAction: TextInputAction.done,
+                keyboardType: TextInputType.multiline,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: widget.onCancel, child: const Text('Abbrechen')),
+        ElevatedButton(
+          onPressed: _areAllFieldsValid ? widget.onSave : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _areAllFieldsValid
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey[300],
+            foregroundColor: Colors.white, // ← WEIßE SCHRIFT!
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_areAllFieldsValid ? Icons.save : Icons.save_outlined),
+              const SizedBox(width: 8),
+              const Text('Speichern'),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }

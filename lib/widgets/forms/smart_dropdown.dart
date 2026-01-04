@@ -40,14 +40,19 @@ class _SmartDropdownState<T> extends State<SmartDropdown<T>> {
   @override
   void initState() {
     super.initState();
-    _validateField(widget.value);
+    // Validierung NACH dem Build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _validateField(widget.value);
+    });
   }
 
   @override
   void didUpdateWidget(SmartDropdown<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value) {
-      _validateField(widget.value);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _validateField(widget.value);
+      });
     }
   }
 
@@ -63,12 +68,15 @@ class _SmartDropdownState<T> extends State<SmartDropdown<T>> {
       error = null;
     }
 
-    setState(() {
-      _isValid = isValid;
-      _errorText = error;
-    });
+    // WICHTIG: Nur setState wenn Widget noch mounted ist
+    if (mounted) {
+      setState(() {
+        _isValid = isValid;
+        _errorText = error;
+      });
 
-    widget.onValidationChanged?.call(widget.fieldKey, isValid);
+      widget.onValidationChanged?.call(widget.fieldKey, isValid);
+    }
   }
 
   String _getLabelText() {
