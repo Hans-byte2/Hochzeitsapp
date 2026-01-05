@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/database_helper.dart';
 import '../models/wedding_models.dart';
+// Smart Validation Import
+import '../widgets/forms/smart_text_field.dart';
 
 class CategoryDetailPage extends StatefulWidget {
   final String category;
@@ -23,21 +25,6 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   double _categoryPlanned = 0.0;
   double _categoryActual = 0.0;
 
-  // Optional: aktuell nicht genutzt, aber kannst du später verwenden
-  final Map<String, String> _categoryLabels = {
-    'location': 'Location & Catering',
-    'catering': 'Verpflegung',
-    'clothing': 'Kleidung & Styling',
-    'decoration': 'Dekoration & Blumen',
-    'music': 'Musik & Unterhaltung',
-    'photography': 'Fotografie & Video',
-    'flowers': 'Blumen & Floristik',
-    'transport': 'Transport',
-    'rings': 'Ringe & Schmuck',
-    'other': 'Sonstiges',
-  };
-
-  // Basis-Farben pro Kategorie – fallen auf Theme-Farben zurück
   final Map<String, Color> _categoryColors = {
     'location': Colors.blue,
     'catering': Colors.green,
@@ -118,474 +105,25 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   }
 
   Future<void> _addNewBudgetItem() async {
-    String newName = '';
-    double newPlanned = 0.0;
-    double newActual = 0.0;
-    String newNotes = '';
-    bool newPaid = false;
-
-    final result = await showDialog<Map<String, dynamic>>(
+    showDialog(
       context: context,
-      builder: (builderContext) {
-        bool dialogPaid = newPaid;
-
-        return StatefulBuilder(
-          builder: (statefulContext, setDialogState) {
-            return AlertDialog(
-              title: Text('Neuer Posten: ${widget.categoryName}'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Bezeichnung',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            hintText: 'z.B. Hochzeitslocation',
-                          ),
-                          onChanged: (value) => newName = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Geplant (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  hintText: '',
-                                ),
-                                onChanged: (value) => newPlanned =
-                                    double.tryParse(
-                                      value.replaceAll(',', '.'),
-                                    ) ??
-                                    0.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Tatsächlich (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  hintText: '',
-                                ),
-                                onChanged: (value) => newActual =
-                                    double.tryParse(
-                                      value.replaceAll(',', '.'),
-                                    ) ??
-                                    0.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notizen (optional)',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          maxLines: 2,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.all(12),
-                            hintText: '',
-                          ),
-                          onChanged: (value) => newNotes = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: dialogPaid,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              dialogPaid = value ?? false;
-                              newPaid = dialogPaid;
-                            });
-                          },
-                        ),
-                        const Text('Bereits bezahlt'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(builderContext),
-                  child: const Text('Abbrechen'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    if (newName.isEmpty) {
-                      ScaffoldMessenger.of(builderContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Bitte geben Sie eine Bezeichnung ein'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(builderContext, {
-                      'name': newName,
-                      'planned': newPlanned,
-                      'actual': newActual,
-                      'notes': newNotes,
-                      'paid': newPaid,
-                    });
-                  },
-                  child: const Text('Hinzufügen'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (builderContext) => _AddBudgetItemDialog(
+        category: widget.category,
+        categoryName: widget.categoryName,
+        onSave: _loadCategoryItems,
+      ),
     );
-
-    if (result != null) {
-      try {
-        final db = await DatabaseHelper.instance.database;
-        await db.insert('budget_items', {
-          'name': result['name'],
-          'planned': result['planned'],
-          'actual': result['actual'],
-          'category': widget.category,
-          'notes': result['notes'] ?? '',
-          'paid': result['paid'] ? 1 : 0,
-          'updated_at': DateTime.now().toIso8601String(), // NEU!
-          'deleted': 0, // NEU!
-        });
-        await _loadCategoryItems();
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Posten hinzugefügt')));
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Fehler: $e')));
-        }
-      }
-    }
   }
 
   Future<void> _editBudgetItemInDetail(BudgetItem item) async {
-    String editName = item.name ?? '';
-    double editPlanned = (item.planned is num)
-        ? (item.planned as num).toDouble()
-        : 0.0;
-    double editActual = (item.actual is num)
-        ? (item.actual as num).toDouble()
-        : 0.0;
-    String editNotes = item.notes ?? '';
-    bool editPaid = (item.paid ?? 0) == 1;
-
-    final plannedController = TextEditingController(
-      text: editPlanned.toStringAsFixed(0),
-    );
-    final actualController = TextEditingController(
-      text: editActual.toStringAsFixed(0),
-    );
-    final notesController = TextEditingController(text: editNotes);
-    final nameController = TextEditingController(text: editName);
-
-    final result = await showDialog<Map<String, dynamic>>(
+    showDialog(
       context: context,
-      builder: (builderContext) {
-        bool dialogPaid = editPaid;
-
-        return StatefulBuilder(
-          builder: (statefulContext, setDialogState) {
-            return AlertDialog(
-              title: Text('Bearbeiten: $editName'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Bezeichnung',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: nameController,
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                          ),
-                          onChanged: (value) => editName = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Geplant (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: plannedController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onChanged: (value) => editPlanned =
-                                    double.tryParse(
-                                      value.replaceAll(',', '.'),
-                                    ) ??
-                                    0.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Tatsächlich (€)',
-                                style: TextStyle(fontWeight: FontWeight.w500),
-                              ),
-                              const SizedBox(height: 4),
-                              TextField(
-                                controller: actualController,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: const InputDecoration(
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onChanged: (value) => editActual =
-                                    double.tryParse(
-                                      value.replaceAll(',', '.'),
-                                    ) ??
-                                    0.0,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notizen (optional)',
-                          style: TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 4),
-                        TextField(
-                          controller: notesController,
-                          maxLines: 2,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.all(12),
-                          ),
-                          onChanged: (value) => editNotes = value,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: dialogPaid,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              dialogPaid = value ?? false;
-                              editPaid = dialogPaid;
-                            });
-                          },
-                        ),
-                        const Text('Bereits bezahlt'),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(builderContext),
-                  child: const Text('Abbrechen'),
-                ),
-                TextButton(
-                  onPressed: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: builderContext,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Löschen bestätigen'),
-                        content: const Text(
-                          'Möchten Sie diesen Posten wirklich löschen?',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: const Text('Abbrechen'),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, true),
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.red,
-                            ),
-                            child: const Text('Löschen'),
-                          ),
-                        ],
-                      ),
-                    );
-
-                    if (confirmed == true) {
-                      Navigator.pop(builderContext, {'delete': true});
-                    }
-                  },
-                  style: TextButton.styleFrom(foregroundColor: Colors.red),
-                  child: const Text('Löschen'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (editName.isEmpty) {
-                      ScaffoldMessenger.of(builderContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Bitte geben Sie eine Bezeichnung ein'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.pop(builderContext, {
-                      'name': editName,
-                      'planned': editPlanned,
-                      'actual': editActual,
-                      'notes': editNotes,
-                      'paid': editPaid,
-                    });
-                  },
-                  child: const Text('Speichern'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (builderContext) => _EditBudgetItemDialog(
+        item: item,
+        onSave: _loadCategoryItems,
+        onDelete: () => _deleteItem(item.id as int),
+      ),
     );
-
-    if (result != null) {
-      if (result['delete'] == true) {
-        await _deleteItem(item.id as int);
-      } else {
-        try {
-          final db = await DatabaseHelper.instance.database;
-          await db.update(
-            'budget_items',
-            {
-              'name': result['name'],
-              'planned': result['planned'],
-              'actual': result['actual'],
-              'notes': result['notes'],
-              'paid': result['paid'] ? 1 : 0,
-            },
-            where: 'id = ?',
-            whereArgs: [item.id],
-          );
-          await _loadCategoryItems();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Änderungen gespeichert')),
-            );
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Fehler: $e')));
-          }
-        }
-      }
-    }
   }
 
   Future<void> _deleteItem(int id) async {
@@ -594,9 +132,19 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
       await _loadCategoryItems();
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Posten gelöscht')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Posten gelöscht! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -919,6 +467,569 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ============================================================================
+// ADD BUDGET ITEM DIALOG - Mit Smart Validation
+// ============================================================================
+
+class _AddBudgetItemDialog extends StatefulWidget {
+  final String category;
+  final String categoryName;
+  final VoidCallback onSave;
+
+  const _AddBudgetItemDialog({
+    required this.category,
+    required this.categoryName,
+    required this.onSave,
+  });
+
+  @override
+  State<_AddBudgetItemDialog> createState() => _AddBudgetItemDialogState();
+}
+
+class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
+  final _nameController = TextEditingController();
+  final _plannedController = TextEditingController();
+  final _actualController = TextEditingController();
+  final _notesController = TextEditingController();
+  bool _isPaid = false;
+
+  final Map<String, bool> _fieldValidation = {};
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _plannedController.dispose();
+    _actualController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _isFormValid {
+    return (_fieldValidation['name'] ?? false) &&
+        (_fieldValidation['planned'] ?? false);
+  }
+
+  Future<void> _save() async {
+    if (!_isFormValid) return;
+
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.insert('budget_items', {
+        'name': _nameController.text.trim(),
+        'planned': double.tryParse(_plannedController.text) ?? 0.0,
+        'actual': double.tryParse(_actualController.text) ?? 0.0,
+        'category': widget.category,
+        'notes': _notesController.text.trim(),
+        'paid': _isPaid ? 1 : 0,
+        'updated_at': DateTime.now().toIso8601String(),
+        'deleted': 0,
+      });
+
+      widget.onSave();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Posten hinzugefügt! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Fehler: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: Text('Neuer Posten: ${widget.categoryName}'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Fortschrittsanzeige
+            LinearProgressIndicator(
+              value: _isFormValid
+                  ? 1.0
+                  : (_fieldValidation.values.where((v) => v).length / 2.0),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                _isFormValid ? Colors.green : scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_fieldValidation.values.where((v) => v).length} von 2 Pflichtfeldern ausgefüllt',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+
+            // Bezeichnung - PFLICHT
+            SmartTextField(
+              label: 'Bezeichnung',
+              fieldKey: 'name',
+              isRequired: true,
+              controller: _nameController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Bezeichnung ist erforderlich';
+                }
+                if (value.trim().length < 2) {
+                  return 'Mindestens 2 Zeichen';
+                }
+                return null;
+              },
+              textInputAction: TextInputAction.next,
+            ),
+
+            const SizedBox(height: 16),
+
+            // Geplant / Tatsächlich
+            Row(
+              children: [
+                Expanded(
+                  child: SmartTextField(
+                    label: 'Geplant (€)',
+                    fieldKey: 'planned',
+                    isRequired: true,
+                    controller: _plannedController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Erforderlich';
+                      }
+                      final parsed = double.tryParse(
+                        value.replaceAll(',', '.'),
+                      );
+                      if (parsed == null) {
+                        return 'Ungültig';
+                      }
+                      if (parsed < 0) {
+                        return 'Muss ≥ 0 sein';
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SmartTextField(
+                    label: 'Tatsächlich (€)',
+                    fieldKey: 'actual',
+                    isRequired: false,
+                    controller: _actualController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value != null && value.trim().isNotEmpty) {
+                        final parsed = double.tryParse(
+                          value.replaceAll(',', '.'),
+                        );
+                        if (parsed == null) {
+                          return 'Ungültig';
+                        }
+                        if (parsed < 0) {
+                          return 'Muss ≥ 0 sein';
+                        }
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Notizen
+            SmartTextField(
+              label: 'Notizen (optional)',
+              fieldKey: 'notes',
+              isRequired: false,
+              controller: _notesController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.done,
+            ),
+
+            const SizedBox(height: 12),
+
+            CheckboxListTile(
+              title: const Text('Bereits bezahlt'),
+              value: _isPaid,
+              onChanged: (v) => setState(() => _isPaid = v ?? false),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Abbrechen'),
+        ),
+        ElevatedButton(
+          onPressed: _isFormValid ? _save : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _isFormValid ? scheme.primary : Colors.grey[300],
+            foregroundColor: Colors.white,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_isFormValid ? Icons.add_circle : Icons.add_circle_outline),
+              const SizedBox(width: 8),
+              const Text('Hinzufügen'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+// EDIT BUDGET ITEM DIALOG - Mit Smart Validation
+// ============================================================================
+
+class _EditBudgetItemDialog extends StatefulWidget {
+  final BudgetItem item;
+  final VoidCallback onSave;
+  final VoidCallback onDelete;
+
+  const _EditBudgetItemDialog({
+    required this.item,
+    required this.onSave,
+    required this.onDelete,
+  });
+
+  @override
+  State<_EditBudgetItemDialog> createState() => _EditBudgetItemDialogState();
+}
+
+class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
+  late TextEditingController _nameController;
+  late TextEditingController _plannedController;
+  late TextEditingController _actualController;
+  late TextEditingController _notesController;
+  late bool _isPaid;
+
+  final Map<String, bool> _fieldValidation = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.item.name ?? '');
+    _plannedController = TextEditingController(
+      text:
+          ((widget.item.planned is num)
+                  ? (widget.item.planned as num).toDouble()
+                  : 0.0)
+              .toStringAsFixed(0),
+    );
+    _actualController = TextEditingController(
+      text:
+          ((widget.item.actual is num)
+                  ? (widget.item.actual as num).toDouble()
+                  : 0.0)
+              .toStringAsFixed(0),
+    );
+    _notesController = TextEditingController(text: widget.item.notes ?? '');
+    _isPaid = (widget.item.paid ?? 0) == 1;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _plannedController.dispose();
+    _actualController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _isFormValid {
+    return (_fieldValidation['edit_name'] ?? false) &&
+        (_fieldValidation['edit_planned'] ?? false);
+  }
+
+  Future<void> _save() async {
+    if (!_isFormValid) return;
+
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.update(
+        'budget_items',
+        {
+          'name': _nameController.text.trim(),
+          'planned':
+              double.tryParse(_plannedController.text.replaceAll(',', '.')) ??
+              0.0,
+          'actual':
+              double.tryParse(_actualController.text.replaceAll(',', '.')) ??
+              0.0,
+          'notes': _notesController.text.trim(),
+          'paid': _isPaid ? 1 : 0,
+        },
+        where: 'id = ?',
+        whereArgs: [widget.item.id],
+      );
+
+      widget.onSave();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Änderungen gespeichert! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Fehler: $e')));
+      }
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Löschen bestätigen'),
+        content: const Text('Möchten Sie diesen Posten wirklich löschen?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      widget.onDelete();
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: const Text('Posten bearbeiten'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Fortschrittsanzeige
+            LinearProgressIndicator(
+              value: _isFormValid
+                  ? 1.0
+                  : (_fieldValidation.values.where((v) => v).length / 2.0),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                _isFormValid ? Colors.green : scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_fieldValidation.values.where((v) => v).length} von 2 Pflichtfeldern ausgefüllt',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+
+            // Bezeichnung - PFLICHT
+            SmartTextField(
+              label: 'Bezeichnung',
+              fieldKey: 'edit_name',
+              isRequired: true,
+              controller: _nameController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Bezeichnung ist erforderlich';
+                }
+                if (value.trim().length < 2) {
+                  return 'Mindestens 2 Zeichen';
+                }
+                return null;
+              },
+              textInputAction: TextInputAction.next,
+            ),
+
+            const SizedBox(height: 16),
+
+            // Geplant / Tatsächlich
+            Row(
+              children: [
+                Expanded(
+                  child: SmartTextField(
+                    label: 'Geplant (€)',
+                    fieldKey: 'edit_planned',
+                    isRequired: true,
+                    controller: _plannedController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Erforderlich';
+                      }
+                      final parsed = double.tryParse(
+                        value.replaceAll(',', '.'),
+                      );
+                      if (parsed == null) {
+                        return 'Ungültig';
+                      }
+                      if (parsed < 0) {
+                        return 'Muss ≥ 0 sein';
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SmartTextField(
+                    label: 'Tatsächlich (€)',
+                    fieldKey: 'edit_actual',
+                    isRequired: false,
+                    controller: _actualController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value != null && value.trim().isNotEmpty) {
+                        final parsed = double.tryParse(
+                          value.replaceAll(',', '.'),
+                        );
+                        if (parsed == null) {
+                          return 'Ungültig';
+                        }
+                        if (parsed < 0) {
+                          return 'Muss ≥ 0 sein';
+                        }
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Notizen
+            SmartTextField(
+              label: 'Notizen (optional)',
+              fieldKey: 'edit_notes',
+              isRequired: false,
+              controller: _notesController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.done,
+            ),
+
+            const SizedBox(height: 12),
+
+            CheckboxListTile(
+              title: const Text('Bereits bezahlt'),
+              value: _isPaid,
+              onChanged: (v) => setState(() => _isPaid = v ?? false),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Abbrechen'),
+        ),
+        TextButton(
+          onPressed: _confirmDelete,
+          style: TextButton.styleFrom(foregroundColor: Colors.red),
+          child: const Text('Löschen'),
+        ),
+        ElevatedButton(
+          onPressed: _isFormValid ? _save : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _isFormValid ? scheme.primary : Colors.grey[300],
+            foregroundColor: Colors.white,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_isFormValid ? Icons.save : Icons.save_outlined),
+              const SizedBox(width: 8),
+              const Text('Speichern'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
