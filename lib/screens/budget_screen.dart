@@ -8,6 +8,8 @@ import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
+// Smart Validation Import
+import '../widgets/forms/smart_text_field.dart';
 
 class EnhancedBudgetPage extends StatefulWidget {
   const EnhancedBudgetPage({super.key});
@@ -50,11 +52,14 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   };
 
   String _selectedCategory = 'other';
-  String _itemName = '';
-  double _plannedAmount = 0.0;
-  double _actualAmount = 0.0;
-  String _notes = '';
+  final _itemNameController = TextEditingController();
+  final _plannedAmountController = TextEditingController();
+  final _actualAmountController = TextEditingController();
+  final _notesController = TextEditingController();
   bool _isPaid = false;
+
+  // Smart Validation State
+  final Map<String, bool> _fieldValidation = {};
 
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
 
@@ -73,10 +78,26 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   @override
   void dispose() {
     _totalBudgetController.dispose();
+    _itemNameController.dispose();
+    _plannedAmountController.dispose();
+    _actualAmountController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
-  // Gesamtbudget aus Datenbank laden
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _isFormValid {
+    return (_fieldValidation['item_name'] ?? false) &&
+        (_fieldValidation['planned_amount'] ?? false);
+  }
+
   Future<void> _loadTotalBudget() async {
     try {
       final db = await DatabaseHelper.instance.database;
@@ -98,7 +119,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     }
   }
 
-  // Gesamtbudget speichern
   Future<void> _saveTotalBudget(double budget) async {
     try {
       final db = await DatabaseHelper.instance.database;
@@ -115,7 +135,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     }
   }
 
-  // Dialog zum Bearbeiten des Gesamtbudgets
   Future<void> _showEditTotalBudgetDialog() async {
     final controller = TextEditingController(
       text: _totalBudget.toStringAsFixed(0),
@@ -172,7 +191,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     try {
       final db = await DatabaseHelper.instance.database;
 
-      // Spalten hinzufügen (Fehler ignorieren, wenn schon vorhanden)
       try {
         await db.execute(
           'ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT \'other\'',
@@ -191,7 +209,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         );
       } catch (_) {}
 
-      // app_settings Tabelle
       try {
         await db.execute('''
           CREATE TABLE IF NOT EXISTS app_settings (
@@ -424,204 +441,67 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   Future<void> _addBudgetItem() async {
-    if (_itemName.isEmpty) return;
+    if (!_isFormValid) return;
+
     try {
       final db = await DatabaseHelper.instance.database;
       await db.insert('budget_items', {
-        'name': _itemName,
-        'planned': _plannedAmount,
-        'actual': _actualAmount,
+        'name': _itemNameController.text.trim(),
+        'planned': double.tryParse(_plannedAmountController.text) ?? 0.0,
+        'actual': double.tryParse(_actualAmountController.text) ?? 0.0,
         'category': _selectedCategory,
-        'notes': _notes,
+        'notes': _notesController.text.trim(),
         'paid': _isPaid ? 1 : 0,
-        'updated_at': DateTime.now().toIso8601String(), // NEU!
-        'deleted': 0, // NEU!
+        'updated_at': DateTime.now().toIso8601String(),
+        'deleted': 0,
       });
+
+      // Form zurücksetzen
+      _itemNameController.clear();
+      _plannedAmountController.clear();
+      _actualAmountController.clear();
+      _notesController.clear();
+      _fieldValidation.clear();
+
       setState(() {
-        _itemName = '';
-        _plannedAmount = 0.0;
-        _actualAmount = 0.0;
-        _notes = '';
         _isPaid = false;
         _selectedCategory = 'other';
         _showForm = false;
       });
+
       await _loadBudgetItems();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Budgetposten hinzugefügt! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       print('Fehler beim Hinzufügen des Budget-Items: $e');
     }
   }
 
   Future<void> _editBudgetItem(BudgetItem item) async {
-    String editName = item.name;
-    double editPlanned = item.planned;
-    double editActual = item.actual;
-    String editCategory = item.category;
-    String editNotes = item.notes;
-    bool editPaid = item.paid;
-
-    final result = await showDialog<Map<String, dynamic>>(
+    showDialog(
       context: context,
-      builder: (builderContext) {
-        String dialogCategory = editCategory;
-        bool dialogPaid = editPaid;
-        final dialogScheme = Theme.of(builderContext).colorScheme;
-
-        return StatefulBuilder(
-          builder: (statefulContext, setDialogState) {
-            return AlertDialog(
-              title: const Text('Budgetposten bearbeiten'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DropdownButtonFormField<String>(
-                      value: dialogCategory,
-                      decoration: const InputDecoration(labelText: 'Kategorie'),
-                      items: _categoryLabels.entries
-                          .map(
-                            (e) => DropdownMenuItem(
-                              value: e.key,
-                              child: Text(e.value),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setDialogState(() {
-                        dialogCategory = v!;
-                        editCategory = v;
-                      }),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: TextEditingController(text: editName),
-                      decoration: const InputDecoration(
-                        labelText: 'Bezeichnung',
-                      ),
-                      onChanged: (v) => editName = v,
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: TextEditingController(
-                              text: editPlanned.toString(),
-                            ),
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Geplant (€)',
-                            ),
-                            onChanged: (v) =>
-                                editPlanned = double.tryParse(v) ?? 0.0,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: TextEditingController(
-                              text: editActual.toString(),
-                            ),
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Tatsächlich (€)',
-                            ),
-                            onChanged: (v) =>
-                                editActual = double.tryParse(v) ?? 0.0,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: TextEditingController(text: editNotes),
-                      decoration: const InputDecoration(labelText: 'Notizen'),
-                      onChanged: (v) => editNotes = v,
-                    ),
-                    const SizedBox(height: 16),
-                    CheckboxListTile(
-                      title: const Text('Bereits bezahlt'),
-                      value: dialogPaid,
-                      onChanged: (v) => setDialogState(() {
-                        dialogPaid = v ?? false;
-                        editPaid = v ?? false;
-                      }),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(builderContext),
-                  child: const Text('Abbrechen'),
-                ),
-                TextButton(
-                  onPressed: () =>
-                      Navigator.pop(builderContext, {'delete': true}),
-                  child: const Text(
-                    'Löschen',
-                    style: TextStyle(color: Colors.red),
-                  ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(builderContext, {
-                      'name': editName,
-                      'planned': editPlanned,
-                      'actual': editActual,
-                      'category': editCategory,
-                      'notes': editNotes,
-                      'paid': editPaid,
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: dialogScheme.primary,
-                    foregroundColor: dialogScheme.onPrimary,
-                  ),
-                  child: const Text('Speichern'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (builderContext) => _BudgetItemEditDialog(
+        item: item,
+        categoryLabels: _categoryLabels,
+        onSave: () async {
+          await _loadBudgetItems();
+        },
+      ),
     );
-
-    if (result != null) {
-      if (result['delete'] == true) {
-        try {
-          await DatabaseHelper.instance.deleteBudgetItem(item.id!);
-          await _loadBudgetItems();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Budgetposten gelöscht')),
-            );
-          }
-        } catch (e) {
-          print('Fehler beim Löschen: $e');
-        }
-      } else {
-        try {
-          final updatedItem = item.copyWith(
-            name: result['name'],
-            planned: result['planned'],
-            actual: result['actual'],
-            category: result['category'],
-            notes: result['notes'],
-            paid: result['paid'],
-          );
-          await DatabaseHelper.instance.updateBudgetItem(updatedItem);
-          await _loadBudgetItems();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Budgetposten aktualisiert')),
-            );
-          }
-        } catch (e) {
-          print('Fehler beim Speichern: $e');
-        }
-      }
-    }
   }
 
   @override
@@ -672,7 +552,19 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               ),
               const SizedBox(width: 4),
               ElevatedButton.icon(
-                onPressed: () => setState(() => _showForm = !_showForm),
+                onPressed: () {
+                  setState(() {
+                    _showForm = !_showForm;
+                    if (!_showForm) {
+                      // Form zurücksetzen beim Schließen
+                      _itemNameController.clear();
+                      _plannedAmountController.clear();
+                      _actualAmountController.clear();
+                      _notesController.clear();
+                      _fieldValidation.clear();
+                    }
+                  });
+                },
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('Neu', style: TextStyle(fontSize: 12)),
                 style: ElevatedButton.styleFrom(
@@ -698,7 +590,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // Gesamtbudget Card
   Widget _buildTotalBudgetCard() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -724,7 +615,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Gesamtbudget, Betrag und Edit-Button
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -842,229 +732,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  Widget _buildBudgetOverview() {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                SizedBox(
-                  width: 80,
-                  height: 80,
-                  child: Stack(
-                    children: [
-                      CustomPaint(
-                        size: const Size(80, 80),
-                        painter: BudgetDonutChartPainter(
-                          totalPlanned: totalPlanned,
-                          totalActual: totalActual,
-                          remaining: remaining,
-                        ),
-                      ),
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              '${totalPlanned > 0 ? ((totalActual / totalPlanned) * 100).toStringAsFixed(0) : "0"}%',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const Text(
-                              'ausgegeben',
-                              style: TextStyle(fontSize: 8),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          Column(
-                            children: [
-                              Text(
-                                'Geplant',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 11,
-                                ),
-                              ),
-                              Text(
-                                '€${_formatCurrency(totalPlanned)}',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          Column(
-                            children: [
-                              Text(
-                                'Ausgegeben',
-                                style: TextStyle(
-                                  color: Colors.grey[600],
-                                  fontSize: 11,
-                                ),
-                              ),
-                              Text(
-                                '€${_formatCurrency(totalActual)}',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: scheme.primary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Column(
-                        children: [
-                          Text(
-                            'Übrig',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 11,
-                            ),
-                          ),
-                          Text(
-                            '€${_formatCurrency(remaining)}',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: remaining >= 0 ? Colors.green : Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            LinearProgressIndicator(
-              value: totalPlanned > 0 ? totalActual / totalPlanned : 0,
-              backgroundColor: Colors.grey[300],
-              valueColor: AlwaysStoppedAnimation<Color>(
-                totalActual > totalPlanned ? Colors.red : scheme.primary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatsCards() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildStatCard(
-            'Geplant',
-            '€${_formatCurrency(totalPlanned)}',
-            Icons.account_balance_wallet,
-            Colors.blue,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _buildStatCard(
-            'Ausgegeben',
-            '€${_formatCurrency(totalActual)}',
-            totalActual <= totalPlanned
-                ? Icons.trending_up
-                : Icons.trending_down,
-            totalActual <= totalPlanned ? Colors.green : Colors.red,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _buildStatCard(
-            'Verbleibt',
-            '€${_formatCurrency(remaining)}',
-            Icons.savings,
-            Colors.purple,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        value,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Icon(icon, color: color, size: 14),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  // Smart Validation Add Item Form
   Widget _buildAddItemForm() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -1080,160 +748,186 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               'Neuen Budgetposten hinzufügen',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 8),
+
+            // Fortschrittsanzeige
+            LinearProgressIndicator(
+              value: _isFormValid
+                  ? 1.0
+                  : (_fieldValidation.values.where((v) => v).length / 2.0),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                _isFormValid ? Colors.green : scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_fieldValidation.values.where((v) => v).length} von 2 Pflichtfeldern ausgefüllt',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+
             const SizedBox(height: 16),
+
             // Kategorie
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Kategorie',
-                  style: TextStyle(fontWeight: FontWeight.w500),
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: const InputDecoration(
+                labelText: 'Kategorie',
+                border: OutlineInputBorder(),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
                 ),
-                const SizedBox(height: 4),
-                DropdownButtonFormField<String>(
-                  value: _selectedCategory,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  items: _categoryLabels.entries.map((entry) {
-                    return DropdownMenuItem(
-                      value: entry.key,
-                      child: Text(entry.value),
-                    );
-                  }).toList(),
-                  onChanged: (value) =>
-                      setState(() => _selectedCategory = value!),
-                ),
-              ],
+              ),
+              items: _categoryLabels.entries.map((entry) {
+                return DropdownMenuItem(
+                  value: entry.key,
+                  child: Text(entry.value),
+                );
+              }).toList(),
+              onChanged: (value) => setState(() => _selectedCategory = value!),
             ),
+
             const SizedBox(height: 16),
-            // Bezeichnung
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Bezeichnung',
-                  style: TextStyle(fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 4),
-                TextField(
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    hintText: 'z.B. Hochzeitslocation',
-                  ),
-                  onChanged: (value) => _itemName = value,
-                ),
-              ],
+
+            // Bezeichnung - PFLICHT
+            SmartTextField(
+              label: 'Bezeichnung',
+              fieldKey: 'item_name',
+              isRequired: true,
+              controller: _itemNameController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Bezeichnung ist erforderlich';
+                }
+                if (value.trim().length < 2) {
+                  return 'Mindestens 2 Zeichen';
+                }
+                return null;
+              },
+              textInputAction: TextInputAction.next,
             ),
+
             const SizedBox(height: 16),
+
             // Geplant / Tatsächlich
             Row(
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Geplanter Betrag (€)',
-                        style: TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                      const SizedBox(height: 4),
-                      TextField(
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          hintText: '0',
-                        ),
-                        onChanged: (value) =>
-                            _plannedAmount = double.tryParse(value) ?? 0.0,
-                      ),
-                    ],
+                  child: SmartTextField(
+                    label: 'Geplanter Betrag (€)',
+                    fieldKey: 'planned_amount',
+                    isRequired: true,
+                    controller: _plannedAmountController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Betrag erforderlich';
+                      }
+                      final parsed = double.tryParse(value.trim());
+                      if (parsed == null) {
+                        return 'Ungültige Zahl';
+                      }
+                      if (parsed < 0) {
+                        return 'Muss ≥ 0 sein';
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Tatsächlicher Betrag (€)',
-                        style: TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                      const SizedBox(height: 4),
-                      TextField(
-                        keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          hintText: '0',
-                        ),
-                        onChanged: (value) =>
-                            _actualAmount = double.tryParse(value) ?? 0.0,
-                      ),
-                    ],
+                  child: SmartTextField(
+                    label: 'Tatsächlicher Betrag (€)',
+                    fieldKey: 'actual_amount',
+                    isRequired: false,
+                    controller: _actualAmountController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value != null && value.trim().isNotEmpty) {
+                        final parsed = double.tryParse(value.trim());
+                        if (parsed == null) {
+                          return 'Ungültige Zahl';
+                        }
+                        if (parsed < 0) {
+                          return 'Muss ≥ 0 sein';
+                        }
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
                   ),
                 ),
               ],
             ),
+
             const SizedBox(height: 16),
-            // Notizen
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Notizen',
-                  style: TextStyle(fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 4),
-                TextField(
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    hintText: 'Zusätzliche Informationen',
-                  ),
-                  onChanged: (value) => _notes = value,
-                ),
-              ],
+
+            // Notizen - Optional
+            SmartTextField(
+              label: 'Notizen',
+              fieldKey: 'notes',
+              isRequired: false,
+              controller: _notesController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.done,
             ),
+
             const SizedBox(height: 16),
+
             CheckboxListTile(
               title: const Text('Bereits bezahlt'),
               value: _isPaid,
               onChanged: (value) => setState(() => _isPaid = value ?? false),
               contentPadding: EdgeInsets.zero,
             ),
+
             const SizedBox(height: 16),
+
             Row(
               children: [
                 ElevatedButton(
-                  onPressed: _addBudgetItem,
+                  onPressed: _isFormValid ? _addBudgetItem : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: scheme.primary,
-                    foregroundColor: scheme.onPrimary,
+                    backgroundColor: _isFormValid
+                        ? scheme.primary
+                        : Colors.grey[300],
+                    foregroundColor: Colors.white,
                   ),
-                  child: const Text('Hinzufügen'),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _isFormValid
+                            ? Icons.add_circle
+                            : Icons.add_circle_outline,
+                      ),
+                      const SizedBox(width: 8),
+                      const Text('Hinzufügen'),
+                    ],
+                  ),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton(
-                  onPressed: () => setState(() => _showForm = false),
+                  onPressed: () {
+                    setState(() {
+                      _showForm = false;
+                      _itemNameController.clear();
+                      _plannedAmountController.clear();
+                      _actualAmountController.clear();
+                      _notesController.clear();
+                      _fieldValidation.clear();
+                    });
+                  },
                   child: const Text('Abbrechen'),
                 ),
               ],
@@ -1538,6 +1232,319 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           const SizedBox(height: 12),
         ],
       ),
+    );
+  }
+}
+
+// ============================================================================
+// BUDGET ITEM EDIT DIALOG - Mit Smart Validation
+// ============================================================================
+
+class _BudgetItemEditDialog extends StatefulWidget {
+  final BudgetItem item;
+  final Map<String, String> categoryLabels;
+  final VoidCallback onSave;
+
+  const _BudgetItemEditDialog({
+    required this.item,
+    required this.categoryLabels,
+    required this.onSave,
+  });
+
+  @override
+  State<_BudgetItemEditDialog> createState() => _BudgetItemEditDialogState();
+}
+
+class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
+  late TextEditingController _nameController;
+  late TextEditingController _plannedController;
+  late TextEditingController _actualController;
+  late TextEditingController _notesController;
+  late String _selectedCategory;
+  late bool _isPaid;
+
+  final Map<String, bool> _fieldValidation = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.item.name);
+    _plannedController = TextEditingController(
+      text: widget.item.planned.toStringAsFixed(0),
+    );
+    _actualController = TextEditingController(
+      text: widget.item.actual.toStringAsFixed(0),
+    );
+    _notesController = TextEditingController(text: widget.item.notes);
+    _selectedCategory = widget.item.category;
+    _isPaid = widget.item.paid;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _plannedController.dispose();
+    _actualController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _isFormValid {
+    return (_fieldValidation['edit_name'] ?? false) &&
+        (_fieldValidation['edit_planned'] ?? false);
+  }
+
+  Future<void> _save() async {
+    if (!_isFormValid) return;
+
+    try {
+      final updatedItem = widget.item.copyWith(
+        name: _nameController.text.trim(),
+        planned: double.tryParse(_plannedController.text) ?? 0.0,
+        actual: double.tryParse(_actualController.text) ?? 0.0,
+        category: _selectedCategory,
+        notes: _notesController.text.trim(),
+        paid: _isPaid,
+      );
+
+      await DatabaseHelper.instance.updateBudgetItem(updatedItem);
+      widget.onSave();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Budgetposten aktualisiert! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Fehler beim Speichern: $e')));
+      }
+    }
+  }
+
+  Future<void> _delete() async {
+    try {
+      await DatabaseHelper.instance.deleteBudgetItem(widget.item.id!);
+      widget.onSave();
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('Budgetposten gelöscht! ✓'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Fehler beim Löschen: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: const Text('Budgetposten bearbeiten'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Fortschrittsanzeige
+            LinearProgressIndicator(
+              value: _isFormValid
+                  ? 1.0
+                  : (_fieldValidation.values.where((v) => v).length / 2.0),
+              backgroundColor: Colors.grey[200],
+              valueColor: AlwaysStoppedAnimation<Color>(
+                _isFormValid ? Colors.green : scheme.primary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_fieldValidation.values.where((v) => v).length} von 2 Pflichtfeldern ausgefüllt',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+
+            // Kategorie
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              decoration: const InputDecoration(
+                labelText: 'Kategorie',
+                border: OutlineInputBorder(),
+              ),
+              items: widget.categoryLabels.entries
+                  .map(
+                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedCategory = v!),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Bezeichnung - PFLICHT
+            SmartTextField(
+              label: 'Bezeichnung',
+              fieldKey: 'edit_name',
+              isRequired: true,
+              controller: _nameController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Bezeichnung ist erforderlich';
+                }
+                if (value.trim().length < 2) {
+                  return 'Mindestens 2 Zeichen';
+                }
+                return null;
+              },
+              textInputAction: TextInputAction.next,
+            ),
+
+            const SizedBox(height: 16),
+
+            // Geplant / Tatsächlich
+            Row(
+              children: [
+                Expanded(
+                  child: SmartTextField(
+                    label: 'Geplant (€)',
+                    fieldKey: 'edit_planned',
+                    isRequired: true,
+                    controller: _plannedController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Erforderlich';
+                      }
+                      final parsed = double.tryParse(value.trim());
+                      if (parsed == null) {
+                        return 'Ungültig';
+                      }
+                      if (parsed < 0) {
+                        return 'Muss ≥ 0 sein';
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SmartTextField(
+                    label: 'Tatsächlich (€)',
+                    fieldKey: 'edit_actual',
+                    isRequired: false,
+                    controller: _actualController,
+                    onValidationChanged: _updateFieldValidation,
+                    isDisabled: false,
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value != null && value.trim().isNotEmpty) {
+                        final parsed = double.tryParse(value.trim());
+                        if (parsed == null) {
+                          return 'Ungültig';
+                        }
+                        if (parsed < 0) {
+                          return 'Muss ≥ 0 sein';
+                        }
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Notizen
+            SmartTextField(
+              label: 'Notizen',
+              fieldKey: 'edit_notes',
+              isRequired: false,
+              controller: _notesController,
+              onValidationChanged: _updateFieldValidation,
+              isDisabled: false,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.done,
+            ),
+
+            const SizedBox(height: 16),
+
+            CheckboxListTile(
+              title: const Text('Bereits bezahlt'),
+              value: _isPaid,
+              onChanged: (v) => setState(() => _isPaid = v ?? false),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Abbrechen'),
+        ),
+        TextButton(
+          onPressed: _delete,
+          child: const Text('Löschen', style: TextStyle(color: Colors.red)),
+        ),
+        ElevatedButton(
+          onPressed: _isFormValid ? _save : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _isFormValid ? scheme.primary : Colors.grey[300],
+            foregroundColor: Colors.white,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_isFormValid ? Icons.save : Icons.save_outlined),
+              const SizedBox(width: 8),
+              const Text('Speichern'),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

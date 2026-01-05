@@ -6,6 +6,8 @@ import 'dienstleister_detail_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
+// Smart Validation Imports
+import '../widgets/forms/smart_text_field.dart';
 
 class DienstleisterListScreen extends StatefulWidget {
   const DienstleisterListScreen({Key? key}) : super(key: key);
@@ -197,7 +199,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
     );
   }
 
-  // NEUE METHODE: Dienstleister löschen mit Bestätigung
   Future<void> _deleteDienstleister(Dienstleister dienstleister) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1040,7 +1041,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Bearbeiten Button
                 IconButton(
                   icon: const Icon(Icons.edit, size: 18),
                   color: Colors.blue,
@@ -1052,7 +1052,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   onPressed: () => _showDienstleisterDialog(dienstleister),
                   tooltip: 'Bearbeiten',
                 ),
-                // Löschen Button
                 IconButton(
                   icon: const Icon(Icons.close, size: 18),
                   color: Colors.red,
@@ -1164,6 +1163,10 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   }
 }
 
+// ============================================================================
+// DIENSTLEISTER FORM DIALOG - Mit Smart Validation
+// ============================================================================
+
 class _DienstleisterFormDialog extends StatefulWidget {
   final Dienstleister? dienstleister;
   final VoidCallback onSave;
@@ -1176,7 +1179,6 @@ class _DienstleisterFormDialog extends StatefulWidget {
 }
 
 class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
-  final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _kontaktNameController;
   late TextEditingController _emailController;
@@ -1190,6 +1192,8 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
   late DienstleisterStatus _status;
   DateTime? _optionBis;
   bool _istFavorit = false;
+
+  final Map<String, bool> _fieldValidation = {};
 
   @override
   void initState() {
@@ -1229,8 +1233,24 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
     super.dispose();
   }
 
+  void _updateFieldValidation(String fieldKey, bool isValid) {
+    if (mounted) {
+      setState(() {
+        _fieldValidation[fieldKey] = isValid;
+      });
+    }
+  }
+
+  bool get _areAllFieldsValid {
+    return _fieldValidation['name'] ?? false;
+  }
+
+  int get _validFieldsCount {
+    return _fieldValidation['name'] == true ? 1 : 0;
+  }
+
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_areAllFieldsValid) return;
 
     final dienstleister = Dienstleister(
       id:
@@ -1262,7 +1282,27 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
     }
 
     widget.onSave();
-    if (mounted) Navigator.pop(context);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                widget.dienstleister != null
+                    ? 'Dienstleister aktualisiert! ✓'
+                    : 'Dienstleister hinzugefügt! ✓',
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      Navigator.pop(context);
+    }
   }
 
   @override
@@ -1293,162 +1333,253 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(24),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Name *',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) =>
-                            v?.isEmpty ?? true ? 'Pflichtfeld' : null,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Fortschrittsanzeige
+                    LinearProgressIndicator(
+                      value: _validFieldsCount / 1.0,
+                      backgroundColor: Colors.grey[200],
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        _areAllFieldsValid ? Colors.green : scheme.primary,
                       ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<DienstleisterKategorie>(
-                        value: _kategorie,
-                        decoration: const InputDecoration(
-                          labelText: 'Kategorie',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: DienstleisterKategorie.values
-                            .map(
-                              (k) => DropdownMenuItem(
-                                value: k,
-                                child: Text(k.label),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) => setState(() => _kategorie = v!),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '$_validFieldsCount von 1 Pflichtfeld ausgefüllt',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Name - PFLICHT
+                    SmartTextField(
+                      label: 'Name',
+                      fieldKey: 'name',
+                      isRequired: true,
+                      controller: _nameController,
+                      onValidationChanged: _updateFieldValidation,
+                      isDisabled: false,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Name ist erforderlich';
+                        }
+                        if (value.trim().length < 2) {
+                          return 'Mindestens 2 Zeichen';
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Kategorie
+                    DropdownButtonFormField<DienstleisterKategorie>(
+                      value: _kategorie,
+                      decoration: const InputDecoration(
+                        labelText: 'Kategorie',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<DienstleisterStatus>(
-                        value: _status,
-                        decoration: const InputDecoration(
-                          labelText: 'Status',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: DienstleisterStatus.values
-                            .map(
-                              (s) => DropdownMenuItem(
-                                value: s,
-                                child: Text(s.label),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) => setState(() => _status = v!),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _angebotController,
-                        decoration: const InputDecoration(
-                          labelText: 'Angebotssumme (€)',
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _kontaktNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Ansprechpartner',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _emailController,
-                              decoration: const InputDecoration(
-                                labelText: 'E-Mail',
-                                border: OutlineInputBorder(),
-                              ),
+                      items: DienstleisterKategorie.values
+                          .map(
+                            (k) => DropdownMenuItem(
+                              value: k,
+                              child: Text(k.label),
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _telefonController,
-                              decoration: const InputDecoration(
-                                labelText: 'Telefon',
-                                border: OutlineInputBorder(),
-                              ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _kategorie = v!),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Status
+                    DropdownButtonFormField<DienstleisterStatus>(
+                      value: _status,
+                      decoration: const InputDecoration(
+                        labelText: 'Status',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: DienstleisterStatus.values
+                          .map(
+                            (s) => DropdownMenuItem(
+                              value: s,
+                              child: Text(s.label),
                             ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _status = v!),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Angebotssumme
+                    SmartTextField(
+                      label: 'Angebotssumme (€)',
+                      fieldKey: 'angebot',
+                      isRequired: false,
+                      controller: _angebotController,
+                      onValidationChanged: _updateFieldValidation,
+                      isDisabled: false,
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value != null && value.trim().isNotEmpty) {
+                          final parsed = double.tryParse(value.trim());
+                          if (parsed == null) {
+                            return 'Ungültige Zahl';
+                          }
+                          if (parsed < 0) {
+                            return 'Betrag muss positiv sein';
+                          }
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Ansprechpartner
+                    SmartTextField(
+                      label: 'Ansprechpartner',
+                      fieldKey: 'kontakt_name',
+                      isRequired: false,
+                      controller: _kontaktNameController,
+                      onValidationChanged: _updateFieldValidation,
+                      isDisabled: false,
+                      textInputAction: TextInputAction.next,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // E-Mail & Telefon
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SmartTextField(
+                            label: 'E-Mail',
+                            fieldKey: 'email',
+                            isRequired: false,
+                            controller: _emailController,
+                            onValidationChanged: _updateFieldValidation,
+                            isDisabled: false,
+                            keyboardType: TextInputType.emailAddress,
+                            validator: (value) {
+                              if (value != null && value.trim().isNotEmpty) {
+                                final emailRegex = RegExp(
+                                  r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
+                                );
+                                if (!emailRegex.hasMatch(value.trim())) {
+                                  return 'Ungültige E-Mail';
+                                }
+                              }
+                              return null;
+                            },
+                            textInputAction: TextInputAction.next,
                           ),
-                        ],
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: SmartTextField(
+                            label: 'Telefon',
+                            fieldKey: 'telefon',
+                            isRequired: false,
+                            controller: _telefonController,
+                            onValidationChanged: _updateFieldValidation,
+                            isDisabled: false,
+                            keyboardType: TextInputType.phone,
+                            textInputAction: TextInputAction.next,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Website & Instagram
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SmartTextField(
+                            label: 'Website',
+                            fieldKey: 'website',
+                            isRequired: false,
+                            controller: _websiteController,
+                            onValidationChanged: _updateFieldValidation,
+                            isDisabled: false,
+                            keyboardType: TextInputType.url,
+                            textInputAction: TextInputAction.next,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: SmartTextField(
+                            label: 'Instagram',
+                            fieldKey: 'instagram',
+                            isRequired: false,
+                            controller: _instagramController,
+                            onValidationChanged: _updateFieldValidation,
+                            isDisabled: false,
+                            textInputAction: TextInputAction.next,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Option gültig bis
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Option gültig bis'),
+                      subtitle: Text(
+                        _optionBis != null
+                            ? '${_optionBis!.day}.${_optionBis!.month}.${_optionBis!.year}'
+                            : 'Nicht gesetzt',
                       ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _websiteController,
-                              decoration: const InputDecoration(
-                                labelText: 'Website',
-                                border: OutlineInputBorder(),
-                              ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.calendar_today),
+                        onPressed: () async {
+                          final date = await showDatePicker(
+                            context: context,
+                            initialDate: _optionBis ?? DateTime.now(),
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
                             ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: TextFormField(
-                              controller: _instagramController,
-                              decoration: const InputDecoration(
-                                labelText: 'Instagram',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                        ],
+                          );
+                          if (date != null) {
+                            setState(() => _optionBis = date);
+                          }
+                        },
                       ),
-                      const SizedBox(height: 16),
-                      ListTile(
-                        title: const Text('Option gültig bis'),
-                        subtitle: Text(
-                          _optionBis != null
-                              ? '${_optionBis!.day}.${_optionBis!.month}.${_optionBis!.year}'
-                              : 'Nicht gesetzt',
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.calendar_today),
-                          onPressed: () async {
-                            final date = await showDatePicker(
-                              context: context,
-                              initialDate: _optionBis ?? DateTime.now(),
-                              firstDate: DateTime.now(),
-                              lastDate: DateTime.now().add(
-                                const Duration(days: 365),
-                              ),
-                            );
-                            if (date != null) {
-                              setState(() => _optionBis = date);
-                            }
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _notizenController,
-                        decoration: const InputDecoration(
-                          labelText: 'Notizen',
-                          border: OutlineInputBorder(),
-                        ),
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 16),
-                      CheckboxListTile(
-                        title: const Text('Als Favorit markieren'),
-                        value: _istFavorit,
-                        onChanged: (v) =>
-                            setState(() => _istFavorit = v ?? false),
-                      ),
-                    ],
-                  ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Notizen
+                    SmartTextField(
+                      label: 'Notizen',
+                      fieldKey: 'notizen',
+                      isRequired: false,
+                      controller: _notizenController,
+                      onValidationChanged: _updateFieldValidation,
+                      isDisabled: false,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.done,
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Favorit
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Als Favorit markieren'),
+                      value: _istFavorit,
+                      onChanged: (v) =>
+                          setState(() => _istFavorit = v ?? false),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1463,12 +1594,23 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: _save,
+                    onPressed: _areAllFieldsValid ? _save : null,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: scheme.primary,
-                      foregroundColor: scheme.onPrimary,
+                      backgroundColor: _areAllFieldsValid
+                          ? scheme.primary
+                          : Colors.grey[300],
+                      foregroundColor: Colors.white,
                     ),
-                    child: const Text('Speichern'),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _areAllFieldsValid ? Icons.save : Icons.save_outlined,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text('Speichern'),
+                      ],
+                    ),
                   ),
                 ],
               ),
