@@ -608,6 +608,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 // ============================================================================
 // GUEST FORM DIALOG - Mit Smart Validation
 // ============================================================================
+// Ersetze die komplette _GuestFormDialog Klasse am Ende deiner guest_page.dart
 
 class _GuestFormDialog extends StatefulWidget {
   final Guest? editingGuest;
@@ -638,8 +639,6 @@ class _GuestFormDialog extends StatefulWidget {
 
 class _GuestFormDialogState extends State<_GuestFormDialog> {
   final Map<String, bool> _fieldValidation = {};
-  // NUR Vorname und Status sind Pflicht!
-  final List<String> _requiredFields = ['first_name', 'status'];
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
     if (mounted) {
@@ -650,13 +649,16 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
   }
 
   bool get _areAllFieldsValid {
-    return _requiredFields.every((field) => _fieldValidation[field] ?? false);
+    // Nur Vorname und Status müssen valide sein
+    return (_fieldValidation['first_name'] ?? false) &&
+        (_fieldValidation['status'] ?? false);
   }
 
   int get _validFieldsCount {
-    return _requiredFields
-        .where((field) => _fieldValidation[field] ?? false)
-        .length;
+    int count = 0;
+    if (_fieldValidation['first_name'] ?? false) count++;
+    if (_fieldValidation['status'] ?? false) count++;
+    return count;
   }
 
   @override
@@ -673,9 +675,10 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Fortschrittsanzeige
+              // Fortschrittsanzeige - 2 Pflichtfelder
               LinearProgressIndicator(
-                value: _validFieldsCount / _requiredFields.length,
+                value:
+                    _validFieldsCount / 2.0, // ← Hart codiert: 2 Pflichtfelder
                 backgroundColor: Colors.grey[200],
                 valueColor: AlwaysStoppedAnimation<Color>(
                   _areAllFieldsValid
@@ -685,7 +688,7 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
               ),
               const SizedBox(height: 8),
               Text(
-                '$_validFieldsCount von ${_requiredFields.length} Pflichtfeldern ausgefüllt',
+                '$_validFieldsCount von 2 Pflichtfeldern ausgefüllt', // ← Hart codiert
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
               const SizedBox(height: 16),
@@ -721,7 +724,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 validator: (value) {
-                  // Optional, aber wenn angegeben min. 2 Zeichen
                   if (value != null &&
                       value.trim().isNotEmpty &&
                       value.trim().length < 2) {
@@ -744,7 +746,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 isDisabled: false,
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
-                  // Optional, aber wenn angegeben muss Format stimmen
                   if (value != null && value.trim().isNotEmpty) {
                     final emailRegex = RegExp(
                       r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
@@ -814,7 +815,7 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
             backgroundColor: _areAllFieldsValid
                 ? Theme.of(context).colorScheme.primary
                 : Colors.grey[300],
-            foregroundColor: Colors.white, // ← WEIßE SCHRIFT!
+            foregroundColor: Colors.white,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
