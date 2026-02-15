@@ -472,7 +472,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 }
 
 // ============================================================================
-// ADD BUDGET ITEM DIALOG - Mit Smart Validation
+// ADD BUDGET ITEM DIALOG - Mit Smart Validation UND InputFormatter
 // ============================================================================
 
 class _AddBudgetItemDialog extends StatefulWidget {
@@ -521,6 +521,13 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
         (_fieldValidation['planned'] ?? false);
   }
 
+  double? _parseGermanNumber(String value) {
+    if (value.trim().isEmpty) return null;
+    // Ersetze Komma durch Punkt
+    final normalized = value.trim().replaceAll(',', '.');
+    return double.tryParse(normalized);
+  }
+
   Future<void> _save() async {
     if (!_isFormValid) return;
 
@@ -528,8 +535,8 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
       final db = await DatabaseHelper.instance.database;
       await db.insert('budget_items', {
         'name': _nameController.text.trim(),
-        'planned': double.tryParse(_plannedController.text) ?? 0.0,
-        'actual': double.tryParse(_actualController.text) ?? 0.0,
+        'planned': _parseGermanNumber(_plannedController.text) ?? 0.0,
+        'actual': _parseGermanNumber(_actualController.text) ?? 0.0,
         'category': widget.category,
         'notes': _notesController.text.trim(),
         'paid': _isPaid ? 1 : 0,
@@ -613,7 +620,7 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
 
             const SizedBox(height: 16),
 
-            // Geplant / Tatsächlich
+            // Geplant / Tatsächlich MIT INPUT FORMATTER
             Row(
               children: [
                 Expanded(
@@ -624,16 +631,16 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
                     controller: _plannedController,
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return 'Erforderlich';
                       }
-                      final parsed = double.tryParse(
-                        value.replaceAll(',', '.'),
-                      );
+                      final parsed = _parseGermanNumber(value);
                       if (parsed == null) {
-                        return 'Ungültig';
+                        return 'Ungültige Zahl';
                       }
                       if (parsed < 0) {
                         return 'Muss ≥ 0 sein';
@@ -652,14 +659,14 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
                     controller: _actualController,
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (value) {
                       if (value != null && value.trim().isNotEmpty) {
-                        final parsed = double.tryParse(
-                          value.replaceAll(',', '.'),
-                        );
+                        final parsed = _parseGermanNumber(value);
                         if (parsed == null) {
-                          return 'Ungültig';
+                          return 'Ungültige Zahl';
                         }
                         if (parsed < 0) {
                           return 'Muss ≥ 0 sein';
@@ -724,7 +731,7 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
 }
 
 // ============================================================================
-// EDIT BUDGET ITEM DIALOG - Mit Smart Validation
+// EDIT BUDGET ITEM DIALOG - Mit Smart Validation UND InputFormatter
 // ============================================================================
 
 class _EditBudgetItemDialog extends StatefulWidget {
@@ -795,6 +802,13 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
         (_fieldValidation['edit_planned'] ?? false);
   }
 
+  double? _parseGermanNumber(String value) {
+    if (value.trim().isEmpty) return null;
+    // Ersetze Komma durch Punkt
+    final normalized = value.trim().replaceAll(',', '.');
+    return double.tryParse(normalized);
+  }
+
   Future<void> _save() async {
     if (!_isFormValid) return;
 
@@ -804,12 +818,8 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
         'budget_items',
         {
           'name': _nameController.text.trim(),
-          'planned':
-              double.tryParse(_plannedController.text.replaceAll(',', '.')) ??
-              0.0,
-          'actual':
-              double.tryParse(_actualController.text.replaceAll(',', '.')) ??
-              0.0,
+          'planned': _parseGermanNumber(_plannedController.text) ?? 0.0,
+          'actual': _parseGermanNumber(_actualController.text) ?? 0.0,
           'notes': _notesController.text.trim(),
           'paid': _isPaid ? 1 : 0,
         },
@@ -919,7 +929,7 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
 
             const SizedBox(height: 16),
 
-            // Geplant / Tatsächlich
+            // Geplant / Tatsächlich MIT INPUT FORMATTER
             Row(
               children: [
                 Expanded(
@@ -930,16 +940,16 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
                     controller: _plannedController,
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return 'Erforderlich';
                       }
-                      final parsed = double.tryParse(
-                        value.replaceAll(',', '.'),
-                      );
+                      final parsed = _parseGermanNumber(value);
                       if (parsed == null) {
-                        return 'Ungültig';
+                        return 'Ungültige Zahl';
                       }
                       if (parsed < 0) {
                         return 'Muss ≥ 0 sein';
@@ -958,14 +968,14 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
                     controller: _actualController,
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     validator: (value) {
                       if (value != null && value.trim().isNotEmpty) {
-                        final parsed = double.tryParse(
-                          value.replaceAll(',', '.'),
-                        );
+                        final parsed = _parseGermanNumber(value);
                         if (parsed == null) {
-                          return 'Ungültig';
+                          return 'Ungültige Zahl';
                         }
                         if (parsed < 0) {
                           return 'Muss ≥ 0 sein';

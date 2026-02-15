@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class SmartTextField extends StatefulWidget {
   final String label;
@@ -8,11 +9,12 @@ class SmartTextField extends StatefulWidget {
   final Function(String, bool) onValidationChanged;
   final bool isDisabled;
   final String? Function(String?)? validator;
-  final TextInputAction? textInputAction;
   final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final List<TextInputFormatter>? inputFormatters; // NEU!
 
   const SmartTextField({
-    super.key,
+    Key? key,
     required this.label,
     required this.fieldKey,
     required this.isRequired,
@@ -20,99 +22,129 @@ class SmartTextField extends StatefulWidget {
     required this.onValidationChanged,
     required this.isDisabled,
     this.validator,
-    this.textInputAction,
     this.keyboardType,
-  });
+    this.textInputAction,
+    this.inputFormatters, // NEU!
+  }) : super(key: key);
 
   @override
   State<SmartTextField> createState() => _SmartTextFieldState();
 }
 
 class _SmartTextFieldState extends State<SmartTextField> {
-  String? _errorText;
   bool _isValid = false;
+  String? _errorText;
+  bool _hasInteracted = false;
 
   @override
   void initState() {
     super.initState();
-    widget.controller.addListener(_validateField);
-    // Initiale Validierung NACH dem Build
+    widget.controller.addListener(_onTextChanged);
+    // Initiale Validierung
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _validateField();
+      _validateField(widget.controller.text);
     });
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_validateField);
+    widget.controller.removeListener(_onTextChanged);
     super.dispose();
   }
 
-  void _validateField() {
-    final value = widget.controller.text;
+  void _onTextChanged() {
+    if (_hasInteracted) {
+      _validateField(widget.controller.text);
+    }
+  }
+
+  void _validateField(String value) {
+    if (!mounted) return;
+
+    final validator = widget.validator;
     String? error;
     bool isValid = false;
 
-    if (widget.validator != null) {
-      error = widget.validator!(value);
+    if (validator != null) {
+      error = validator(value);
       isValid = error == null;
-    } else if (widget.isRequired) {
-      isValid = value.trim().isNotEmpty;
-      error = isValid ? null : '${widget.label} ist erforderlich';
     } else {
-      isValid = true;
+      // Standard-Validierung wenn kein validator angegeben
+      if (widget.isRequired) {
+        isValid = value.trim().isNotEmpty;
+        error = isValid ? null : 'Dieses Feld ist erforderlich';
+      } else {
+        isValid = true;
+      }
     }
 
-    // WICHTIG: setState nur wenn sich was geändert hat
-    if (_errorText != error || _isValid != isValid) {
-      setState(() {
-        _errorText = error;
-        _isValid = isValid;
-      });
+    setState(() {
+      _isValid = isValid;
+      _errorText = error;
+    });
 
-      // Callback NACH setState
-      widget.onValidationChanged(widget.fieldKey, isValid);
-    }
+    widget.onValidationChanged(widget.fieldKey, isValid);
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return TextField(
       controller: widget.controller,
       enabled: !widget.isDisabled,
-      textInputAction: widget.textInputAction,
       keyboardType: widget.keyboardType,
-      style: TextStyle(
-        color: widget.isDisabled ? Colors.grey : Colors.black87,
-        fontWeight: widget.isDisabled ? FontWeight.bold : FontWeight.normal,
-      ),
+      textInputAction: widget.textInputAction,
+      inputFormatters: widget.inputFormatters, // NEU!
+      maxLines: widget.keyboardType == TextInputType.multiline ? 3 : 1,
+      onChanged: (value) {
+        if (!_hasInteracted) {
+          setState(() => _hasInteracted = true);
+        }
+        _validateField(value);
+      },
       decoration: InputDecoration(
-        labelText: '${widget.label}${widget.isRequired ? ' *' : ''}',
-        errorText: _errorText,
+        labelText: widget.label + (widget.isRequired ? ' *' : ''),
+        errorText: _hasInteracted ? _errorText : null,
         border: OutlineInputBorder(
-          borderSide: BorderSide(color: _isValid ? Colors.green : Colors.grey),
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(
+            color: _isValid && _hasInteracted
+                ? Colors.green
+                : Colors.grey.shade400,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(
-            color: _isValid ? Colors.green : Colors.grey,
-            width: _isValid ? 2 : 1,
+            color: _isValid && _hasInteracted
+                ? Colors.green
+                : Colors.grey.shade400,
+            width: _isValid && _hasInteracted ? 2 : 1,
           ),
         ),
         focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(
-            color: _isValid ? Colors.green : Theme.of(context).primaryColor,
+            color: _isValid && _hasInteracted ? Colors.green : scheme.primary,
             width: 2,
           ),
         ),
-        filled: widget.isDisabled,
-        fillColor: widget.isDisabled ? Colors.grey[200] : null,
-        suffixIcon: widget.isDisabled
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Colors.red, width: 2),
+        ),
+        suffixIcon: _hasInteracted && _isValid
             ? const Icon(Icons.check_circle, color: Colors.green)
-            : _isValid && widget.controller.text.trim().isNotEmpty
-            ? const Icon(Icons.check_circle, color: Colors.green)
-            : widget.isRequired
-            ? const Icon(Icons.star, color: Colors.red, size: 12)
             : null,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
       ),
     );
   }
