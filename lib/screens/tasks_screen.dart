@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/wedding_models.dart';
 import '../data/database_helper.dart';
 import '../widgets/task_donut_chart.dart';
 import '../services/excel_export_service.dart';
 import '../services/calendar_export_service.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../utils/category_utils.dart';
 import '../services/notification_service.dart';
-import 'package:permission_handler/permission_handler.dart';
+import '../utils/category_utils.dart';
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -22,7 +22,7 @@ class TaskPage extends StatefulWidget {
   final VoidCallback? onNavigateToHome;
 
   const TaskPage({
-    super.key,
+    Key? key,
     required this.tasks,
     required this.onAddTask,
     required this.onUpdateTask,
@@ -33,7 +33,7 @@ class TaskPage extends StatefulWidget {
     this.selectedTaskId,
     this.onClearSelectedTask,
     this.onNavigateToHome,
-  });
+  }) : super(key: key);
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -42,7 +42,7 @@ class TaskPage extends StatefulWidget {
 class _TaskPageState extends State<TaskPage>
     with SingleTickerProviderStateMixin {
   String _selectedFilter = 'all';
-  final bool _isSubmitting = false;
+  bool _isSubmitting = false;
   Task? _editingTask;
   String _searchQuery = '';
 
@@ -52,11 +52,23 @@ class _TaskPageState extends State<TaskPage>
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _searchController = TextEditingController();
-  final _locationController = TextEditingController();
   String _selectedCategory = 'other';
   String _selectedPriority = 'medium';
   DateTime? _selectedDeadline;
   List<Map<String, dynamic>> _timelineMilestones = [];
+
+  final Map<String, String> _categoryLabels = {
+    'location': 'Location',
+    'catering': 'Catering',
+    'decoration': 'Dekoration',
+    'clothing': 'Kleidung',
+    'documentation': 'Dokumente',
+    'music': 'Musik',
+    'photography': 'Fotografie',
+    'flowers': 'Blumen',
+    'timeline': 'Timeline',
+    'other': 'Sonstiges',
+  };
 
   final Map<String, String> _priorityLabels = {
     'high': 'Hoch',
@@ -184,8 +196,9 @@ class _TaskPageState extends State<TaskPage>
       return;
     }
 
+    // State variables for dialog
     bool onlyOpenTasks = false;
-    Set<String> selectedReminders = {'1day'};
+    Set<String> selectedReminders = {'1day'}; // Default: 1 Tag vorher
 
     await showDialog(
       context: context,
@@ -198,6 +211,7 @@ class _TaskPageState extends State<TaskPage>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Filter-Optionen
                   const Text(
                     'Aufgaben-Filter',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -216,6 +230,8 @@ class _TaskPageState extends State<TaskPage>
                     dense: true,
                   ),
                   const Divider(height: 24),
+
+                  // Erinnerungs-Optionen
                   const Text(
                     'Erinnerungen',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -226,6 +242,7 @@ class _TaskPageState extends State<TaskPage>
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
+
                   CheckboxListTile(
                     title: const Text('1 Tag vorher'),
                     value: selectedReminders.contains('1day'),
@@ -286,6 +303,7 @@ class _TaskPageState extends State<TaskPage>
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                   ),
+
                   if (selectedReminders.isEmpty) ...[
                     const SizedBox(height: 8),
                     Container(
@@ -597,7 +615,6 @@ class _TaskPageState extends State<TaskPage>
     _titleController.dispose();
     _descriptionController.dispose();
     _searchController.dispose();
-    _locationController.dispose();
     super.dispose();
   }
 
@@ -605,6 +622,291 @@ class _TaskPageState extends State<TaskPage>
     setState(() {
       _timelineMilestones = [];
     });
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // EINZEL-TASK KALENDER EXPORT
+  // ═══════════════════════════════════════════════════════
+  Future<void> _exportSingleTaskToCalendar(Task task) async {
+    if (task.deadline == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Diese Aufgabe hat keine Deadline – Export nicht möglich',
+          ),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+      await CalendarExportService.exportTasksToCalendar(
+        tasks: [task],
+        brideName: widget.brideName,
+        groomName: widget.groomName,
+        reminderOptions: const ['1day'],
+      );
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('"${task.title}" in Kalender exportiert')),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // GOOGLE MAPS
+  // ═══════════════════════════════════════════════════════
+  Future<void> _openInGoogleMaps(String location) async {
+    if (location.isEmpty) return;
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(location)}',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Google Maps konnte nicht geöffnet werden'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // NOTIFICATION DIALOG
+  // ═══════════════════════════════════════════════════════
+  Future<void> _showNotificationDialog(Task task) async {
+    if (task.deadline == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Diese Aufgabe hat keine Deadline'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    final notificationService = NotificationService();
+    final hasPermission = await notificationService.hasPermission();
+
+    if (!hasPermission && mounted) {
+      final shouldRequest = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.notifications_active,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              const Text('Benachrichtigungen'),
+            ],
+          ),
+          content: const Text(
+            'HeartPebble möchte Ihnen Erinnerungen senden.\n\nErlauben Sie Benachrichtigungen?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Nein'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+              ),
+              child: const Text('Ja, erlauben'),
+            ),
+          ],
+        ),
+      );
+      if (shouldRequest != true) return;
+      final granted = await notificationService.requestPermission();
+      if (!granted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Benachrichtigungen wurden nicht erlaubt.'),
+            backgroundColor: Colors.orange,
+            action: SnackBarAction(
+              label: 'Einstellungen',
+              textColor: Colors.white,
+              onPressed: () => openAppSettings(),
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
+    final hasNotification = await notificationService.hasNotification(task.id!);
+    Duration? currentDuration;
+    if (hasNotification) {
+      currentDuration = await notificationService.getNotificationDuration(
+        task.id!,
+      );
+    }
+    if (!mounted) return;
+    Duration? selectedDuration = currentDuration;
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.notifications_active,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Erinnerung einrichten')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                task.title,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Deadline: ${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}',
+                style: TextStyle(color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 16),
+              ...[
+                {
+                  'duration': Duration.zero,
+                  'label': 'Am selben Tag (08:00 Uhr)',
+                },
+                {'duration': const Duration(days: 1), 'label': '1 Tag vorher'},
+                {'duration': const Duration(days: 3), 'label': '3 Tage vorher'},
+                {
+                  'duration': const Duration(days: 7),
+                  'label': '1 Woche vorher',
+                },
+                {
+                  'duration': const Duration(days: 14),
+                  'label': '2 Wochen vorher',
+                },
+              ].map(
+                (r) => _buildReminderOption(
+                  context: dialogContext,
+                  duration: r['duration'] as Duration,
+                  label: r['label'] as String,
+                  isSelected: selectedDuration == r['duration'],
+                  onTap: () => setDialogState(
+                    () => selectedDuration = r['duration'] as Duration,
+                  ),
+                ),
+              ),
+              if (hasNotification && currentDuration != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Text(
+                    'Aktiv: ${_formatReminderDuration(currentDuration)}',
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade900),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            if (hasNotification)
+              TextButton(
+                onPressed: () async {
+                  await notificationService.cancelTaskNotification(task.id!);
+                  if (mounted) {
+                    Navigator.pop(dialogContext);
+                    setState(() {});
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Erinnerung entfernt'),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  }
+                },
+                child: const Text(
+                  'Entfernen',
+                  style: TextStyle(color: Colors.red),
+                ),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: selectedDuration == null
+                  ? null
+                  : () async {
+                      final success = await notificationService
+                          .scheduleTaskNotification(
+                            task: task,
+                            duration: selectedDuration!,
+                          );
+                      if (mounted) {
+                        Navigator.pop(dialogContext);
+                        setState(() {});
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              success
+                                  ? 'Erinnerung: ${_formatReminderDuration(selectedDuration!)}'
+                                  : 'Fehler beim Setzen der Erinnerung',
+                            ),
+                            backgroundColor: success
+                                ? Colors.green
+                                : Colors.red,
+                          ),
+                        );
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Speichern'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Color _getTaskTimelineColor(Task task) {
@@ -667,10 +969,9 @@ class _TaskPageState extends State<TaskPage>
       final query = _searchQuery.toLowerCase();
       return task.title.toLowerCase().contains(query) ||
           task.description.toLowerCase().contains(query) ||
-          (CategoryUtils.categoryLabels[task.category] ?? task.category)
+          (_categoryLabels[task.category] ?? task.category)
               .toLowerCase()
-              .contains(query) ||
-          task.location.toLowerCase().contains(query);
+              .contains(query);
     }).toList();
   }
 
@@ -704,7 +1005,6 @@ class _TaskPageState extends State<TaskPage>
       _editingTask = null;
       _titleController.clear();
       _descriptionController.clear();
-      _locationController.clear();
       _selectedCategory = 'other';
       _selectedPriority = 'medium';
       _selectedDeadline = null;
@@ -717,7 +1017,6 @@ class _TaskPageState extends State<TaskPage>
       _editingTask = task;
       _titleController.text = task.title;
       _descriptionController.text = task.description;
-      _locationController.text = task.location;
       _selectedCategory = task.category;
       _selectedPriority = task.priority;
       _selectedDeadline = task.deadline;
@@ -745,31 +1044,15 @@ class _TaskPageState extends State<TaskPage>
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: _selectedCategory,
-                decoration: InputDecoration(
+                value: _selectedCategory,
+                decoration: const InputDecoration(
                   labelText: 'Kategorie',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: Icon(
-                    CategoryUtils.getCategoryIcon(_selectedCategory),
-                    color: CategoryUtils.getCategoryColor(_selectedCategory),
-                  ),
+                  border: OutlineInputBorder(),
                 ),
-                items: CategoryUtils.categoryLabels.entries
+                items: _categoryLabels.entries
                     .map(
-                      (e) => DropdownMenuItem(
-                        value: e.key,
-                        child: Row(
-                          children: [
-                            Icon(
-                              CategoryUtils.getCategoryIcon(e.key),
-                              color: CategoryUtils.getCategoryColor(e.key),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(e.value),
-                          ],
-                        ),
-                      ),
+                      (e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)),
                     )
                     .toList(),
                 onChanged: (value) =>
@@ -777,7 +1060,7 @@ class _TaskPageState extends State<TaskPage>
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                initialValue: _selectedPriority,
+                value: _selectedPriority,
                 decoration: const InputDecoration(
                   labelText: 'Priorität',
                   border: OutlineInputBorder(),
@@ -799,27 +1082,6 @@ class _TaskPageState extends State<TaskPage>
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 2,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _locationController,
-                decoration: InputDecoration(
-                  labelText: 'Ort',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: const Icon(Icons.place),
-                  suffixIcon: _locationController.text.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.map, color: Colors.blue),
-                          onPressed: () {
-                            _openInGoogleMaps(_locationController.text);
-                          },
-                          tooltip: 'In Google Maps öffnen',
-                        )
-                      : null,
-                ),
-                onChanged: (value) {
-                  setState(() {});
-                },
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -882,7 +1144,6 @@ class _TaskPageState extends State<TaskPage>
       deadline: _selectedDeadline,
       completed: _editingTask?.completed ?? false,
       createdDate: _editingTask?.createdDate ?? DateTime.now(),
-      location: _locationController.text,
     );
 
     if (_editingTask != null) {
@@ -895,29 +1156,6 @@ class _TaskPageState extends State<TaskPage>
   void _toggleTaskComplete(Task task) {
     final updatedTask = task.copyWith(completed: !task.completed);
     widget.onUpdateTask(updatedTask);
-  }
-
-  Future<void> _openInGoogleMaps(String location) async {
-    if (location.isEmpty) return;
-
-    final encodedLocation = Uri.encodeComponent(location);
-    final googleMapsUrl =
-        'https://www.google.com/maps/search/?api=1&query=$encodedLocation';
-
-    final uri = Uri.parse(googleMapsUrl);
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Google Maps konnte nicht geöffnet werden'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _exportAsExcel() async {
@@ -974,14 +1212,17 @@ class _TaskPageState extends State<TaskPage>
     List<String> reminderOptions = const ['1day'],
   }) async {
     try {
+      // Filter tasks based on options
       List<Task> tasksToExport = onlyTimeline
           ? widget.tasks.where((t) => t.category == 'timeline').toList()
           : widget.tasks;
 
+      // Apply open tasks filter
       if (onlyOpenTasks) {
         tasksToExport = tasksToExport.where((t) => !t.completed).toList();
       }
 
+      // Filter tasks with deadlines
       final tasksWithDeadline = tasksToExport
           .where((t) => t.deadline != null)
           .toList();
@@ -1064,7 +1305,7 @@ class _TaskPageState extends State<TaskPage>
         Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
+            color: scheme.surfaceVariant,
             borderRadius: BorderRadius.circular(12),
           ),
           child: TabBar(
@@ -1362,31 +1603,35 @@ class _TaskPageState extends State<TaskPage>
 
   Widget _buildCompactFilter() {
     final scheme = Theme.of(context).colorScheme;
-
     return SizedBox(
       height: 35,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          _buildFilterChip('all', 'Alle', scheme),
-          _buildFilterChip('pending', 'Offen', scheme),
-          _buildFilterChip('completed', 'Erledigt', scheme),
-          _buildFilterChip('overdue', 'Überfällig', scheme),
-          _buildFilterChip('timeline', 'Checkliste', scheme),
-          ...CategoryUtils.categoryLabels.entries
-              .where((entry) => entry.key != 'timeline')
-              .map((entry) => _buildFilterChip(entry.key, entry.value, scheme)),
+          _buildFilterChip('all', 'Alle', null, scheme),
+          _buildFilterChip('pending', 'Offen', null, scheme),
+          _buildFilterChip('completed', 'Erledigt', null, scheme),
+          _buildFilterChip('overdue', 'Überfällig', null, scheme),
+          ...CategoryUtils.categoryLabels.entries.map(
+            (e) => _buildFilterChip(
+              e.key,
+              e.value,
+              CategoryUtils.getCategoryColor(e.key),
+              scheme,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildFilterChip(String value, String label, ColorScheme scheme) {
+  Widget _buildFilterChip(
+    String value,
+    String label,
+    Color? catColor,
+    ColorScheme scheme,
+  ) {
     final isSelected = _selectedFilter == value;
-    final categoryColor = CategoryUtils.categoryLabels.containsKey(value)
-        ? CategoryUtils.getCategoryColor(value)
-        : null;
-
     return Container(
       margin: const EdgeInsets.only(right: 6),
       child: FilterChip(
@@ -1394,29 +1639,28 @@ class _TaskPageState extends State<TaskPage>
         label: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (categoryColor != null && isSelected) ...[
+            if (catColor != null) ...[
               Icon(
                 CategoryUtils.getCategoryIcon(value),
-                size: 14,
-                color: Colors.white,
+                size: 13,
+                color: isSelected ? Colors.white : catColor,
               ),
               const SizedBox(width: 4),
             ],
             Text(label, style: const TextStyle(fontSize: 12)),
           ],
         ),
-        onSelected: (selected) => setState(() => _selectedFilter = value),
-        selectedColor: categoryColor ?? scheme.primary,
+        onSelected: (_) => setState(() => _selectedFilter = value),
+        selectedColor: catColor ?? scheme.primary,
         checkmarkColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        labelStyle: TextStyle(color: isSelected ? Colors.white : null),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }
 
   Widget _buildCompactTaskCard(Task task) {
-    final dividerColor = Theme.of(context).dividerColor;
-
     final isOverdue =
         task.deadline != null &&
         task.deadline!.isBefore(DateTime.now()) &&
@@ -1433,25 +1677,26 @@ class _TaskPageState extends State<TaskPage>
         side: BorderSide(
           color: task.completed
               ? Colors.green.withOpacity(0.3)
-              : categoryColor.withOpacity(0.3),
+              : categoryColor.withOpacity(0.4),
           width: 1.5,
         ),
       ),
       margin: const EdgeInsets.only(bottom: 6),
-
-      // ERSETZE ALLES AB "color: task.completed ? Colors.green.shade50..."
-      // BIS "    );" (Ende der Card) mit diesem Code:
       color: task.completed ? Colors.green.shade50 : categoryLightColor,
       child: Padding(
         padding: const EdgeInsets.all(10),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GestureDetector(
-              onTap: () => _toggleTaskComplete(task),
-              child: Icon(
-                task.completed ? Icons.check_circle : Icons.circle_outlined,
-                color: task.completed ? Colors.green : categoryColor,
-                size: 20,
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: GestureDetector(
+                onTap: () => _toggleTaskComplete(task),
+                child: Icon(
+                  task.completed ? Icons.check_circle : Icons.circle_outlined,
+                  color: task.completed ? Colors.green : categoryColor,
+                  size: 22,
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -1548,61 +1793,33 @@ class _TaskPageState extends State<TaskPage>
                     ),
                   ],
                   const SizedBox(height: 4),
-                  Row(
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
                     children: [
                       _buildCompactBadge(
                         CategoryUtils.categoryLabels[task.category] ??
                             task.category,
                         categoryColor,
                       ),
-                      const SizedBox(width: 4),
                       _buildCompactBadge(
                         _priorityLabels[task.priority] ?? task.priority,
                         _getPriorityColor(task.priority),
                       ),
-                      if (task.deadline != null) ...[
-                        const SizedBox(width: 4),
+                      if (task.deadline != null)
                         _buildCompactBadge(
                           '${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}',
                           isOverdue ? Colors.red : Colors.grey,
                         ),
-                      ],
-                      const SizedBox(width: 4),
                       FutureBuilder<bool>(
-                        future: NotificationService().hasNotification(task.id!),
+                        future: NotificationService().hasNotification(
+                          task.id ?? -1,
+                        ),
                         builder: (context, snapshot) {
                           if (snapshot.data == true) {
-                            return Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 1,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.blue.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.notifications_active,
-                                    size: 10,
-                                    color: Colors.blue.shade700,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    'Aktiv',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: Colors.blue.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            return _buildCompactBadge(
+                              '🔔 Erinnerung',
+                              Colors.blue,
                             );
                           }
                           return const SizedBox.shrink();
@@ -1614,18 +1831,77 @@ class _TaskPageState extends State<TaskPage>
               ),
             ),
             PopupMenuButton<String>(
-              itemBuilder: (menuContext) => const [
-                PopupMenuItem(value: 'edit', child: Text('Bearbeiten')),
-                PopupMenuItem(value: 'notification', child: Text('Erinnerung')),
-                PopupMenuItem(value: 'delete', child: Text('Löschen')),
+              itemBuilder: (menuContext) => [
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined, size: 18),
+                      SizedBox(width: 8),
+                      Text('Bearbeiten'),
+                    ],
+                  ),
+                ),
+                if (task.deadline != null)
+                  const PopupMenuItem(
+                    value: 'calendar',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_month,
+                          size: 18,
+                          color: Colors.blue,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'In Kalender',
+                          style: TextStyle(color: Colors.blue),
+                        ),
+                      ],
+                    ),
+                  ),
+                const PopupMenuItem(
+                  value: 'notification',
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.notifications_outlined,
+                        size: 18,
+                        color: Colors.orange,
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Erinnerung',
+                        style: TextStyle(color: Colors.orange),
+                      ),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Löschen', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
               ],
               onSelected: (value) {
-                if (value == 'edit') {
-                  _editTask(task);
-                } else if (value == 'delete') {
-                  widget.onDeleteTask(task.id!);
-                } else if (value == 'notification') {
-                  _showNotificationDialog(task);
+                switch (value) {
+                  case 'edit':
+                    _editTask(task);
+                    break;
+                  case 'calendar':
+                    _exportSingleTaskToCalendar(task);
+                    break;
+                  case 'notification':
+                    _showNotificationDialog(task);
+                    break;
+                  case 'delete':
+                    widget.onDeleteTask(task.id!);
+                    break;
                 }
               },
               padding: EdgeInsets.zero,
@@ -2169,35 +2445,6 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ),
                   ],
-                  if (task != null && task.location.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    GestureDetector(
-                      onTap: () => _openInGoogleMaps(task.location),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.place,
-                            size: 11,
-                            color: Colors.blue.shade700,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              task.location,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.blue.shade700,
-                                fontWeight: FontWeight.w500,
-                                decoration: TextDecoration.underline,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                   if (item['description'] != null &&
                       item['description'].toString().isNotEmpty &&
                       item['description'] != item['title']) ...[
@@ -2283,7 +2530,6 @@ class _TaskPageState extends State<TaskPage>
 
     String title = editingTask?.title ?? '';
     String description = editingTask?.description ?? '';
-    String location = editingTask?.location ?? '';
     DateTime? deadline = editingTask?.deadline;
     String priority = editingTask?.priority ?? 'medium';
     String category = editingTask?.category ?? 'timeline';
@@ -2314,51 +2560,14 @@ class _TaskPageState extends State<TaskPage>
                   onChanged: (value) => description = value,
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: TextEditingController(text: location),
-                  decoration: InputDecoration(
-                    labelText: 'Ort',
-                    prefixIcon: const Icon(Icons.place),
-                    suffixIcon: location.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.map, color: Colors.blue),
-                            onPressed: () {
-                              _openInGoogleMaps(location);
-                            },
-                            tooltip: 'In Google Maps öffnen',
-                          )
-                        : null,
-                  ),
-                  onChanged: (value) {
-                    location = value;
-                    setDialogState(() {});
-                  },
-                ),
-                const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  initialValue: category,
-                  decoration: InputDecoration(
-                    labelText: 'Kategorie',
-                    prefixIcon: Icon(
-                      CategoryUtils.getCategoryIcon(category),
-                      color: CategoryUtils.getCategoryColor(category),
-                    ),
-                  ),
-                  items: CategoryUtils.categoryLabels.entries
+                  value: category,
+                  decoration: const InputDecoration(labelText: 'Kategorie'),
+                  items: _categoryLabels.entries
                       .map(
                         (e) => DropdownMenuItem(
                           value: e.key,
-                          child: Row(
-                            children: [
-                              Icon(
-                                CategoryUtils.getCategoryIcon(e.key),
-                                color: CategoryUtils.getCategoryColor(e.key),
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(e.value),
-                            ],
-                          ),
+                          child: Text(e.value),
                         ),
                       )
                       .toList(),
@@ -2366,7 +2575,7 @@ class _TaskPageState extends State<TaskPage>
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  initialValue: priority,
+                  value: priority,
                   decoration: const InputDecoration(labelText: 'Priorität'),
                   items: _priorityLabels.entries
                       .map(
@@ -2435,7 +2644,6 @@ class _TaskPageState extends State<TaskPage>
                     deadline: deadline,
                     completed: editingTask?.completed ?? false,
                     createdDate: editingTask?.createdDate ?? DateTime.now(),
-                    location: location,
                   );
                   if (editingTask != null) {
                     widget.onUpdateTask(taskData);
@@ -2572,308 +2780,6 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
-  // ==================== NOTIFICATION METHODS ====================
-  // Diese Methoden VOR der letzten schließenden Klammer "}" einfügen
-
-  // ═══════════════════════════════════════════════════════════════
-  // ERSETZE DIESE METHODE in deiner tasks_screen.dart
-  // Suche nach: "Future<void> _showNotificationDialog(Task task)"
-  // ═══════════════════════════════════════════════════════════════
-
-  // ═══════════════════════════════════════════════════════════════
-  // ERSETZE DIESE METHODE in deiner tasks_screen.dart
-  // Suche nach: "Future<void> _showNotificationDialog(Task task)"
-  // ═══════════════════════════════════════════════════════════════
-
-  Future<void> _showNotificationDialog(Task task) async {
-    if (task.deadline == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Diese Aufgabe hat keine Deadline'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    final notificationService = NotificationService();
-
-    // ═══════════════════════════════════════════════════════════
-    // NEU: Permission Check VOR dem Dialog
-    // ═══════════════════════════════════════════════════════════
-    final hasPermission = await notificationService.hasPermission();
-
-    if (!hasPermission && mounted) {
-      // Zeige Erklärung BEVOR Permission angefragt wird
-      final shouldRequest = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                Icons.notifications_active,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              const Text('Benachrichtigungen'),
-            ],
-          ),
-          content: const Text(
-            'HeartPebble möchte Ihnen Erinnerungen für Ihre '
-            'Hochzeitsaufgaben senden.\n\n'
-            'Erlauben Sie Benachrichtigungen?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Nein'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-              ),
-              child: const Text('Ja, erlauben'),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldRequest != true) {
-        return; // User hat abgelehnt
-      }
-
-      // Fordere Permission an
-      final granted = await notificationService.requestPermission();
-
-      if (!granted && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              '⚠️ Benachrichtigungen wurden nicht erlaubt.\n'
-              'Sie können dies in den Einstellungen ändern.',
-            ),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: 'Einstellungen',
-              textColor: Colors.white,
-              onPressed: () => openAppSettings(),
-            ),
-          ),
-        );
-        return; // Abbrechen wenn nicht erlaubt
-      }
-    }
-    // ═══════════════════════════════════════════════════════════
-
-    final hasNotification = await notificationService.hasNotification(task.id!);
-    Duration? currentDuration;
-
-    if (hasNotification) {
-      currentDuration = await notificationService.getNotificationDuration(
-        task.id!,
-      );
-    }
-
-    if (!mounted) return;
-
-    Duration? selectedDuration = currentDuration;
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                Icons.notifications_active,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('Erinnerung einrichten')),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Aufgabe: ${task.title}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Deadline: ${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}',
-                style: TextStyle(color: Colors.grey.shade700),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Wann möchten Sie erinnert werden?',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-              ),
-              const SizedBox(height: 12),
-              _buildReminderOption(
-                context: dialogContext,
-                duration: Duration.zero,
-                label: 'Am selben Tag (08:00 Uhr)',
-                isSelected: selectedDuration == Duration.zero,
-                onTap: () =>
-                    setDialogState(() => selectedDuration = Duration.zero),
-              ),
-              _buildReminderOption(
-                context: dialogContext,
-                duration: const Duration(days: 1),
-                label: '1 Tag vorher',
-                isSelected: selectedDuration == const Duration(days: 1),
-                onTap: () => setDialogState(
-                  () => selectedDuration = const Duration(days: 1),
-                ),
-              ),
-              _buildReminderOption(
-                context: dialogContext,
-                duration: const Duration(days: 3),
-                label: '3 Tage vorher',
-                isSelected: selectedDuration == const Duration(days: 3),
-                onTap: () => setDialogState(
-                  () => selectedDuration = const Duration(days: 3),
-                ),
-              ),
-              _buildReminderOption(
-                context: dialogContext,
-                duration: const Duration(days: 7),
-                label: '1 Woche vorher',
-                isSelected: selectedDuration == const Duration(days: 7),
-                onTap: () => setDialogState(
-                  () => selectedDuration = const Duration(days: 7),
-                ),
-              ),
-              _buildReminderOption(
-                context: dialogContext,
-                duration: const Duration(days: 14),
-                label: '2 Wochen vorher',
-                isSelected: selectedDuration == const Duration(days: 14),
-                onTap: () => setDialogState(
-                  () => selectedDuration = const Duration(days: 14),
-                ),
-              ),
-              if (hasNotification) ...[
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: Colors.blue.shade700,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Aktuelle Erinnerung: ${_formatReminderDuration(currentDuration!)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.blue.shade900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            if (hasNotification)
-              TextButton(
-                onPressed: () async {
-                  await notificationService.cancelTaskNotification(task.id!);
-                  if (mounted) {
-                    Navigator.pop(dialogContext);
-                    setState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Erinnerung wurde entfernt'),
-                        backgroundColor: Colors.orange,
-                      ),
-                    );
-                  }
-                },
-                child: const Text(
-                  'Entfernen',
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Abbrechen'),
-            ),
-            ElevatedButton(
-              onPressed: selectedDuration == null
-                  ? null
-                  : () async {
-                      try {
-                        final success = await notificationService
-                            .scheduleTaskNotification(
-                              task: task,
-                              duration: selectedDuration!,
-                            );
-
-                        if (mounted) {
-                          Navigator.pop(dialogContext);
-
-                          if (success) {
-                            setState(() {});
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Erinnerung gesetzt: ${_formatReminderDuration(selectedDuration!)}',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Fehler beim Setzen der Erinnerung. '
-                                  'Bitte Benachrichtigungsberechtigungen prüfen.',
-                                ),
-                                backgroundColor: Colors.red,
-                                duration: Duration(seconds: 4),
-                              ),
-                            );
-                          }
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          Navigator.pop(dialogContext);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Fehler: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Speichern'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildReminderOption({
     required BuildContext context,
@@ -2929,105 +2835,11 @@ class _TaskPageState extends State<TaskPage>
   }
 
   String _formatReminderDuration(Duration duration) {
-    if (duration == Duration.zero) {
-      return 'Am selben Tag (08:00 Uhr)';
-    } else if (duration.inDays == 1) {
-      return '1 Tag vorher';
-    } else if (duration.inDays == 3) {
-      return '3 Tage vorher';
-    } else if (duration.inDays == 7) {
-      return '1 Woche vorher';
-    } else if (duration.inDays == 14) {
-      return '2 Wochen vorher';
-    } else {
-      return '${duration.inDays} Tage vorher';
-    }
-  }
-
-  Future<void> _setTaskReminderWithDialog(
-    BuildContext context,
-    Task task,
-    Duration duration,
-  ) async {
-    final notificationService = NotificationService();
-
-    // Prüfe ob Permission bereits vorhanden ist
-    final hasPermission = await notificationService.hasPermission();
-
-    if (!hasPermission) {
-      // Zeige Erklärung BEVOR Permission angefragt wird
-      final shouldRequest = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('🔔 Benachrichtigungen'),
-          content: Text(
-            'HeartPebble möchte Ihnen Erinnerungen für Ihre '
-            'Hochzeitsaufgaben senden.\n\n'
-            'Erlauben Sie Benachrichtigungen?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Nein'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text('Erlauben'),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldRequest != true) {
-        return; // User hat abgelehnt
-      }
-    }
-
-    // Setze Notification (fragt Permission an falls nötig)
-    final success = await notificationService.scheduleTaskNotification(
-      task: task,
-      duration: duration,
-    );
-
-    if (!context.mounted) return;
-
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('✅ Erinnerung gesetzt!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '⚠️ Benachrichtigung konnte nicht gesetzt werden.\n'
-            'Bitte erlauben Sie Benachrichtigungen in den Einstellungen.',
-          ),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'Einstellungen',
-            textColor: Colors.white,
-            onPressed: () => openAppSettings(),
-          ),
-        ),
-      );
-    }
-  }
-
-  // ════════════════════════════════════════════════════════════════
-  // BEISPIEL: Permission Status prüfen
-  // ════════════════════════════════════════════════════════════════
-
-  Future<void> _checkPermissionStatus() async {
-    final notificationService = NotificationService();
-
-    if (await notificationService.hasPermission()) {
-      print('✅ Benachrichtigungen sind erlaubt');
-    } else {
-      print('❌ Benachrichtigungen sind NICHT erlaubt');
-    }
+    if (duration == Duration.zero) return 'Am selben Tag (08:00 Uhr)';
+    if (duration.inDays == 1) return '1 Tag vorher';
+    if (duration.inDays == 3) return '3 Tage vorher';
+    if (duration.inDays == 7) return '1 Woche vorher';
+    if (duration.inDays == 14) return '2 Wochen vorher';
+    return '${duration.inDays} Tage vorher';
   }
 }
