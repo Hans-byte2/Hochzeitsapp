@@ -4,6 +4,7 @@ import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/profile_providers.dart';
 // Smart Validation Imports
@@ -47,6 +48,7 @@ class _DashboardPageState extends State<DashboardPage>
     with SmartFormValidation {
   List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
+  Timer? _midnightTimer;
 
   Map<String, dynamic> _stats = {
     'budget': {'planned': 0.0, 'actual': 0.0, 'paid': 0.0},
@@ -58,6 +60,25 @@ class _DashboardPageState extends State<DashboardPage>
   void initState() {
     super.initState();
     _loadDashboardData();
+    _scheduleMidnightRefresh();
+  }
+
+  @override
+  void dispose() {
+    _midnightTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Plant einen Timer, der exakt um Mitternacht den Countdown neu berechnet.
+  void _scheduleMidnightRefresh() {
+    final now = DateTime.now();
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    final timeUntilMidnight = midnight.difference(now);
+
+    _midnightTimer = Timer(timeUntilMidnight, () {
+      if (mounted) setState(() {}); // Rebuild → Getter neu berechnet
+      _scheduleMidnightRefresh(); // Nächsten Tag einplanen
+    });
   }
 
   @override
@@ -140,9 +161,18 @@ class _DashboardPageState extends State<DashboardPage>
       ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
   }
 
+  /// FIX: Vergleicht nur Kalendertage (ohne Uhrzeit), damit der Counter
+  /// jeden Tag korrekt um 1 runterzählt.
   int get _daysUntilWedding {
     if (widget.weddingDate == null) return -1;
-    return widget.weddingDate!.difference(DateTime.now()).inDays;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final wedding = DateTime(
+      widget.weddingDate!.year,
+      widget.weddingDate!.month,
+      widget.weddingDate!.day,
+    );
+    return wedding.difference(today).inDays;
   }
 
   void _showWeddingDataForm() {

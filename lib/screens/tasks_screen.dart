@@ -22,7 +22,7 @@ class TaskPage extends StatefulWidget {
   final VoidCallback? onNavigateToHome;
 
   const TaskPage({
-    Key? key,
+    super.key,
     required this.tasks,
     required this.onAddTask,
     required this.onUpdateTask,
@@ -33,7 +33,7 @@ class TaskPage extends StatefulWidget {
     this.selectedTaskId,
     this.onClearSelectedTask,
     this.onNavigateToHome,
-  }) : super(key: key);
+  });
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -42,7 +42,7 @@ class TaskPage extends StatefulWidget {
 class _TaskPageState extends State<TaskPage>
     with SingleTickerProviderStateMixin {
   String _selectedFilter = 'all';
-  bool _isSubmitting = false;
+  final bool _isSubmitting = false;
   Task? _editingTask;
   String _searchQuery = '';
 
@@ -52,6 +52,7 @@ class _TaskPageState extends State<TaskPage>
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _searchController = TextEditingController();
+  final _locationController = TextEditingController();
   String _selectedCategory = 'other';
   String _selectedPriority = 'medium';
   DateTime? _selectedDeadline;
@@ -196,9 +197,8 @@ class _TaskPageState extends State<TaskPage>
       return;
     }
 
-    // State variables for dialog
     bool onlyOpenTasks = false;
-    Set<String> selectedReminders = {'1day'}; // Default: 1 Tag vorher
+    Set<String> selectedReminders = {'1day'};
 
     await showDialog(
       context: context,
@@ -211,7 +211,6 @@ class _TaskPageState extends State<TaskPage>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Filter-Optionen
                   const Text(
                     'Aufgaben-Filter',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -230,8 +229,6 @@ class _TaskPageState extends State<TaskPage>
                     dense: true,
                   ),
                   const Divider(height: 24),
-
-                  // Erinnerungs-Optionen
                   const Text(
                     'Erinnerungen',
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -242,7 +239,6 @@ class _TaskPageState extends State<TaskPage>
                     style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
-
                   CheckboxListTile(
                     title: const Text('1 Tag vorher'),
                     value: selectedReminders.contains('1day'),
@@ -303,7 +299,6 @@ class _TaskPageState extends State<TaskPage>
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                   ),
-
                   if (selectedReminders.isEmpty) ...[
                     const SizedBox(height: 8),
                     Container(
@@ -565,25 +560,63 @@ class _TaskPageState extends State<TaskPage>
       {'title': 'Gästeliste mit Adressen sichern', 'months_before': -1},
     ];
 
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final weddingDate = widget.weddingDate!;
+
+    // Berechne wie viele Monate bis zur Hochzeit noch übrig sind
+    final monthsUntilWedding =
+        (weddingDate.year - today.year) * 12 +
+        (weddingDate.month - today.month);
+
     for (final milestone in defaultMilestones) {
       final monthsBefore = milestone['months_before'] as int;
-      final weddingDate = widget.weddingDate!;
 
       DateTime deadline;
+
       if (monthsBefore > 0) {
-        deadline = DateTime(
+        // Berechne das ideale Datum
+        final idealDate = DateTime(
           weddingDate.year,
           weddingDate.month - monthsBefore,
           weddingDate.day,
         );
+
+        if (idealDate.isBefore(today)) {
+          // Datum liegt in der Vergangenheit → intelligente Anpassung:
+          // Verteile überfällige Aufgaben gestaffelt in den nächsten Wochen
+          // je nachdem wie weit sie "zu spät" sind
+          final daysOverdue = today.difference(idealDate).inDays;
+          if (daysOverdue <= 30) {
+            // Bis 1 Monat überfällig → übermorgen
+            deadline = today.add(const Duration(days: 2));
+          } else if (daysOverdue <= 90) {
+            // Bis 3 Monate überfällig → nächste Woche
+            deadline = today.add(const Duration(days: 7));
+          } else if (daysOverdue <= 180) {
+            // Bis 6 Monate überfällig → in 2 Wochen
+            deadline = today.add(const Duration(days: 14));
+          } else {
+            // Mehr als 6 Monate überfällig → in einem Monat
+            deadline = today.add(const Duration(days: 30));
+          }
+        } else {
+          deadline = idealDate;
+        }
       } else if (monthsBefore < 0) {
+        // Nach der Hochzeit
         deadline = DateTime(
           weddingDate.year,
-          weddingDate.month - monthsBefore,
+          weddingDate.month + (-monthsBefore),
           weddingDate.day,
         );
       } else {
+        // months_before == 0 → letzte Woche vor Hochzeit
         deadline = weddingDate.subtract(const Duration(days: 7));
+        // Falls auch das in der Vergangenheit liegt
+        if (deadline.isBefore(today)) {
+          deadline = today.add(const Duration(days: 1));
+        }
       }
 
       String priority;
@@ -615,6 +648,7 @@ class _TaskPageState extends State<TaskPage>
     _titleController.dispose();
     _descriptionController.dispose();
     _searchController.dispose();
+    _locationController.dispose();
     super.dispose();
   }
 
@@ -1005,6 +1039,7 @@ class _TaskPageState extends State<TaskPage>
       _editingTask = null;
       _titleController.clear();
       _descriptionController.clear();
+      _locationController.clear();
       _selectedCategory = 'other';
       _selectedPriority = 'medium';
       _selectedDeadline = null;
@@ -1017,6 +1052,7 @@ class _TaskPageState extends State<TaskPage>
       _editingTask = task;
       _titleController.text = task.title;
       _descriptionController.text = task.description;
+      _locationController.text = task.location;
       _selectedCategory = task.category;
       _selectedPriority = task.priority;
       _selectedDeadline = task.deadline;
@@ -1027,107 +1063,206 @@ class _TaskPageState extends State<TaskPage>
   void _showFormDialog() {
     final scheme = Theme.of(context).colorScheme;
 
+    String localCategory = _selectedCategory;
+    String localPriority = _selectedPriority;
+    DateTime? localDeadline = _selectedDeadline;
+
     showDialog(
       context: context,
-      builder: (builderContext) => AlertDialog(
-        title: Text(_editingTask != null ? 'Bearbeiten' : 'Neue Aufgabe'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Titel',
-                  border: OutlineInputBorder(),
+      builder: (builderContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(_editingTask != null ? 'Bearbeiten' : 'Neue Aufgabe'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Titel',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: const InputDecoration(
-                  labelText: 'Kategorie',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: localCategory,
+                  decoration: InputDecoration(
+                    labelText: 'Kategorie',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: Icon(
+                      CategoryUtils.getCategoryIcon(localCategory),
+                      color: CategoryUtils.getCategoryColor(localCategory),
+                    ),
+                  ),
+                  items: CategoryUtils.categoryLabels.entries
+                      .map(
+                        (e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Row(
+                            children: [
+                              Icon(
+                                CategoryUtils.getCategoryIcon(e.key),
+                                color: CategoryUtils.getCategoryColor(e.key),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(e.value),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setDialogState(() {
+                    localCategory = value!;
+                    _selectedCategory = value;
+                  }),
                 ),
-                items: _categoryLabels.entries
-                    .map(
-                      (e) =>
-                          DropdownMenuItem(value: e.key, child: Text(e.value)),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _selectedCategory = value!),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: _selectedPriority,
-                decoration: const InputDecoration(
-                  labelText: 'Priorität',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: localPriority,
+                  decoration: const InputDecoration(
+                    labelText: 'Priorität',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _priorityLabels.entries
+                      .map(
+                        (e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Text(e.value),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setDialogState(() {
+                    localPriority = value!;
+                    _selectedPriority = value;
+                  }),
                 ),
-                items: _priorityLabels.entries
-                    .map(
-                      (e) =>
-                          DropdownMenuItem(value: e.key, child: Text(e.value)),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _selectedPriority = value!),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _descriptionController,
-                decoration: const InputDecoration(
-                  labelText: 'Beschreibung',
-                  border: OutlineInputBorder(),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Beschreibung',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
                 ),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                title: const Text('Deadline'),
-                subtitle: Text(
-                  _selectedDeadline != null
-                      ? '${_selectedDeadline!.day}.${_selectedDeadline!.month}.${_selectedDeadline!.year}'
-                      : 'Keine Deadline',
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _locationController,
+                  decoration: InputDecoration(
+                    labelText: 'Ort',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.place),
+                    suffixIcon: _locationController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.map, color: Colors.blue),
+                            onPressed: () =>
+                                _openInGoogleMaps(_locationController.text),
+                            tooltip: 'In Google Maps öffnen',
+                          )
+                        : null,
+                  ),
+                  onChanged: (v) => setDialogState(() {}),
                 ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.calendar_today),
-                  onPressed: () async {
-                    final date = await showDatePicker(
-                      context: builderContext,
-                      initialDate: _selectedDeadline ?? DateTime.now(),
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 730)),
-                    );
-                    if (date != null) {
-                      setState(() {
-                        _selectedDeadline = date;
-                      });
-                    }
-                  },
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade400),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12, top: 8),
+                        child: Text(
+                          'Deadline',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              localDeadline != null
+                                  ? '${localDeadline!.day}.${localDeadline!.month}.${localDeadline!.year}'
+                                  : 'Kein Datum gesetzt',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: localDeadline != null
+                                    ? Colors.black87
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit_calendar,
+                              color: Colors.blue,
+                            ),
+                            tooltip: 'Datum ändern',
+                            onPressed: () async {
+                              final date = await showDatePicker(
+                                context: ctx,
+                                initialDate:
+                                    localDeadline ??
+                                    DateTime.now().add(const Duration(days: 1)),
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(
+                                  const Duration(days: 1460),
+                                ),
+                              );
+                              if (date != null) {
+                                setDialogState(() {
+                                  localDeadline = date;
+                                  _selectedDeadline = date;
+                                });
+                              }
+                            },
+                          ),
+                          if (localDeadline != null)
+                            IconButton(
+                              icon: const Icon(Icons.clear, color: Colors.red),
+                              tooltip: 'Datum entfernen',
+                              onPressed: () => setDialogState(() {
+                                localDeadline = null;
+                                _selectedDeadline = null;
+                              }),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(builderContext),
-            child: const Text('Abbrechen'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _handleSubmit();
-              Navigator.pop(builderContext);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
+              ],
             ),
-            child: Text(_editingTask != null ? 'Speichern' : 'Erstellen'),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(builderContext),
+              child: const Text('Abbrechen'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _selectedCategory = localCategory;
+                _selectedPriority = localPriority;
+                _selectedDeadline = localDeadline;
+                _handleSubmit();
+                Navigator.pop(builderContext);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: scheme.primary,
+                foregroundColor: scheme.onPrimary,
+              ),
+              child: Text(_editingTask != null ? 'Speichern' : 'Erstellen'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1212,17 +1347,14 @@ class _TaskPageState extends State<TaskPage>
     List<String> reminderOptions = const ['1day'],
   }) async {
     try {
-      // Filter tasks based on options
       List<Task> tasksToExport = onlyTimeline
           ? widget.tasks.where((t) => t.category == 'timeline').toList()
           : widget.tasks;
 
-      // Apply open tasks filter
       if (onlyOpenTasks) {
         tasksToExport = tasksToExport.where((t) => !t.completed).toList();
       }
 
-      // Filter tasks with deadlines
       final tasksWithDeadline = tasksToExport
           .where((t) => t.deadline != null)
           .toList();
@@ -1305,7 +1437,7 @@ class _TaskPageState extends State<TaskPage>
         Container(
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: scheme.surfaceVariant,
+            color: scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
           ),
           child: TabBar(
@@ -1969,6 +2101,17 @@ class _TaskPageState extends State<TaskPage>
         .where((t) => t.category == 'timeline')
         .length;
 
+    // Statistiken für die Timeline
+    final overdueTimelineCount = widget.tasks
+        .where(
+          (t) =>
+              t.category == 'timeline' &&
+              !t.completed &&
+              t.deadline != null &&
+              t.deadline!.isBefore(DateTime.now()),
+        )
+        .length;
+
     return Column(
       children: [
         Container(
@@ -2014,6 +2157,41 @@ class _TaskPageState extends State<TaskPage>
                   color: scheme.primary,
                 ),
               ),
+              const SizedBox(height: 4),
+              // Zeige Warnung wenn überfällige Timeline-Aufgaben vorhanden
+              if (overdueTimelineCount > 0) ...[
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: Colors.red.shade700,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$overdueTimelineCount überfällige Aufgabe${overdueTimelineCount > 1 ? 'n' : ''}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 4),
               Text(
                 'Timeline-Aufgaben: $timelineTasksCount',
@@ -2122,10 +2300,17 @@ class _TaskPageState extends State<TaskPage>
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // INTELLIGENTE TIMELINE-GRUPPIERUNG
+  // ═══════════════════════════════════════════════════════
   Map<String, List<Map<String, dynamic>>> _generateGroupedTimeline() {
     final timeline = _generateTimeline();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
+    // Reihenfolge der Sektionen (wichtig für die Anzeige)
     final Map<String, List<Map<String, dynamic>>> grouped = {
+      '⚠️ Überfällig – sofort erledigen': [],
       '12-6 Monate vor der Hochzeit': [],
       '6-5 Monate vor der Hochzeit': [],
       '4-3 Monate vor der Hochzeit': [],
@@ -2146,8 +2331,16 @@ class _TaskPageState extends State<TaskPage>
       }
 
       if (type == 'task') {
+        final task = item['task'] as Task;
         final date = item['date'] as DateTime;
+        final normalizedDate = DateTime(date.year, date.month, date.day);
         final daysUntilWedding = weddingDate.difference(date).inDays;
+
+        // Überfällig: Deadline in Vergangenheit UND nicht erledigt
+        if (!task.completed && normalizedDate.isBefore(today)) {
+          grouped['⚠️ Überfällig – sofort erledigen']!.add(item);
+          continue;
+        }
 
         if (date.isAfter(weddingDate)) {
           grouped['Nach der Hochzeit']!.add(item);
@@ -2159,12 +2352,13 @@ class _TaskPageState extends State<TaskPage>
           grouped['4-3 Monate vor der Hochzeit']!.add(item);
         } else if (daysUntilWedding > 120 && daysUntilWedding <= 180) {
           grouped['6-5 Monate vor der Hochzeit']!.add(item);
-        } else if (daysUntilWedding > 180) {
+        } else {
           grouped['12-6 Monate vor der Hochzeit']!.add(item);
         }
       }
     }
 
+    // Innerhalb jeder Gruppe nach Datum sortieren
     for (var key in grouped.keys) {
       grouped[key]!.sort((a, b) {
         if (a['type'] == 'task' && b['type'] == 'task') {
@@ -2216,9 +2410,10 @@ class _TaskPageState extends State<TaskPage>
   }
 
   Color _getSectionColor(String sectionTitle) {
+    if (sectionTitle.contains('Überfällig')) return Colors.red.shade700;
     if (sectionTitle.contains('12-6')) return Colors.red;
     if (sectionTitle.contains('6-5')) return Colors.orange;
-    if (sectionTitle.contains('4-3')) return Colors.amber;
+    if (sectionTitle.contains('4-3')) return Colors.amber.shade700;
     if (sectionTitle.contains('2-1')) return Colors.green;
     if (sectionTitle.contains('1 Woche')) return Colors.blue;
     if (sectionTitle.contains('große Tag')) return Colors.pink;
@@ -2227,6 +2422,7 @@ class _TaskPageState extends State<TaskPage>
   }
 
   IconData _getSectionIcon(String sectionTitle) {
+    if (sectionTitle.contains('Überfällig')) return Icons.warning_amber_rounded;
     if (sectionTitle.contains('12-6')) return Icons.calendar_today;
     if (sectionTitle.contains('6-5')) return Icons.event_note;
     if (sectionTitle.contains('4-3')) return Icons.assignment;
@@ -2249,18 +2445,26 @@ class _TaskPageState extends State<TaskPage>
         .where((item) => item['isCompleted'] == true)
         .length;
     final progress = items.isNotEmpty ? completedCount / items.length : 0.0;
+    final isOverdueSection = sectionTitle.contains('Überfällig');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: isOverdueSection ? 4 : 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: isOverdueSection
+            ? BorderSide(color: Colors.red.shade300, width: 2)
+            : BorderSide.none,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: _getSectionColor(sectionTitle).withOpacity(0.1),
+              color: _getSectionColor(
+                sectionTitle,
+              ).withOpacity(isOverdueSection ? 0.15 : 0.1),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(12),
                 topRight: Radius.circular(12),
@@ -2297,7 +2501,9 @@ class _TaskPageState extends State<TaskPage>
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        '$completedCount/${items.length}',
+                        isOverdueSection
+                            ? '${items.length} offen'
+                            : '$completedCount/${items.length}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
@@ -2307,16 +2513,28 @@ class _TaskPageState extends State<TaskPage>
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: progress,
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    _getSectionColor(sectionTitle),
+                if (isOverdueSection) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Diese Aufgaben haben ihre Deadline überschritten und sollten schnellstmöglich erledigt werden.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.red.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
-                  minHeight: 6,
-                  borderRadius: BorderRadius.circular(3),
-                ),
+                ] else ...[
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      _getSectionColor(sectionTitle),
+                    ),
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ],
               ],
             ),
           ),
@@ -2327,14 +2545,17 @@ class _TaskPageState extends State<TaskPage>
             itemCount: items.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) =>
-                _buildCompactTimelineItem(items[index]),
+                _buildCompactTimelineItem(items[index], isOverdueSection),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCompactTimelineItem(Map<String, dynamic> item) {
+  Widget _buildCompactTimelineItem(
+    Map<String, dynamic> item, [
+    bool isOverdueSection = false,
+  ]) {
     final scheme = Theme.of(context).colorScheme;
 
     final task = item['task'] as Task?;
@@ -2350,7 +2571,7 @@ class _TaskPageState extends State<TaskPage>
         }
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
           children: [
             if (!isWeddingDay)
@@ -2366,10 +2587,18 @@ class _TaskPageState extends State<TaskPage>
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: isCompleted ? Colors.green : Colors.white,
+                    color: isCompleted
+                        ? Colors.green
+                        : isOverdueSection
+                        ? Colors.red.shade50
+                        : Colors.white,
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: isCompleted ? Colors.green : Colors.grey.shade400,
+                      color: isCompleted
+                          ? Colors.green
+                          : isOverdueSection
+                          ? Colors.red.shade400
+                          : Colors.grey.shade400,
                       width: 2,
                     ),
                   ),
@@ -2428,7 +2657,11 @@ class _TaskPageState extends State<TaskPage>
                             decoration: isCompleted
                                 ? TextDecoration.lineThrough
                                 : null,
-                            color: isCompleted ? Colors.grey : Colors.black87,
+                            color: isCompleted
+                                ? Colors.grey
+                                : isOverdueSection
+                                ? Colors.red.shade800
+                                : Colors.black87,
                           ),
                         ),
                       ),
@@ -2436,13 +2669,50 @@ class _TaskPageState extends State<TaskPage>
                   ),
                   if (date != null && !isWeddingDay) ...[
                     const SizedBox(height: 2),
-                    Text(
-                      '📅 ${date.day}.${date.month}.${date.year}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 11,
+                          color: isOverdueSection
+                              ? Colors.red.shade600
+                              : Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${date.day}.${date.month}.${date.year}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isOverdueSection
+                                ? Colors.red.shade600
+                                : Colors.grey.shade600,
+                            fontWeight: isOverdueSection
+                                ? FontWeight.bold
+                                : FontWeight.w500,
+                          ),
+                        ),
+                        if (isOverdueSection) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade100,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${DateTime.now().difference(date).inDays} Tage überfällig',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: Colors.red.shade700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                   if (item['description'] != null &&
@@ -2561,7 +2831,7 @@ class _TaskPageState extends State<TaskPage>
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: category,
+                  initialValue: category,
                   decoration: const InputDecoration(labelText: 'Kategorie'),
                   items: _categoryLabels.entries
                       .map(
@@ -2575,7 +2845,7 @@ class _TaskPageState extends State<TaskPage>
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: priority,
+                  initialValue: priority,
                   decoration: const InputDecoration(labelText: 'Priorität'),
                   items: _priorityLabels.entries
                       .map(
