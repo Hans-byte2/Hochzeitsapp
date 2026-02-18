@@ -42,7 +42,6 @@ class TaskPage extends StatefulWidget {
 class _TaskPageState extends State<TaskPage>
     with SingleTickerProviderStateMixin {
   String _selectedFilter = 'all';
-  final bool _isSubmitting = false;
   Task? _editingTask;
   String _searchQuery = '';
 
@@ -86,9 +85,7 @@ class _TaskPageState extends State<TaskPage>
         _currentTab = _tabController.index;
       });
     });
-
     _loadTimelineMilestones();
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.selectedTaskId != null) {
         _openTaskById(widget.selectedTaskId!);
@@ -107,17 +104,15 @@ class _TaskPageState extends State<TaskPage>
         createdDate: DateTime.now(),
       ),
     );
-
     if (task.id != null) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _editTask(task);
-      });
-
-      if (widget.onClearSelectedTask != null) {
-        widget.onClearSelectedTask!();
-      }
+      Future.delayed(const Duration(milliseconds: 100), () => _editTask(task));
+      widget.onClearSelectedTask?.call();
     }
   }
+
+  // ═══════════════════════════════════════════════════════
+  // EXPORT DIALOGE
+  // ═══════════════════════════════════════════════════════
 
   Future<void> _showExportDialog() async {
     if (widget.tasks.isEmpty) {
@@ -129,7 +124,6 @@ class _TaskPageState extends State<TaskPage>
       );
       return;
     }
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -360,6 +354,10 @@ class _TaskPageState extends State<TaskPage>
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // TIMELINE CHECKLISTE
+  // ═══════════════════════════════════════════════════════
+
   Future<void> _initializeDefaultMilestonesManually() async {
     if (widget.weddingDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -408,7 +406,6 @@ class _TaskPageState extends State<TaskPage>
           await DatabaseHelper.instance.deleteTask(task.id!);
         }
       }
-
       await Future.delayed(const Duration(milliseconds: 300));
     }
 
@@ -564,56 +561,38 @@ class _TaskPageState extends State<TaskPage>
     final today = DateTime(now.year, now.month, now.day);
     final weddingDate = widget.weddingDate!;
 
-    // Berechne wie viele Monate bis zur Hochzeit noch übrig sind
-    final monthsUntilWedding =
-        (weddingDate.year - today.year) * 12 +
-        (weddingDate.month - today.month);
-
     for (final milestone in defaultMilestones) {
       final monthsBefore = milestone['months_before'] as int;
-
       DateTime deadline;
 
       if (monthsBefore > 0) {
-        // Berechne das ideale Datum
         final idealDate = DateTime(
           weddingDate.year,
           weddingDate.month - monthsBefore,
           weddingDate.day,
         );
-
         if (idealDate.isBefore(today)) {
-          // Datum liegt in der Vergangenheit → intelligente Anpassung:
-          // Verteile überfällige Aufgaben gestaffelt in den nächsten Wochen
-          // je nachdem wie weit sie "zu spät" sind
           final daysOverdue = today.difference(idealDate).inDays;
           if (daysOverdue <= 30) {
-            // Bis 1 Monat überfällig → übermorgen
             deadline = today.add(const Duration(days: 2));
           } else if (daysOverdue <= 90) {
-            // Bis 3 Monate überfällig → nächste Woche
             deadline = today.add(const Duration(days: 7));
           } else if (daysOverdue <= 180) {
-            // Bis 6 Monate überfällig → in 2 Wochen
             deadline = today.add(const Duration(days: 14));
           } else {
-            // Mehr als 6 Monate überfällig → in einem Monat
             deadline = today.add(const Duration(days: 30));
           }
         } else {
           deadline = idealDate;
         }
       } else if (monthsBefore < 0) {
-        // Nach der Hochzeit
         deadline = DateTime(
           weddingDate.year,
           weddingDate.month + (-monthsBefore),
           weddingDate.day,
         );
       } else {
-        // months_before == 0 → letzte Woche vor Hochzeit
         deadline = weddingDate.subtract(const Duration(days: 7));
-        // Falls auch das in der Vergangenheit liegt
         if (deadline.isBefore(today)) {
           deadline = today.add(const Duration(days: 1));
         }
@@ -628,17 +607,17 @@ class _TaskPageState extends State<TaskPage>
         priority = 'high';
       }
 
-      final task = Task(
-        title: milestone['title'] as String,
-        description: '',
-        category: 'timeline',
-        priority: priority,
-        deadline: deadline,
-        completed: false,
-        createdDate: DateTime.now(),
+      widget.onAddTask(
+        Task(
+          title: milestone['title'] as String,
+          description: '',
+          category: 'timeline',
+          priority: priority,
+          deadline: deadline,
+          completed: false,
+          createdDate: DateTime.now(),
+        ),
       );
-
-      widget.onAddTask(task);
     }
   }
 
@@ -659,8 +638,9 @@ class _TaskPageState extends State<TaskPage>
   }
 
   // ═══════════════════════════════════════════════════════
-  // EINZEL-TASK KALENDER EXPORT
+  // KALENDER EXPORT (Einzel-Task)
   // ═══════════════════════════════════════════════════════
+
   Future<void> _exportSingleTaskToCalendar(Task task) async {
     if (task.deadline == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -714,6 +694,7 @@ class _TaskPageState extends State<TaskPage>
   // ═══════════════════════════════════════════════════════
   // GOOGLE MAPS
   // ═══════════════════════════════════════════════════════
+
   Future<void> _openInGoogleMaps(String location) async {
     if (location.isEmpty) return;
     final uri = Uri.parse(
@@ -736,6 +717,7 @@ class _TaskPageState extends State<TaskPage>
   // ═══════════════════════════════════════════════════════
   // NOTIFICATION DIALOG
   // ═══════════════════════════════════════════════════════
+
   Future<void> _showNotificationDialog(Task task) async {
     if (task.deadline == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -943,6 +925,10 @@ class _TaskPageState extends State<TaskPage>
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // HILFSMETHODEN
+  // ═══════════════════════════════════════════════════════
+
   Color _getTaskTimelineColor(Task task) {
     if (task.completed) return Colors.green;
     switch (task.priority) {
@@ -997,7 +983,6 @@ class _TaskPageState extends State<TaskPage>
       }
 
       if (!matchesFilter) return false;
-
       if (_searchQuery.isEmpty) return true;
 
       final query = _searchQuery.toLowerCase();
@@ -1289,8 +1274,7 @@ class _TaskPageState extends State<TaskPage>
   }
 
   void _toggleTaskComplete(Task task) {
-    final updatedTask = task.copyWith(completed: !task.completed);
-    widget.onUpdateTask(updatedTask);
+    widget.onUpdateTask(task.copyWith(completed: !task.completed));
   }
 
   Future<void> _exportAsExcel() async {
@@ -1300,11 +1284,8 @@ class _TaskPageState extends State<TaskPage>
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-
       await ExcelExportService.exportTasksToExcel(widget.tasks);
-
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1322,7 +1303,6 @@ class _TaskPageState extends State<TaskPage>
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1387,7 +1367,6 @@ class _TaskPageState extends State<TaskPage>
       );
 
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1409,7 +1388,6 @@ class _TaskPageState extends State<TaskPage>
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1427,6 +1405,10 @@ class _TaskPageState extends State<TaskPage>
       }
     }
   }
+
+  // ═══════════════════════════════════════════════════════
+  // BUILD
+  // ═══════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -1464,6 +1446,10 @@ class _TaskPageState extends State<TaskPage>
       ],
     );
   }
+
+  // ═══════════════════════════════════════════════════════
+  // AUFGABEN TAB
+  // ═══════════════════════════════════════════════════════
 
   Widget _buildTasksTab() {
     final scheme = Theme.of(context).colorScheme;
@@ -1963,13 +1949,14 @@ class _TaskPageState extends State<TaskPage>
               ),
             ),
             PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 20),
               itemBuilder: (menuContext) => [
                 const PopupMenuItem(
                   value: 'edit',
                   child: Row(
                     children: [
                       Icon(Icons.edit_outlined, size: 18),
-                      SizedBox(width: 8),
+                      SizedBox(width: 10),
                       Text('Bearbeiten'),
                     ],
                   ),
@@ -1984,7 +1971,7 @@ class _TaskPageState extends State<TaskPage>
                           size: 18,
                           color: Colors.blue,
                         ),
-                        SizedBox(width: 8),
+                        SizedBox(width: 10),
                         Text(
                           'In Kalender',
                           style: TextStyle(color: Colors.blue),
@@ -2001,7 +1988,7 @@ class _TaskPageState extends State<TaskPage>
                         size: 18,
                         color: Colors.orange,
                       ),
-                      SizedBox(width: 8),
+                      SizedBox(width: 10),
                       Text(
                         'Erinnerung',
                         style: TextStyle(color: Colors.orange),
@@ -2009,12 +1996,13 @@ class _TaskPageState extends State<TaskPage>
                     ],
                   ),
                 ),
+                const PopupMenuDivider(),
                 const PopupMenuItem(
                   value: 'delete',
                   child: Row(
                     children: [
                       Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                      SizedBox(width: 8),
+                      SizedBox(width: 10),
                       Text('Löschen', style: TextStyle(color: Colors.red)),
                     ],
                   ),
@@ -2063,6 +2051,48 @@ class _TaskPageState extends State<TaskPage>
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // QUICK RESCHEDULE CHIP
+  // ═══════════════════════════════════════════════════════
+
+  Widget _buildQuickRescheduleChip({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // TIMELINE TAB
+  // ═══════════════════════════════════════════════════════
+
   Widget _buildTimelineTab() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -2096,12 +2126,10 @@ class _TaskPageState extends State<TaskPage>
         .difference(DateTime.now())
         .inDays;
     final groupedTimeline = _generateGroupedTimeline();
-
     final timelineTasksCount = widget.tasks
         .where((t) => t.category == 'timeline')
         .length;
 
-    // Statistiken für die Timeline
     final overdueTimelineCount = widget.tasks
         .where(
           (t) =>
@@ -2157,8 +2185,6 @@ class _TaskPageState extends State<TaskPage>
                   color: scheme.primary,
                 ),
               ),
-              const SizedBox(height: 4),
-              // Zeige Warnung wenn überfällige Timeline-Aufgaben vorhanden
               if (overdueTimelineCount > 0) ...[
                 const SizedBox(height: 4),
                 Container(
@@ -2303,12 +2329,12 @@ class _TaskPageState extends State<TaskPage>
   // ═══════════════════════════════════════════════════════
   // INTELLIGENTE TIMELINE-GRUPPIERUNG
   // ═══════════════════════════════════════════════════════
+
   Map<String, List<Map<String, dynamic>>> _generateGroupedTimeline() {
     final timeline = _generateTimeline();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // Reihenfolge der Sektionen (wichtig für die Anzeige)
     final Map<String, List<Map<String, dynamic>>> grouped = {
       '⚠️ Überfällig – sofort erledigen': [],
       '12-6 Monate vor der Hochzeit': [],
@@ -2336,7 +2362,6 @@ class _TaskPageState extends State<TaskPage>
         final normalizedDate = DateTime(date.year, date.month, date.day);
         final daysUntilWedding = weddingDate.difference(date).inDays;
 
-        // Überfällig: Deadline in Vergangenheit UND nicht erledigt
         if (!task.completed && normalizedDate.isBefore(today)) {
           grouped['⚠️ Überfällig – sofort erledigen']!.add(item);
           continue;
@@ -2358,7 +2383,6 @@ class _TaskPageState extends State<TaskPage>
       }
     }
 
-    // Innerhalb jeder Gruppe nach Datum sortieren
     for (var key in grouped.keys) {
       grouped[key]!.sort((a, b) {
         if (a['type'] == 'task' && b['type'] == 'task') {
@@ -2369,13 +2393,11 @@ class _TaskPageState extends State<TaskPage>
     }
 
     grouped.removeWhere((key, value) => value.isEmpty);
-
     return grouped;
   }
 
   List<Map<String, dynamic>> _generateTimeline() {
     final scheme = Theme.of(context).colorScheme;
-
     List<Map<String, dynamic>> items = [];
     if (widget.weddingDate == null) return items;
 
@@ -2552,12 +2574,15 @@ class _TaskPageState extends State<TaskPage>
     );
   }
 
+  // ═══════════════════════════════════════════════════════
+  // TIMELINE ITEM mit PopupMenuButton (drei Punkte)
+  // ═══════════════════════════════════════════════════════
+
   Widget _buildCompactTimelineItem(
     Map<String, dynamic> item, [
     bool isOverdueSection = false,
   ]) {
     final scheme = Theme.of(context).colorScheme;
-
     final task = item['task'] as Task?;
     final isCompleted = item['isCompleted'] as bool;
     final isWeddingDay = item['type'] == 'wedding_day';
@@ -2573,59 +2598,70 @@ class _TaskPageState extends State<TaskPage>
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (!isWeddingDay)
-              GestureDetector(
-                onTap: () {
-                  if (task != null) {
-                    widget.onUpdateTask(
-                      task.copyWith(completed: !task.completed),
-                    );
-                  }
-                },
-                child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: isCompleted
-                        ? Colors.green
-                        : isOverdueSection
-                        ? Colors.red.shade50
-                        : Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isCompleted
-                          ? Colors.green
-                          : isOverdueSection
-                          ? Colors.red.shade400
-                          : Colors.grey.shade400,
-                      width: 2,
+            // ── Checkbox / Hochzeits-Icon ──
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: !isWeddingDay
+                  ? GestureDetector(
+                      onTap: () {
+                        if (task != null) {
+                          widget.onUpdateTask(
+                            task.copyWith(completed: !task.completed),
+                          );
+                        }
+                      },
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: isCompleted
+                              ? Colors.green
+                              : isOverdueSection
+                              ? Colors.red.shade50
+                              : Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isCompleted
+                                ? Colors.green
+                                : isOverdueSection
+                                ? Colors.red.shade400
+                                : Colors.grey.shade400,
+                            width: 2,
+                          ),
+                        ),
+                        child: isCompleted
+                            ? const Icon(
+                                Icons.check,
+                                size: 14,
+                                color: Colors.white,
+                              )
+                            : null,
+                      ),
+                    )
+                  : Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.favorite,
+                        size: 14,
+                        color: Colors.white,
+                      ),
                     ),
-                  ),
-                  child: isCompleted
-                      ? const Icon(Icons.check, size: 14, color: Colors.white)
-                      : null,
-                ),
-              )
-            else
-              Container(
-                width: 24,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: scheme.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.favorite,
-                  size: 14,
-                  color: Colors.white,
-                ),
-              ),
+            ),
             const SizedBox(width: 12),
+
+            // ── Inhalt ──
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Titel
                   Row(
                     children: [
                       if (isTimelineTask && !isWeddingDay)
@@ -2667,6 +2703,8 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ],
                   ),
+
+                  // Datum + "X Tage überfällig" Badge
                   if (date != null && !isWeddingDay) ...[
                     const SizedBox(height: 2),
                     Row(
@@ -2715,6 +2753,71 @@ class _TaskPageState extends State<TaskPage>
                       ],
                     ),
                   ],
+
+                  // Schnell-Aktionen für überfällige Aufgaben
+                  if (isOverdueSection && task != null) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _buildQuickRescheduleChip(
+                          label: '+1 Woche',
+                          icon: Icons.edit_calendar,
+                          color: Colors.orange,
+                          onTap: () {
+                            widget.onUpdateTask(
+                              task.copyWith(
+                                deadline: DateTime.now().add(
+                                  const Duration(days: 7),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickRescheduleChip(
+                          label: '+2 Wochen',
+                          icon: Icons.edit_calendar,
+                          color: Colors.blue,
+                          onTap: () {
+                            widget.onUpdateTask(
+                              task.copyWith(
+                                deadline: DateTime.now().add(
+                                  const Duration(days: 14),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        _buildQuickRescheduleChip(
+                          label: 'Datum wählen',
+                          icon: Icons.date_range,
+                          color: Colors.purple,
+                          onTap: () async {
+                            final newDate = await showDatePicker(
+                              context: context,
+                              initialDate: DateTime.now().add(
+                                const Duration(days: 7),
+                              ),
+                              firstDate: DateTime.now(),
+                              lastDate:
+                                  widget.weddingDate ??
+                                  DateTime.now().add(
+                                    const Duration(days: 1095),
+                                  ),
+                            );
+                            if (newDate != null) {
+                              widget.onUpdateTask(
+                                task.copyWith(deadline: newDate),
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+
+                  // Beschreibung
                   if (item['description'] != null &&
                       item['description'].toString().isNotEmpty &&
                       item['description'] != item['title']) ...[
@@ -2732,27 +2835,92 @@ class _TaskPageState extends State<TaskPage>
                 ],
               ),
             ),
+
+            // ── PopupMenuButton (drei Punkte) ──
             if (task != null && !isWeddingDay)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      Icons.edit_outlined,
-                      size: 18,
-                      color: Colors.grey.shade600,
+              PopupMenuButton<String>(
+                icon: Icon(
+                  Icons.more_vert,
+                  size: 20,
+                  color: Colors.grey.shade600,
+                ),
+                padding: EdgeInsets.zero,
+                itemBuilder: (menuContext) => [
+                  // Bearbeiten
+                  const PopupMenuItem<String>(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_outlined, size: 18),
+                        SizedBox(width: 10),
+                        Text('Bearbeiten'),
+                      ],
                     ),
-                    onPressed: () {
-                      _showTaskForm(task);
-                    },
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Bearbeiten',
                   ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                    onPressed: () async {
+                  // In Kalender – nur wenn Deadline vorhanden
+                  if (task.deadline != null)
+                    const PopupMenuItem<String>(
+                      value: 'calendar',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_month,
+                            size: 18,
+                            color: Colors.blue,
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'In Kalender',
+                            style: TextStyle(color: Colors.blue),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // Erinnerung – nur wenn Deadline vorhanden
+                  if (task.deadline != null)
+                    const PopupMenuItem<String>(
+                      value: 'notification',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.notifications_outlined,
+                            size: 18,
+                            color: Colors.orange,
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'Erinnerung',
+                            style: TextStyle(color: Colors.orange),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // Trennlinie
+                  const PopupMenuDivider(),
+                  // Löschen
+                  const PopupMenuItem<String>(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                        SizedBox(width: 10),
+                        Text('Löschen', style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
+                  ),
+                ],
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'edit':
+                      _showTaskForm(task);
+                      break;
+                    case 'calendar':
+                      _exportSingleTaskToCalendar(task);
+                      break;
+                    case 'notification':
+                      _showNotificationDialog(task);
+                      break;
+                    case 'delete':
                       final confirmed = await showDialog<bool>(
                         context: context,
                         builder: (ctx) => AlertDialog(
@@ -2778,22 +2946,22 @@ class _TaskPageState extends State<TaskPage>
                           ],
                         ),
                       );
-
                       if (confirmed == true) {
                         widget.onDeleteTask(task.id!);
                       }
-                    },
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Löschen',
-                  ),
-                ],
+                      break;
+                  }
+                },
               ),
           ],
         ),
       ),
     );
   }
+
+  // ═══════════════════════════════════════════════════════
+  // TASK FORM (Timeline)
+  // ═══════════════════════════════════════════════════════
 
   void _showTaskForm([Task? editingTask]) {
     final scheme = Theme.of(context).colorScheme;
@@ -2819,20 +2987,29 @@ class _TaskPageState extends State<TaskPage>
               children: [
                 TextField(
                   controller: TextEditingController(text: title),
-                  decoration: const InputDecoration(labelText: 'Titel'),
+                  decoration: const InputDecoration(
+                    labelText: 'Titel',
+                    border: OutlineInputBorder(),
+                  ),
                   onChanged: (value) => title = value,
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: TextEditingController(text: description),
-                  decoration: const InputDecoration(labelText: 'Beschreibung'),
+                  decoration: const InputDecoration(
+                    labelText: 'Beschreibung',
+                    border: OutlineInputBorder(),
+                  ),
                   maxLines: 2,
                   onChanged: (value) => description = value,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   initialValue: category,
-                  decoration: const InputDecoration(labelText: 'Kategorie'),
+                  decoration: const InputDecoration(
+                    labelText: 'Kategorie',
+                    border: OutlineInputBorder(),
+                  ),
                   items: _categoryLabels.entries
                       .map(
                         (e) => DropdownMenuItem(
@@ -2846,7 +3023,10 @@ class _TaskPageState extends State<TaskPage>
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   initialValue: priority,
-                  decoration: const InputDecoration(labelText: 'Priorität'),
+                  decoration: const InputDecoration(
+                    labelText: 'Priorität',
+                    border: OutlineInputBorder(),
+                  ),
                   items: _priorityLabels.entries
                       .map(
                         (e) => DropdownMenuItem(
@@ -2858,30 +3038,78 @@ class _TaskPageState extends State<TaskPage>
                   onChanged: (value) => setDialogState(() => priority = value!),
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    const Text('Deadline: '),
-                    TextButton(
-                      onPressed: () async {
-                        final date = await showDatePicker(
-                          context: statefulContext,
-                          initialDate:
-                              deadline ??
-                              DateTime.now().add(const Duration(days: 30)),
-                          firstDate: DateTime.now(),
-                          lastDate:
-                              widget.weddingDate ??
-                              DateTime.now().add(const Duration(days: 1095)),
-                        );
-                        if (date != null) setDialogState(() => deadline = date);
-                      },
-                      child: Text(
-                        deadline != null
-                            ? '${deadline!.day}.${deadline!.month}.${deadline!.year}'
-                            : 'Datum wählen',
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade400),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 12, top: 8),
+                        child: Text(
+                          'Deadline',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      Row(
+                        children: [
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              deadline != null
+                                  ? '${deadline!.day}.${deadline!.month}.${deadline!.year}'
+                                  : 'Kein Datum gesetzt',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: deadline != null
+                                    ? Colors.black87
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.edit_calendar,
+                              color: Colors.blue,
+                            ),
+                            tooltip: 'Datum ändern',
+                            onPressed: () async {
+                              final date = await showDatePicker(
+                                context: statefulContext,
+                                initialDate:
+                                    deadline ??
+                                    DateTime.now().add(
+                                      const Duration(days: 30),
+                                    ),
+                                firstDate: DateTime.now(),
+                                lastDate:
+                                    widget.weddingDate ??
+                                    DateTime.now().add(
+                                      const Duration(days: 1095),
+                                    ),
+                              );
+                              if (date != null) {
+                                setDialogState(() => deadline = date);
+                              }
+                            },
+                          ),
+                          if (deadline != null)
+                            IconButton(
+                              icon: const Icon(Icons.clear, color: Colors.red),
+                              tooltip: 'Datum entfernen',
+                              onPressed: () =>
+                                  setDialogState(() => deadline = null),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -2934,6 +3162,10 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
+
+  // ═══════════════════════════════════════════════════════
+  // RESET TIMELINE DIALOG
+  // ═══════════════════════════════════════════════════════
 
   void _showResetTimelineTasksDialog() {
     showDialog(
@@ -3028,7 +3260,6 @@ class _TaskPageState extends State<TaskPage>
                 if (mounted) {
                   Navigator.of(context, rootNavigator: true).pop();
                 }
-
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -3050,6 +3281,10 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
+
+  // ═══════════════════════════════════════════════════════
+  // REMINDER HELPER WIDGETS
+  // ═══════════════════════════════════════════════════════
 
   Widget _buildReminderOption({
     required BuildContext context,
