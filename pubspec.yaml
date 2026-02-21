@@ -51,6 +51,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
@@ -58,4 +59,8 @@ flutter:
   assets:
     - assets/images/
 
+flutter_icons:
+  ios: true
+  android: true
+  image_path: "assets/images/heartpepple_logo.png"
    
