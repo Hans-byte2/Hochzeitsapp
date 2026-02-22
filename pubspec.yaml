@@ -3,28 +3,29 @@ description: "A new Flutter project."
 
 publish_to: 'none'
 
-version:  1.1.0+27 
+version: 1.1.0+28
+
 environment:
-  sdk: ^3.9.0
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-      # Export-Dependencies
+
+  # Export-Dependencies
   pdf: ^3.10.0
   printing: ^5.11.0
   excel: ^4.0.6
-  path_provider: ^2.1.5  
-  share_plus: ^12.0.1 
-  file_picker: ^10.3.7 
+  path_provider: ^2.1.5
+  share_plus: ^12.0.1
+  file_picker: ^10.3.7
+
   flutter_riverpod: ^2.5.1
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
   permission_handler: ^11.3.1
- 
- 
 
-    # NEU für Dienstleister
+  # Charts / Links
   fl_chart: ^0.66.0
   url_launcher: ^6.2.2
 
@@ -34,14 +35,13 @@ dependencies:
   # Database
   sqflite: ^2.3.0
   path: ^1.8.3
-  
+
   # Utilities
   intl: ^0.18.1
   change_app_package_name: ^1.5.0
   open_filex: ^4.7.0
 
-
-  # NEU für Notifications & Sharing:
+  # Notifications & Sharing
   flutter_local_notifications: ^17.0.0
   timezone: ^0.9.2
 
@@ -53,9 +53,12 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.13.1
 
+dependency_overrides:
+  path_provider_foundation: 2.5.1
+
 flutter:
   uses-material-design: true
-  
+
   assets:
     - assets/images/
 
@@ -63,4 +66,3 @@ flutter_icons:
   ios: true
   android: true
   image_path: "assets/images/heartpepple_logo.png"
-   
