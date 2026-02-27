@@ -22,6 +22,7 @@ import 'screens/tasks_screen.dart';
 import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
 import 'screens/settings_page.dart';
+import 'screens/onboarding_screen.dart'; // ← NEU
 
 // Debug
 import 'utils/error_logger.dart';
@@ -32,6 +33,10 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
 
+  // ── NEU: Onboarding-Status prüfen ────────────────────────
+  final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
+  // ─────────────────────────────────────────────────────────
+
   runApp(
     ProviderScope(
       overrides: [
@@ -40,13 +45,15 @@ Future<void> main() async {
         ),
         profileControllerProvider.overrideWith((ref) => ProfileController()),
       ],
-      child: const WeddingApp(),
+      child: WeddingApp(showOnboarding: !onboardingCompleted), // ← NEU
     ),
   );
 }
 
 class WeddingApp extends ConsumerWidget {
-  const WeddingApp({super.key});
+  final bool showOnboarding; // ← NEU
+
+  const WeddingApp({super.key, required this.showOnboarding}); // ← NEU
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -56,10 +63,32 @@ class WeddingApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       title: 'HeartPebble',
       theme: theme,
-      home: const HochzeitsApp(),
+      // ── NEU: Onboarding oder Hauptapp ────────────────────
+      home: showOnboarding ? const OnboardingWrapper() : const HochzeitsApp(),
+      // ─────────────────────────────────────────────────────
     );
   }
 }
+
+// ── NEU: Wrapper – wechselt nach Onboarding zur Hauptapp ─────────────────────
+class OnboardingWrapper extends StatefulWidget {
+  const OnboardingWrapper({super.key});
+
+  @override
+  State<OnboardingWrapper> createState() => _OnboardingWrapperState();
+}
+
+class _OnboardingWrapperState extends State<OnboardingWrapper> {
+  bool _done = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_done) return const HochzeitsApp();
+
+    return OnboardingScreen(onFinished: () => setState(() => _done = true));
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 class HochzeitsApp extends ConsumerStatefulWidget {
   const HochzeitsApp({super.key});
@@ -168,7 +197,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       });
     }
     // ✅ Wenn zurück zum Dashboard → Budget aus DB neu laden
-    // Tasks & Guests werden automatisch via didUpdateWidget aktualisiert
     if (index == 0 && _currentIndex != 0) {
       _dashboardKey.currentState?.reload();
     }
@@ -539,7 +567,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         unselectedFontSize: 10,
         backgroundColor: Colors.white,
         elevation: 8,
-        // ✅ Alle Tab-Wechsel laufen jetzt über _onTabChanged
+        // ✅ Alle Tab-Wechsel laufen über _onTabChanged
         onTap: _onTabChanged,
         items: [
           BottomNavigationBarItem(
