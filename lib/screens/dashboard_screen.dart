@@ -41,11 +41,11 @@ class DashboardPage extends StatefulWidget {
   });
 
   @override
-  State<DashboardPage> createState() => _DashboardPageState();
+  State<DashboardPage> createState() => DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage>
-    with SmartFormValidation {
+// ⚠️ State-Klasse ist PUBLIC (kein Unterstrich) damit GlobalKey funktioniert
+class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
   List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
   Timer? _midnightTimer;
@@ -69,21 +69,27 @@ class _DashboardPageState extends State<DashboardPage>
     super.dispose();
   }
 
-  /// Plant einen Timer, der exakt um Mitternacht den Countdown neu berechnet.
+  /// Öffentliche Methode – wird vom Parent via GlobalKey aufgerufen
+  /// wenn der Dashboard-Tab aktiviert wird.
+  void reload() {
+    _loadDashboardData();
+  }
+
   void _scheduleMidnightRefresh() {
     final now = DateTime.now();
     final midnight = DateTime(now.year, now.month, now.day + 1);
     final timeUntilMidnight = midnight.difference(now);
 
     _midnightTimer = Timer(timeUntilMidnight, () {
-      if (mounted) setState(() {}); // Rebuild → Getter neu berechnet
-      _scheduleMidnightRefresh(); // Nächsten Tag einplanen
+      if (mounted) setState(() {});
+      _scheduleMidnightRefresh();
     });
   }
 
   @override
   void didUpdateWidget(DashboardPage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Tasks und Guests kommen als Props – bei Änderung Stats neu berechnen
     if (oldWidget.tasks != widget.tasks || oldWidget.guests != widget.guests) {
       _calculateStats();
     }
@@ -92,6 +98,7 @@ class _DashboardPageState extends State<DashboardPage>
   Future<void> _loadDashboardData() async {
     try {
       final items = await DatabaseHelper.instance.getAllBudgetItems();
+      if (!mounted) return;
       setState(() {
         _budgetItems = items;
       });
@@ -102,10 +109,12 @@ class _DashboardPageState extends State<DashboardPage>
         _isLoading = false;
       });
     } catch (e) {
-      print('Fehler beim Laden der Dashboard-Daten: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('Fehler beim Laden der Dashboard-Daten: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -130,6 +139,7 @@ class _DashboardPageState extends State<DashboardPage>
 
     int completedTasks = widget.tasks.where((t) => t.completed).length;
 
+    if (!mounted) return;
     setState(() {
       _stats = {
         'budget': {
@@ -161,8 +171,6 @@ class _DashboardPageState extends State<DashboardPage>
       ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
   }
 
-  /// FIX: Vergleicht nur Kalendertage (ohne Uhrzeit), damit der Counter
-  /// jeden Tag korrekt um 1 runterzählt.
   int get _daysUntilWedding {
     if (widget.weddingDate == null) return -1;
     final now = DateTime.now();
@@ -1016,7 +1024,7 @@ class _DashboardPageState extends State<DashboardPage>
 }
 
 // ============================================================================
-// WEDDING DATA DIALOG - Mit allen Fixes
+// WEDDING DATA DIALOG
 // ============================================================================
 
 class _WeddingDataDialog extends StatefulWidget {
