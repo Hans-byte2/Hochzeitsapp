@@ -49,3 +49,9 @@ app.*.map.json
 *.jks
 android/key.properties
 android/key.properties.txt
+
+# signing (do not commit)
+*.jks
+android/key.properties
+android/key.properties.txt
+
