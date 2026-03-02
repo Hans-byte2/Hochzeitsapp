@@ -52,7 +52,14 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
 
   Map<String, dynamic> _stats = {
     'budget': {'planned': 0.0, 'actual': 0.0, 'paid': 0.0},
-    'guests': {'total': 0, 'confirmed': 0, 'declined': 0, 'pending': 0},
+    'guests': {
+      'total': 0,
+      'confirmed': 0,
+      'declined': 0,
+      'pending': 0,
+      'totalPersons': 0, // ← NEU: Gäste + Kinder
+      'totalChildren': 0, // ← NEU: nur Kinder
+    },
     'tasks': {'total': 0, 'completed': 0},
   };
 
@@ -137,6 +144,17 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
         .where((g) => g.confirmed == 'pending')
         .length;
 
+    // ── NEU: Kinder-Statistiken ──────────────────────────────────
+    int totalChildren = widget.guests.fold(
+      0,
+      (sum, g) => sum + g.childrenCount,
+    );
+    // Gesamt-Personen = alle Gäste (inkl. Absagen ausblenden) + Kinder
+    int confirmedPersons = widget.guests
+        .where((g) => g.confirmed == 'yes')
+        .fold(0, (sum, g) => sum + g.totalPersons);
+    // ─────────────────────────────────────────────────────────────
+
     int completedTasks = widget.tasks.where((t) => t.completed).length;
 
     if (!mounted) return;
@@ -152,6 +170,8 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
           'confirmed': confirmedGuests,
           'declined': declinedGuests,
           'pending': pendingGuests,
+          'totalPersons': confirmedPersons, // ← NEU
+          'totalChildren': totalChildren, // ← NEU
         },
         'tasks': {'total': widget.tasks.length, 'completed': completedTasks},
       };
@@ -659,8 +679,13 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
     );
   }
 
+  // ── NEU: Gäste-Card mit Kinder-Anzeige ──────────────────────────────────
   Widget _buildGuestsCard() {
     final guestData = _stats['guests'];
+    final int totalChildren = guestData['totalChildren'] as int;
+    final int confirmedPersons = guestData['totalPersons'] as int;
+    final bool hasChildren = totalChildren > 0;
+
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -689,61 +714,80 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Column(
-                  children: [
-                    Text(
-                      '${guestData['confirmed']}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                    const Text(
-                      'Zusagen',
-                      style: TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
-                  ],
+                _buildGuestStat(
+                  '${guestData['confirmed']}',
+                  'Zusagen',
+                  Colors.green,
                 ),
-                Column(
-                  children: [
-                    Text(
-                      '${guestData['declined']}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.red,
-                      ),
-                    ),
-                    const Text(
-                      'Absagen',
-                      style: TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
-                  ],
+                _buildGuestStat(
+                  '${guestData['declined']}',
+                  'Absagen',
+                  Colors.red,
                 ),
-                Column(
-                  children: [
-                    Text(
-                      '${guestData['total']}',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const Text(
-                      'Gesamt',
-                      style: TextStyle(fontSize: 10, color: Colors.grey),
-                    ),
-                  ],
-                ),
+                _buildGuestStat('${guestData['total']}', 'Gesamt', Colors.grey),
               ],
             ),
+            // ── NEU: Kinder + Personen-Zeile ──────────────────────
+            if (hasChildren) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.child_care, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$totalChildren ${totalChildren == 1 ? 'Kind' : 'Kinder'} dabei',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '$confirmedPersons Personen gesamt',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            // ─────────────────────────────────────────────────────
           ],
         ),
       ),
     );
   }
+
+  // Hilfsmethode für einzelne Gäste-Statistik-Spalte
+  Widget _buildGuestStat(String value, String label, Color color) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      ],
+    );
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   Widget _buildTasksCard() {
     final taskData = _stats['tasks'];

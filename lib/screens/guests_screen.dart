@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
+import '../services/guest_scoring_service.dart'; // ← Scoring Service
 // Smart Validation Imports
 import '../mixins/smart_form_validation_mixin.dart';
 import '../widgets/forms/smart_text_field.dart';
@@ -14,12 +16,12 @@ class GuestPage extends StatefulWidget {
   final Function(int) onDeleteGuest;
 
   const GuestPage({
-    Key? key,
+    super.key,
     required this.guests,
     required this.onAddGuest,
     required this.onUpdateGuest,
     required this.onDeleteGuest,
-  }) : super(key: key);
+  });
 
   @override
   State<GuestPage> createState() => _GuestPageState();
@@ -30,25 +32,56 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _dietaryController = TextEditingController();
+  final _childrenNamesController = TextEditingController();
+
   String _selectedStatus = 'pending';
+  String? _selectedRelationship;
+  bool _isVip = false;
+  int _childrenCount = 0;
+  int _distanceKm = 0;
+
   Guest? _editingGuest;
 
-  // Filter-Status
+  // Filter
   String? _filterStatus;
+  String? _filterRelationship;
+
+  // Suche
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  // Sortierung
+  String _sortBy = 'name'; // 'name' | 'score' | 'status'
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _emailController.dispose();
+    _dietaryController.dispose();
+    _childrenNamesController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   void _showGuestDialog([Guest? guest]) {
     _editingGuest = guest;
+
     if (guest != null) {
       _firstNameController.text = guest.firstName;
       _lastNameController.text = guest.lastName;
       _emailController.text = guest.email;
       _dietaryController.text = guest.dietaryRequirements;
       _selectedStatus = guest.confirmed;
+      _selectedRelationship = guest.relationshipType;
+      _isVip = guest.isVip;
+      _childrenCount = guest.childrenCount;
+      _distanceKm = guest.distanceKm;
+      _childrenNamesController.text = guest.childrenNamesList.join(', ');
     } else {
       _resetForm();
     }
 
-    // Reset validation state
     resetFormValidation();
 
     showDialog(
@@ -60,8 +93,17 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
           lastNameController: _lastNameController,
           emailController: _emailController,
           dietaryController: _dietaryController,
+          childrenNamesController: _childrenNamesController,
           selectedStatus: _selectedStatus,
-          onStatusChanged: (status) => _selectedStatus = status,
+          selectedRelationship: _selectedRelationship,
+          isVip: _isVip,
+          childrenCount: _childrenCount,
+          distanceKm: _distanceKm,
+          onStatusChanged: (s) => _selectedStatus = s,
+          onRelationshipChanged: (r) => _selectedRelationship = r,
+          onVipChanged: (v) => _isVip = v,
+          onChildrenCountChanged: (c) => _childrenCount = c,
+          onDistanceChanged: (d) => _distanceKm = d,
           onSave: _saveGuest,
           onCancel: () {
             _resetForm();
@@ -73,19 +115,40 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
   }
 
   void _saveGuest() {
-    // NUR Vorname prüfen! Nachname ist optional
-    if (_firstNameController.text.isEmpty) {
-      return;
+    if (_firstNameController.text.isEmpty) return;
+
+    // Kinder-Namen als JSON-Array String speichern
+    String? childrenNamesJson;
+    if (_childrenCount > 0 && _childrenNamesController.text.trim().isNotEmpty) {
+      final names = _childrenNamesController.text
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      childrenNamesJson = '[${names.map((n) => '"$n"').join(',')}]';
     }
 
-    final guest = Guest(
+    // Score berechnen
+    final tempGuest = Guest(
       id: _editingGuest?.id,
       firstName: _firstNameController.text,
-      lastName: _lastNameController.text, // Kann leer sein
-      email: _emailController.text, // Kann leer sein
+      lastName: _lastNameController.text,
+      email: _emailController.text,
       confirmed: _selectedStatus,
       dietaryRequirements: _dietaryController.text,
       tableNumber: _editingGuest?.tableNumber,
+      relationshipType: _selectedRelationship,
+      isVip: _isVip,
+      childrenCount: _childrenCount,
+      childrenNames: childrenNamesJson,
+      distanceKm: _distanceKm,
+    );
+
+    final score = GuestScoringService.calculateScore(tempGuest);
+
+    final guest = tempGuest.copyWith(
+      priorityScore: score,
+      scoreUpdatedAt: DateTime.now().toIso8601String(),
     );
 
     if (_editingGuest != null) {
@@ -97,7 +160,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     _resetForm();
     Navigator.pop(context);
 
-    // Erfolgs-Feedback
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -123,7 +185,12 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     _lastNameController.clear();
     _emailController.clear();
     _dietaryController.clear();
+    _childrenNamesController.clear();
     _selectedStatus = 'pending';
+    _selectedRelationship = null;
+    _isVip = false;
+    _childrenCount = 0;
+    _distanceKm = 0;
   }
 
   String _getStatusLabel(String status) {
@@ -139,24 +206,72 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     }
   }
 
-  List<Guest> _getFilteredGuests() {
-    if (_filterStatus == null) {
-      return widget.guests;
+  String _getRelationshipLabel(String? rel) {
+    switch (rel) {
+      case 'familie':
+        return 'Familie';
+      case 'freunde':
+        return 'Freunde';
+      case 'kollegen':
+        return 'Kollegen';
+      case 'bekannte':
+        return 'Bekannte';
+      default:
+        return '';
     }
-    return widget.guests.where((g) => g.confirmed == _filterStatus).toList();
   }
 
+  List<Guest> _getFilteredAndSortedGuests() {
+    var guests = widget.guests.where((g) {
+      // Status-Filter
+      if (_filterStatus != null && g.confirmed != _filterStatus) return false;
+      // Beziehungs-Filter
+      if (_filterRelationship != null &&
+          g.relationshipType != _filterRelationship)
+        return false;
+      // Suche
+      if (_searchQuery.isNotEmpty) {
+        final q = _searchQuery.toLowerCase();
+        final name = '${g.firstName} ${g.lastName}'.toLowerCase();
+        if (!name.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+
+    // Sortierung
+    switch (_sortBy) {
+      case 'score':
+        guests.sort((a, b) => b.priorityScore.compareTo(a.priorityScore));
+        break;
+      case 'status':
+        const order = {'yes': 0, 'pending': 1, 'no': 2};
+        guests.sort(
+          (a, b) =>
+              (order[a.confirmed] ?? 1).compareTo(order[b.confirmed] ?? 1),
+        );
+        break;
+      default: // name
+        guests.sort(
+          (a, b) => '${a.lastName}${a.firstName}'.compareTo(
+            '${b.lastName}${b.firstName}',
+          ),
+        );
+    }
+
+    return guests;
+  }
+
+  // Export
   Future<void> _showExportDialog() async {
     if (widget.guests.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Keine Gäste zum Exportieren vorhanden'),
+          content: Text('Keine Gäste zum Exportieren'),
           backgroundColor: Colors.orange,
         ),
       );
       return;
     }
-
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -208,29 +323,22 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
-
       await PdfExportService.exportGuestListToPdf(widget.guests);
-
       if (!mounted) return;
       Navigator.pop(context);
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Gästeliste erfolgreich als PDF exportiert!'),
+          content: Text('PDF erfolgreich exportiert!'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context);
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fehler beim PDF-Export: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -240,29 +348,22 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
-
       await ExcelExportService.exportGuestListToExcel(widget.guests);
-
       if (!mounted) return;
       Navigator.pop(context);
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Gästeliste erfolgreich als Excel exportiert!'),
+          content: Text('Excel erfolgreich exportiert!'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
       Navigator.pop(context);
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Fehler beim Excel-Export: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
       );
     }
   }
@@ -279,8 +380,12 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         .where((g) => g.confirmed == 'no')
         .length;
     final pendingGuests = totalGuests - confirmedGuests - declinedGuests;
+    final totalChildren = widget.guests.fold(
+      0,
+      (sum, g) => sum + g.childrenCount,
+    );
 
-    final filteredGuests = _getFilteredGuests();
+    final filteredGuests = _getFilteredAndSortedGuests();
 
     return Scaffold(
       appBar: AppBar(
@@ -288,6 +393,56 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
         actions: [
+          // Sortierung
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort),
+            tooltip: 'Sortieren',
+            onSelected: (val) => setState(() => _sortBy = val),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'name',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.sort_by_alpha,
+                      size: 18,
+                      color: _sortBy == 'name' ? scheme.primary : null,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('Nach Name'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'score',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.star,
+                      size: 18,
+                      color: _sortBy == 'score' ? scheme.primary : null,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('Nach Score'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'status',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check_circle,
+                      size: 18,
+                      color: _sortBy == 'status' ? scheme.primary : null,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('Nach Status'),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: _showExportDialog,
@@ -300,11 +455,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Übersicht',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
+            // ── Stat-Cards ────────────────────────────────────────
             Row(
               children: [
                 Expanded(
@@ -315,7 +466,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                       '$totalGuests',
                       scheme.primary,
                       Icons.people,
-                      _filterStatus == null,
+                      _filterStatus == null && _filterRelationship == null,
                     ),
                   ),
                 ),
@@ -369,12 +520,100 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                 ),
               ],
             ),
-            if (_filterStatus != null) ...[
-              const SizedBox(height: 12),
+
+            // ── Kinder-Info (nur wenn Kinder vorhanden) ───────────
+            if (totalChildren > 0) ...[
+              const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withOpacity(0.07),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: scheme.primary.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.child_care, size: 16, color: scheme.primary),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$totalChildren ${totalChildren == 1 ? 'Kind' : 'Kinder'} in der Gästeliste',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${widget.guests.fold(0, (s, g) => s + g.totalPersons)} Personen gesamt',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // ── Beziehungs-Filter ─────────────────────────────────
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildRelChip(null, 'Alle'),
+                  const SizedBox(width: 6),
+                  _buildRelChip('familie', '👨‍👩‍👧 Familie'),
+                  const SizedBox(width: 6),
+                  _buildRelChip('freunde', '👫 Freunde'),
+                  const SizedBox(width: 6),
+                  _buildRelChip('kollegen', '💼 Kollegen'),
+                  const SizedBox(width: 6),
+                  _buildRelChip('bekannte', '🤝 Bekannte'),
+                ],
+              ),
+            ),
+
+            // ── Suche ─────────────────────────────────────────────
+            const SizedBox(height: 10),
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Gast suchen...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () => setState(() {
+                          _searchController.clear();
+                          _searchQuery = '';
+                        }),
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                isDense: true,
+              ),
+              onChanged: (val) => setState(() => _searchQuery = val),
+            ),
+
+            const SizedBox(height: 10),
+
+            // ── Aktive Filter-Anzeige ─────────────────────────────
+            if (_filterStatus != null || _filterRelationship != null) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
                 ),
                 decoration: BoxDecoration(
                   color: Colors.blue.shade50,
@@ -388,25 +627,35 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                       size: 16,
                       color: Colors.blue.shade700,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Text(
-                      'Filter aktiv: ${_getStatusLabel(_filterStatus!)}',
+                      [
+                        if (_filterStatus != null)
+                          _getStatusLabel(_filterStatus!),
+                        if (_filterRelationship != null)
+                          _getRelationshipLabel(_filterRelationship),
+                      ].join(' · '),
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 13,
                         color: Colors.blue.shade700,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
                     const Spacer(),
                     TextButton(
-                      onPressed: () => setState(() => _filterStatus = null),
+                      onPressed: () => setState(() {
+                        _filterStatus = null;
+                        _filterRelationship = null;
+                      }),
                       child: const Text('Zurücksetzen'),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(height: 8),
             ],
-            const SizedBox(height: 16),
+
+            // ── Gästeliste ────────────────────────────────────────
             Expanded(
               child: filteredGuests.isEmpty
                   ? Center(
@@ -420,9 +669,9 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            _filterStatus == null
+                            widget.guests.isEmpty
                                 ? 'Noch keine Gäste hinzugefügt'
-                                : 'Keine Gäste mit Status "${_getStatusLabel(_filterStatus!)}"',
+                                : 'Keine Gäste gefunden',
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.grey[600],
@@ -435,93 +684,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                       itemCount: filteredGuests.length,
                       itemBuilder: (context, index) {
                         final guest = filteredGuests[index];
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            side: BorderSide(
-                              color: Theme.of(context).dividerColor,
-                              width: 1,
-                            ),
-                          ),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: _getStatusColor(guest.confirmed),
-                              child: Text(
-                                guest.firstName[0].toUpperCase(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            title: Text('${guest.firstName} ${guest.lastName}'),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (guest.email.isNotEmpty) Text(guest.email),
-                                if (guest.dietaryRequirements.isNotEmpty)
-                                  Text(
-                                    'Besonderheiten: ${guest.dietaryRequirements}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Chip(
-                                  label: Text(
-                                    _getStatusLabel(guest.confirmed),
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  backgroundColor: _getStatusColor(
-                                    guest.confirmed,
-                                  ).withOpacity(0.2),
-                                  side: BorderSide.none,
-                                ),
-                                PopupMenuButton(
-                                  itemBuilder: (menuContext) => [
-                                    PopupMenuItem(
-                                      child: const Row(
-                                        children: [
-                                          Icon(Icons.edit, size: 18),
-                                          SizedBox(width: 8),
-                                          Text('Bearbeiten'),
-                                        ],
-                                      ),
-                                      onTap: () => Future.delayed(
-                                        Duration.zero,
-                                        () => _showGuestDialog(guest),
-                                      ),
-                                    ),
-                                    PopupMenuItem(
-                                      child: const Row(
-                                        children: [
-                                          Icon(
-                                            Icons.delete,
-                                            size: 18,
-                                            color: Colors.red,
-                                          ),
-                                          SizedBox(width: 8),
-                                          Text(
-                                            'Löschen',
-                                            style: TextStyle(color: Colors.red),
-                                          ),
-                                        ],
-                                      ),
-                                      onTap: () =>
-                                          widget.onDeleteGuest(guest.id!),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
+                        return _buildGuestCard(guest);
                       },
                     ),
             ),
@@ -538,6 +701,242 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     );
   }
 
+  // ── Gast-Karte mit Score-Badge + Kinder ──────────────────────────────────
+  Widget _buildGuestCard(Guest guest) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: Theme.of(context).dividerColor, width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            // Avatar mit Score-Farbe
+            Stack(
+              children: [
+                CircleAvatar(
+                  backgroundColor: _getStatusColor(guest.confirmed),
+                  radius: 22,
+                  child: Text(
+                    guest.firstName[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                if (guest.isVip)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      width: 14,
+                      height: 14,
+                      decoration: const BoxDecoration(
+                        color: Colors.amber,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.star,
+                        size: 10,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+
+            // Name + Details
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${guest.firstName} ${guest.lastName}'.trim(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      // Score-Badge
+                      if (guest.priorityScore > 0) _buildScoreBadge(guest),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 2,
+                    children: [
+                      // Status
+                      _buildMiniChip(
+                        _getStatusLabel(guest.confirmed),
+                        _getStatusColor(guest.confirmed),
+                      ),
+                      // Beziehungstyp
+                      if (guest.relationshipType != null)
+                        _buildMiniChip(
+                          _getRelationshipLabel(guest.relationshipType),
+                          Colors.blueGrey,
+                        ),
+                      // Kinder
+                      if (guest.childrenCount > 0)
+                        _buildMiniChip(
+                          '${guest.childrenCount} ${guest.childrenCount == 1 ? 'Kind' : 'Kinder'}',
+                          Colors.purple,
+                          icon: Icons.child_care,
+                        ),
+                      // Diät
+                      if (guest.dietaryRequirements.isNotEmpty)
+                        _buildMiniChip(guest.dietaryRequirements, Colors.teal),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Menü
+            PopupMenuButton(
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  child: const Row(
+                    children: [
+                      Icon(Icons.edit, size: 18),
+                      SizedBox(width: 8),
+                      Text('Bearbeiten'),
+                    ],
+                  ),
+                  onTap: () => Future.delayed(
+                    Duration.zero,
+                    () => _showGuestDialog(guest),
+                  ),
+                ),
+                PopupMenuItem(
+                  child: const Row(
+                    children: [
+                      Icon(Icons.delete, size: 18, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text('Löschen', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                  onTap: () => widget.onDeleteGuest(guest.id!),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScoreBadge(Guest guest) {
+    Color color;
+    String label;
+    switch (guest.priorityBadge) {
+      case PriorityBadge.vip:
+        color = Colors.amber.shade700;
+        label = 'VIP';
+        break;
+      case PriorityBadge.hoch:
+        color = Colors.green;
+        label = '${guest.priorityScore.toInt()}';
+        break;
+      case PriorityBadge.mittel:
+        color = Colors.orange;
+        label = '${guest.priorityScore.toInt()}';
+        break;
+      case PriorityBadge.niedrig:
+        color = Colors.grey;
+        label = '${guest.priorityScore.toInt()}';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.star, size: 11, color: color),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniChip(String label, Color color, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRelChip(String? value, String label) {
+    final active = _filterRelationship == value;
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => setState(() => _filterRelationship = active ? null : value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? scheme.primary : scheme.primary.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? scheme.primary : scheme.primary.withOpacity(0.3),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: active ? scheme.onPrimary : scheme.primary,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatCard(
     String label,
     String value,
@@ -546,7 +945,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     bool isActive,
   ) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: color.withOpacity(isActive ? 0.2 : 0.1),
         borderRadius: BorderRadius.circular(8),
@@ -557,22 +956,22 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       ),
       child: Column(
         children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 4),
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 3),
           Text(
             value,
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: color,
             ),
           ),
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[700])),
           if (isActive)
             Container(
-              margin: const EdgeInsets.only(top: 4),
+              margin: const EdgeInsets.only(top: 3),
               height: 3,
-              width: 30,
+              width: 24,
               decoration: BoxDecoration(
                 color: color,
                 borderRadius: BorderRadius.circular(2),
@@ -589,26 +988,15 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         return Colors.green;
       case 'no':
         return Colors.red;
-      case 'pending':
       default:
         return Colors.orange;
     }
   }
-
-  @override
-  void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
-    _emailController.dispose();
-    _dietaryController.dispose();
-    super.dispose();
-  }
 }
 
 // ============================================================================
-// GUEST FORM DIALOG - Mit Smart Validation
+// GUEST FORM DIALOG
 // ============================================================================
-// Ersetze die komplette _GuestFormDialog Klasse am Ende deiner guest_page.dart
 
 class _GuestFormDialog extends StatefulWidget {
   final Guest? editingGuest;
@@ -616,8 +1004,17 @@ class _GuestFormDialog extends StatefulWidget {
   final TextEditingController lastNameController;
   final TextEditingController emailController;
   final TextEditingController dietaryController;
+  final TextEditingController childrenNamesController;
   final String selectedStatus;
+  final String? selectedRelationship;
+  final bool isVip;
+  final int childrenCount;
+  final int distanceKm;
   final Function(String) onStatusChanged;
+  final Function(String?) onRelationshipChanged;
+  final Function(bool) onVipChanged;
+  final Function(int) onChildrenCountChanged;
+  final Function(int) onDistanceChanged;
   final VoidCallback onSave;
   final VoidCallback onCancel;
 
@@ -627,8 +1024,17 @@ class _GuestFormDialog extends StatefulWidget {
     required this.lastNameController,
     required this.emailController,
     required this.dietaryController,
+    required this.childrenNamesController,
     required this.selectedStatus,
+    required this.selectedRelationship,
+    required this.isVip,
+    required this.childrenCount,
+    required this.distanceKm,
     required this.onStatusChanged,
+    required this.onRelationshipChanged,
+    required this.onVipChanged,
+    required this.onChildrenCountChanged,
+    required this.onDistanceChanged,
     required this.onSave,
     required this.onCancel,
   });
@@ -639,83 +1045,59 @@ class _GuestFormDialog extends StatefulWidget {
 
 class _GuestFormDialogState extends State<_GuestFormDialog> {
   final Map<String, bool> _fieldValidation = {};
+  late String _status;
+  late String? _relationship;
+  late bool _vip;
+  late int _children;
+  late int _distance;
+
+  @override
+  void initState() {
+    super.initState();
+    _status = widget.selectedStatus;
+    _relationship = widget.selectedRelationship;
+    _vip = widget.isVip;
+    _children = widget.childrenCount;
+    _distance = widget.distanceKm;
+  }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) {
-      setState(() {
-        _fieldValidation[fieldKey] = isValid;
-      });
-    }
+    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
 
-  bool get _areAllFieldsValid {
-    // Nur Vorname und Status müssen valide sein
-    return (_fieldValidation['first_name'] ?? false) &&
-        (_fieldValidation['status'] ?? false);
-  }
-
-  int get _validFieldsCount {
-    int count = 0;
-    if (_fieldValidation['first_name'] ?? false) count++;
-    if (_fieldValidation['status'] ?? false) count++;
-    return count;
-  }
+  bool get _isValid => (_fieldValidation['first_name'] ?? false);
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return AlertDialog(
       title: Text(
         widget.editingGuest != null
             ? 'Gast bearbeiten'
             : 'Neuen Gast hinzufügen',
       ),
-      content: Container(
+      content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Fortschrittsanzeige - 2 Pflichtfelder
-              LinearProgressIndicator(
-                value:
-                    _validFieldsCount / 2.0, // ← Hart codiert: 2 Pflichtfelder
-                backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  _areAllFieldsValid
-                      ? Colors.green
-                      : Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$_validFieldsCount von 2 Pflichtfeldern ausgefüllt', // ← Hart codiert
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 16),
-
-              // Vorname - PFLICHT
+              // ── Basis-Felder ──────────────────────────────────────
               SmartTextField(
-                label: 'Vorname',
+                label: 'Vorname *',
                 fieldKey: 'first_name',
                 isRequired: true,
                 controller: widget.firstNameController,
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Vorname ist erforderlich';
-                  }
-                  if (value.trim().length < 2) {
-                    return 'Mindestens 2 Zeichen';
-                  }
-                  return null;
-                },
+                validator: (v) => (v == null || v.trim().length < 2)
+                    ? 'Mindestens 2 Zeichen'
+                    : null,
                 textInputAction: TextInputAction.next,
               ),
-
-              const SizedBox(height: 16),
-
-              // Nachname - OPTIONAL
+              const SizedBox(height: 12),
               SmartTextField(
                 label: 'Nachname',
                 fieldKey: 'last_name',
@@ -723,20 +1105,9 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 controller: widget.lastNameController,
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
-                validator: (value) {
-                  if (value != null &&
-                      value.trim().isNotEmpty &&
-                      value.trim().length < 2) {
-                    return 'Mindestens 2 Zeichen';
-                  }
-                  return null;
-                },
                 textInputAction: TextInputAction.next,
               ),
-
-              const SizedBox(height: 16),
-
-              // E-Mail - OPTIONAL
+              const SizedBox(height: 12),
               SmartTextField(
                 label: 'E-Mail',
                 fieldKey: 'email',
@@ -745,54 +1116,208 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value != null && value.trim().isNotEmpty) {
-                    final emailRegex = RegExp(
-                      r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
-                    );
-                    if (!emailRegex.hasMatch(value.trim())) {
-                      return 'Ungültige E-Mail-Adresse';
-                    }
-                  }
-                  return null;
-                },
                 textInputAction: TextInputAction.next,
               ),
+              const SizedBox(height: 12),
 
-              const SizedBox(height: 16),
-
-              // RSVP Status - PFLICHT
+              // ── Status ────────────────────────────────────────────
               SmartDropdown<String>(
-                label: 'Status',
+                label: 'Status *',
                 fieldKey: 'status',
                 isRequired: true,
-                value: widget.selectedStatus,
+                value: _status,
                 items: const ['pending', 'yes', 'no'],
-                itemLabel: (status) {
-                  switch (status) {
-                    case 'pending':
-                      return 'Offen';
-                    case 'yes':
-                      return 'Zugesagt';
-                    case 'no':
-                      return 'Abgesagt';
-                    default:
-                      return status;
-                  }
-                },
-                onChanged: (value) {
-                  if (value != null) {
-                    widget.onStatusChanged(value);
+                itemLabel: (s) => s == 'pending'
+                    ? 'Offen'
+                    : s == 'yes'
+                    ? 'Zugesagt'
+                    : 'Abgesagt',
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _status = v);
+                    widget.onStatusChanged(v);
                   }
                 },
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 hintText: 'Bitte wählen...',
               ),
-
               const SizedBox(height: 16),
 
-              // Besonderheiten - OPTIONAL
+              // ── Beziehungstyp ─────────────────────────────────────
+              const Text(
+                'Beziehung zum Brautpaar',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _relChip(null, 'Keine Angabe', scheme),
+                  _relChip('familie', '👨‍👩‍👧 Familie', scheme),
+                  _relChip('freunde', '👫 Freunde', scheme),
+                  _relChip('kollegen', '💼 Kollegen', scheme),
+                  _relChip('bekannte', '🤝 Bekannte', scheme),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── VIP + Entfernung ──────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() => _vip = !_vip);
+                        widget.onVipChanged(_vip);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _vip
+                              ? Colors.amber.withOpacity(0.15)
+                              : Colors.grey.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: _vip
+                                ? Colors.amber
+                                : Colors.grey.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.star,
+                              color: _vip ? Colors.amber : Colors.grey,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'VIP',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _vip
+                                    ? Colors.amber.shade800
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Anreise (km)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            _distanceBtn(Icons.remove, () {
+                              if (_distance > 0) {
+                                setState(
+                                  () => _distance = (_distance - 50).clamp(
+                                    0,
+                                    9999,
+                                  ),
+                                );
+                                widget.onDistanceChanged(_distance);
+                              }
+                            }),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '$_distance km',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _distanceBtn(Icons.add, () {
+                              setState(
+                                () =>
+                                    _distance = (_distance + 50).clamp(0, 9999),
+                              );
+                              widget.onDistanceChanged(_distance);
+                            }),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── Kinder ────────────────────────────────────────────
+              const Text(
+                'Kinder',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _distanceBtn(Icons.remove, () {
+                    if (_children > 0) {
+                      setState(() => _children--);
+                      widget.onChildrenCountChanged(_children);
+                    }
+                  }),
+                  const SizedBox(width: 16),
+                  Text(
+                    '$_children ${_children == 1 ? 'Kind' : 'Kinder'}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  _distanceBtn(Icons.add, () {
+                    setState(() => _children++);
+                    widget.onChildrenCountChanged(_children);
+                  }),
+                ],
+              ),
+              if (_children > 0) ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: widget.childrenNamesController,
+                  decoration: InputDecoration(
+                    labelText: 'Namen der Kinder (kommagetrennt)',
+                    hintText: 'z.B. Lena, Max',
+                    prefixIcon: const Icon(Icons.child_care, size: 18),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    isDense: true,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+
+              // ── Besonderheiten ────────────────────────────────────
               SmartTextField(
                 label: 'Besonderheiten (z.B. Diätwünsche)',
                 fieldKey: 'dietary',
@@ -800,8 +1325,8 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 controller: widget.dietaryController,
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
-                textInputAction: TextInputAction.done,
                 keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.done,
               ),
             ],
           ),
@@ -810,23 +1335,67 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
       actions: [
         TextButton(onPressed: widget.onCancel, child: const Text('Abbrechen')),
         ElevatedButton(
-          onPressed: _areAllFieldsValid ? widget.onSave : null,
+          onPressed: _isValid ? widget.onSave : null,
           style: ElevatedButton.styleFrom(
-            backgroundColor: _areAllFieldsValid
-                ? Theme.of(context).colorScheme.primary
-                : Colors.grey[300],
+            backgroundColor: _isValid ? scheme.primary : Colors.grey[300],
             foregroundColor: Colors.white,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(_areAllFieldsValid ? Icons.save : Icons.save_outlined),
+              Icon(_isValid ? Icons.save : Icons.save_outlined),
               const SizedBox(width: 8),
               const Text('Speichern'),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _relChip(String? value, String label, ColorScheme scheme) {
+    final active = _relationship == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _relationship = active ? null : value);
+        widget.onRelationshipChanged(_relationship);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active
+              ? scheme.primary.withOpacity(0.15)
+              : Colors.grey.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: active ? scheme.primary : Colors.grey.withOpacity(0.3),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            color: active ? scheme.primary : Colors.grey.shade700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _distanceBtn(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: Colors.grey.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.withOpacity(0.3)),
+        ),
+        child: Icon(icon, size: 18, color: Colors.grey.shade700),
+      ),
     );
   }
 }

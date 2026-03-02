@@ -1,10 +1,22 @@
 // lib/models/wedding_models.dart
 //
 // COMPLETE VERSION mit Timestamps + Soft Deletes + Location
+// v2: Guest erweitert um Kinder-Tracking + KI-Scoring
 
 // ================================
 // GUEST MODEL
 // ================================
+
+// Beziehungstyp zum Brautpaar
+enum RelationshipType { familie, freunde, kollegen, bekannte }
+
+// Prioritäts-Badge (berechnet aus Score)
+enum PriorityBadge {
+  vip, // Score >= 80
+  hoch, // Score >= 60
+  mittel, // Score >= 40
+  niedrig, // Score < 40
+}
 
 class Guest {
   final int? id;
@@ -15,10 +27,21 @@ class Guest {
   final String dietaryRequirements;
   final int? tableNumber;
 
-  // NEU: Timestamps + Soft Delete
+  // Timestamps + Soft Delete
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
+
+  // NEU: Kinder-Tracking
+  final int childrenCount;
+  final String? childrenNames; // JSON-Array als String: '["Lena","Max"]'
+
+  // NEU: KI-Scoring
+  final String? relationshipType; // 'familie'|'freunde'|'kollegen'|'bekannte'
+  final bool isVip;
+  final int distanceKm;
+  final double priorityScore; // 0.0 – 100.0
+  final String? scoreUpdatedAt;
 
   Guest({
     this.id,
@@ -31,7 +54,44 @@ class Guest {
     this.updatedAt,
     this.deleted = 0,
     this.deletedAt,
+    // Kinder
+    this.childrenCount = 0,
+    this.childrenNames,
+    // Scoring
+    this.relationshipType,
+    this.isVip = false,
+    this.distanceKm = 0,
+    this.priorityScore = 0.0,
+    this.scoreUpdatedAt,
   });
+
+  // Berechnet PriorityBadge aus Score
+  PriorityBadge get priorityBadge {
+    if (isVip || priorityScore >= 80) return PriorityBadge.vip;
+    if (priorityScore >= 60) return PriorityBadge.hoch;
+    if (priorityScore >= 40) return PriorityBadge.mittel;
+    return PriorityBadge.niedrig;
+  }
+
+  // Gibt Kinder-Namen als Liste zurück
+  List<String> get childrenNamesList {
+    if (childrenNames == null || childrenNames!.isEmpty) return [];
+    try {
+      // Einfaches Parsing ohne dart:convert um Import zu vermeiden
+      final cleaned = childrenNames!
+          .replaceAll('[', '')
+          .replaceAll(']', '')
+          .replaceAll('"', '');
+      if (cleaned.isEmpty) return [];
+      return cleaned
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
 
   Guest copyWith({
     int? id,
@@ -44,6 +104,13 @@ class Guest {
     String? updatedAt,
     int? deleted,
     String? deletedAt,
+    int? childrenCount,
+    String? childrenNames,
+    String? relationshipType,
+    bool? isVip,
+    int? distanceKm,
+    double? priorityScore,
+    String? scoreUpdatedAt,
   }) {
     return Guest(
       id: id ?? this.id,
@@ -56,6 +123,13 @@ class Guest {
       updatedAt: updatedAt ?? this.updatedAt,
       deleted: deleted ?? this.deleted,
       deletedAt: deletedAt ?? this.deletedAt,
+      childrenCount: childrenCount ?? this.childrenCount,
+      childrenNames: childrenNames ?? this.childrenNames,
+      relationshipType: relationshipType ?? this.relationshipType,
+      isVip: isVip ?? this.isVip,
+      distanceKm: distanceKm ?? this.distanceKm,
+      priorityScore: priorityScore ?? this.priorityScore,
+      scoreUpdatedAt: scoreUpdatedAt ?? this.scoreUpdatedAt,
     );
   }
 
@@ -71,6 +145,15 @@ class Guest {
       'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
       'deleted': deleted,
       'deleted_at': deletedAt,
+      // Kinder
+      'children_count': childrenCount,
+      'children_names': childrenNames,
+      // Scoring
+      'relationship_type': relationshipType,
+      'is_vip': isVip ? 1 : 0,
+      'distance_km': distanceKm,
+      'priority_score': priorityScore,
+      'score_updated_at': scoreUpdatedAt,
     };
   }
 
@@ -86,10 +169,22 @@ class Guest {
       updatedAt: map['updated_at'],
       deleted: map['deleted'] ?? 0,
       deletedAt: map['deleted_at'],
+      // Kinder
+      childrenCount: map['children_count']?.toInt() ?? 0,
+      childrenNames: map['children_names'],
+      // Scoring
+      relationshipType: map['relationship_type'],
+      isVip: (map['is_vip'] ?? 0) == 1,
+      distanceKm: map['distance_km']?.toInt() ?? 0,
+      priorityScore: (map['priority_score'] ?? 0.0).toDouble(),
+      scoreUpdatedAt: map['score_updated_at'],
     );
   }
 
   bool get isDeleted => deleted == 1;
+
+  // Gesamt-Personenanzahl (Gast + Kinder)
+  int get totalPersons => 1 + childrenCount;
 }
 
 // ================================
@@ -106,10 +201,8 @@ class Task {
   final bool completed;
   final DateTime createdDate;
 
-  // NEU: Location-Feld
   final String location;
 
-  // NEU: Timestamps + Soft Delete
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
@@ -123,7 +216,7 @@ class Task {
     this.deadline,
     this.completed = false,
     required this.createdDate,
-    this.location = '', // NEU!
+    this.location = '',
     this.updatedAt,
     this.deleted = 0,
     this.deletedAt,
@@ -138,7 +231,7 @@ class Task {
     DateTime? deadline,
     bool? completed,
     DateTime? createdDate,
-    String? location, // NEU!
+    String? location,
     String? updatedAt,
     int? deleted,
     String? deletedAt,
@@ -152,7 +245,7 @@ class Task {
       deadline: deadline ?? this.deadline,
       completed: completed ?? this.completed,
       createdDate: createdDate ?? this.createdDate,
-      location: location ?? this.location, // NEU!
+      location: location ?? this.location,
       updatedAt: updatedAt ?? this.updatedAt,
       deleted: deleted ?? this.deleted,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -169,7 +262,7 @@ class Task {
       'deadline': deadline?.toIso8601String(),
       'completed': completed ? 1 : 0,
       'created_date': createdDate.toIso8601String(),
-      'location': location, // NEU!
+      'location': location,
       'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
       'deleted': deleted,
       'deleted_at': deletedAt,
@@ -188,7 +281,7 @@ class Task {
           : null,
       completed: map['completed'] == 1,
       createdDate: DateTime.parse(map['created_date']),
-      location: map['location'] ?? '', // NEU!
+      location: map['location'] ?? '',
       updatedAt: map['updated_at'],
       deleted: map['deleted'] ?? 0,
       deletedAt: map['deleted_at'],
@@ -211,7 +304,6 @@ class BudgetItem {
   final String notes;
   final bool paid;
 
-  // NEU: Timestamps + Soft Delete
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
@@ -298,7 +390,6 @@ class TableModel {
   final int tableNumber;
   final int seats;
 
-  // NEU: Timestamps + Soft Delete
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;

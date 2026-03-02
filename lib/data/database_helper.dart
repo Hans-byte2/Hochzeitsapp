@@ -25,12 +25,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 9, // VERSION 9: Kompletter Fix mit allen Spalten
+        version: 10, // VERSION 10: Kinder + KI-Scoring
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v9 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v10 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -53,7 +53,7 @@ class DatabaseHelper {
       ''');
       ErrorLogger.info('✅ wedding_data Tabelle erstellt');
 
-      // Guests - VOLLSTÄNDIG mit allen Spalten
+      // Guests - VOLLSTÄNDIG mit allen Spalten inkl. Kinder + Scoring
       await db.execute('''
         CREATE TABLE guests (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +65,14 @@ class DatabaseHelper {
           table_number INTEGER,
           updated_at TEXT,
           deleted INTEGER DEFAULT 0,
-          deleted_at TEXT
+          deleted_at TEXT,
+          children_count INTEGER DEFAULT 0,
+          children_names TEXT,
+          relationship_type TEXT,
+          is_vip INTEGER DEFAULT 0,
+          distance_km INTEGER DEFAULT 0,
+          priority_score REAL DEFAULT 0.0,
+          score_updated_at TEXT
         )
       ''');
       ErrorLogger.info('✅ guests Tabelle erstellt');
@@ -148,19 +155,19 @@ class DatabaseHelper {
     try {
       ErrorLogger.info('🔄 Upgrade DB von v$oldVersion zu v$newVersion');
 
+      // Hilfsfunktion zum Prüfen ob Spalte existiert
+      Future<bool> columnExists(String table, String column) async {
+        final result = await db.rawQuery('PRAGMA table_info($table)');
+        return result.any((col) => col['name'] == column);
+      }
+
       // ═══════════════════════════════════════════════════════════
-      // Migration zu v9: Füge fehlende Spalten hinzu
+      // Migration zu v9: Soft Delete + Timestamps
       // ═══════════════════════════════════════════════════════════
       if (oldVersion < 9) {
         ErrorLogger.info(
           '🔧 Füge fehlende Spalten zu bestehenden Tabellen hinzu...',
         );
-
-        // Hilfsfunktion zum Prüfen ob Spalte existiert
-        Future<bool> columnExists(String table, String column) async {
-          final result = await db.rawQuery('PRAGMA table_info($table)');
-          return result.any((col) => col['name'] == column);
-        }
 
         // TASKS: Füge fehlende Spalten hinzu
         try {
@@ -250,6 +257,60 @@ class DatabaseHelper {
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ tables Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v10: Kinder + KI-Scoring Spalten in guests
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 10) {
+        ErrorLogger.info('🔧 v10: Füge Kinder + Scoring Spalten hinzu...');
+
+        try {
+          if (!await columnExists('guests', 'children_count')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN children_count INTEGER DEFAULT 0',
+            );
+            ErrorLogger.success('  ✅ guests.children_count hinzugefügt');
+          }
+          if (!await columnExists('guests', 'children_names')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN children_names TEXT',
+            );
+            ErrorLogger.success('  ✅ guests.children_names hinzugefügt');
+          }
+          if (!await columnExists('guests', 'relationship_type')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN relationship_type TEXT',
+            );
+            ErrorLogger.success('  ✅ guests.relationship_type hinzugefügt');
+          }
+          if (!await columnExists('guests', 'is_vip')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN is_vip INTEGER DEFAULT 0',
+            );
+            ErrorLogger.success('  ✅ guests.is_vip hinzugefügt');
+          }
+          if (!await columnExists('guests', 'distance_km')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN distance_km INTEGER DEFAULT 0',
+            );
+            ErrorLogger.success('  ✅ guests.distance_km hinzugefügt');
+          }
+          if (!await columnExists('guests', 'priority_score')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN priority_score REAL DEFAULT 0.0',
+            );
+            ErrorLogger.success('  ✅ guests.priority_score hinzugefügt');
+          }
+          if (!await columnExists('guests', 'score_updated_at')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN score_updated_at TEXT',
+            );
+            ErrorLogger.success('  ✅ guests.score_updated_at hinzugefügt');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ℹ️ guests v10 Migration: $e');
         }
       }
 
