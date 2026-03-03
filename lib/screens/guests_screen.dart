@@ -40,6 +40,11 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
   int _childrenCount = 0;
   int _distanceKm = 0;
 
+  List<int> _conflictIds = [];
+  List<int> _knowsIds = [];
+  String? _ageGroup;
+  List<String> _hobbiesList = [];
+
   Guest? _editingGuest;
 
   // Filter
@@ -78,6 +83,10 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       _childrenCount = guest.childrenCount;
       _distanceKm = guest.distanceKm;
       _childrenNamesController.text = guest.childrenNamesList.join(', ');
+      _conflictIds = List.from(guest.conflictIds);
+      _knowsIds = List.from(guest.knowsIds);
+      _ageGroup = guest.ageGroup;
+      _hobbiesList = List.from(guest.hobbiesList);
     } else {
       _resetForm();
     }
@@ -99,6 +108,16 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
           isVip: _isVip,
           childrenCount: _childrenCount,
           distanceKm: _distanceKm,
+          conflictIds: _conflictIds,
+          knowsIds: _knowsIds,
+          ageGroup: _ageGroup,
+          hobbiesList: _hobbiesList,
+          allGuests: widget.guests,
+          editingGuestId: _editingGuest?.id,
+          onConflictIdsChanged: (ids) => _conflictIds = ids,
+          onKnowsIdsChanged: (ids) => _knowsIds = ids,
+          onAgeGroupChanged: (ag) => _ageGroup = ag,
+          onHobbiesChanged: (h) => _hobbiesList = h,
           onStatusChanged: (s) => _selectedStatus = s,
           onRelationshipChanged: (r) => _selectedRelationship = r,
           onVipChanged: (v) => _isVip = v,
@@ -142,6 +161,12 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       childrenCount: _childrenCount,
       childrenNames: childrenNamesJson,
       distanceKm: _distanceKm,
+      conflictsJson: _conflictIds.isEmpty
+          ? null
+          : '[${_conflictIds.join(',')}]',
+      knowsJson: _knowsIds.isEmpty ? null : '[${_knowsIds.join(',')}]',
+      ageGroup: _ageGroup,
+      hobbies: _hobbiesList.isEmpty ? null : _hobbiesList.join(','),
     );
 
     final score = GuestScoringService.calculateScore(tempGuest);
@@ -191,6 +216,10 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     _isVip = false;
     _childrenCount = 0;
     _distanceKm = 0;
+    _conflictIds = [];
+    _knowsIds = [];
+    _ageGroup = null;
+    _hobbiesList = [];
   }
 
   String _getStatusLabel(String status) {
@@ -746,6 +775,24 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                       ),
                     ),
                   ),
+                if (guest.conflictIds.isNotEmpty)
+                  Positioned(
+                    left: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 14,
+                      height: 14,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.warning,
+                        size: 9,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(width: 12),
@@ -1015,6 +1062,16 @@ class _GuestFormDialog extends StatefulWidget {
   final Function(bool) onVipChanged;
   final Function(int) onChildrenCountChanged;
   final Function(int) onDistanceChanged;
+  final List<int> conflictIds;
+  final List<int> knowsIds;
+  final String? ageGroup;
+  final List<String> hobbiesList;
+  final List<Guest> allGuests;
+  final int? editingGuestId;
+  final Function(List<int>) onConflictIdsChanged;
+  final Function(List<int>) onKnowsIdsChanged;
+  final Function(String?) onAgeGroupChanged;
+  final Function(List<String>) onHobbiesChanged;
   final VoidCallback onSave;
   final VoidCallback onCancel;
 
@@ -1035,6 +1092,16 @@ class _GuestFormDialog extends StatefulWidget {
     required this.onVipChanged,
     required this.onChildrenCountChanged,
     required this.onDistanceChanged,
+    required this.conflictIds,
+    required this.knowsIds,
+    required this.ageGroup,
+    required this.hobbiesList,
+    required this.allGuests,
+    required this.editingGuestId,
+    required this.onConflictIdsChanged,
+    required this.onKnowsIdsChanged,
+    required this.onAgeGroupChanged,
+    required this.onHobbiesChanged,
     required this.onSave,
     required this.onCancel,
   });
@@ -1050,6 +1117,11 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
   late bool _vip;
   late int _children;
   late int _distance;
+  late List<int> _conflictIds;
+  late List<int> _knowsIds;
+  late String? _ageGroup;
+  late List<String> _hobbiesList;
+  final _hobbiesController = TextEditingController();
 
   @override
   void initState() {
@@ -1059,6 +1131,17 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
     _vip = widget.isVip;
     _children = widget.childrenCount;
     _distance = widget.distanceKm;
+    _conflictIds = List.from(widget.conflictIds);
+    _knowsIds = List.from(widget.knowsIds);
+    _ageGroup = widget.ageGroup;
+    _hobbiesList = List.from(widget.hobbiesList);
+    _hobbiesController.text = _hobbiesList.join(', ');
+  }
+
+  @override
+  void dispose() {
+    _hobbiesController.dispose();
+    super.dispose();
   }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
@@ -1317,6 +1400,125 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
               ],
               const SizedBox(height: 16),
 
+              // ── Altersgruppe ─────────────────────────────────────
+              const Text(
+                'Altersgruppe',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _ageChip(null, 'Keine Angabe', scheme),
+                  _ageChip('kind', '👶 Kind', scheme),
+                  _ageChip('jugendlich', '🧒 Jugendlich', scheme),
+                  _ageChip('erwachsen', '👤 Erwachsen', scheme),
+                  _ageChip('senior', '👴 Senior', scheme),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // ── Hobbys ────────────────────────────────────────────
+              const Text(
+                'Hobbys / Interessen',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _hobbiesController,
+                decoration: InputDecoration(
+                  hintText: 'z.B. Sport, Musik, Reisen, Kochen',
+                  prefixIcon: const Icon(Icons.interests, size: 18),
+                  helperText: 'Kommagetrennt eingeben',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  isDense: true,
+                ),
+                onChanged: (val) {
+                  _hobbiesList = val
+                      .split(',')
+                      .map((e) => e.trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList();
+                  widget.onHobbiesChanged(_hobbiesList);
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // ── Kennt sich mit ────────────────────────────────────
+              if (widget.allGuests.isNotEmpty) ...[
+                const Text(
+                  'Kennt sich mit',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Gäste die sich kennen werden bevorzugt zusammengesetzt',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                ),
+                const SizedBox(height: 8),
+                _buildGuestSelector(
+                  selectedIds: _knowsIds,
+                  excludeId: widget.editingGuestId,
+                  color: Colors.green,
+                  icon: Icons.people,
+                  onChanged: (ids) {
+                    setState(() => _knowsIds = ids);
+                    widget.onKnowsIdsChanged(ids);
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // ── Konflikte ─────────────────────────────────────────
+              if (widget.allGuests.isNotEmpty) ...[
+                Row(
+                  children: [
+                    const Icon(Icons.warning, size: 16, color: Colors.red),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Konflikte',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Diese Gäste werden NIE an denselben Tisch gesetzt',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                ),
+                const SizedBox(height: 8),
+                _buildGuestSelector(
+                  selectedIds: _conflictIds,
+                  excludeId: widget.editingGuestId,
+                  color: Colors.red,
+                  icon: Icons.block,
+                  onChanged: (ids) {
+                    setState(() => _conflictIds = ids);
+                    widget.onConflictIdsChanged(ids);
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+
               // ── Besonderheiten ────────────────────────────────────
               SmartTextField(
                 label: 'Besonderheiten (z.B. Diätwünsche)',
@@ -1396,6 +1598,107 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
         ),
         child: Icon(icon, size: 18, color: Colors.grey.shade700),
       ),
+    );
+  }
+
+  Widget _ageChip(String? value, String label, ColorScheme scheme) {
+    final active = _ageGroup == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _ageGroup = active ? null : value);
+        widget.onAgeGroupChanged(_ageGroup);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: active
+              ? Colors.purple.withOpacity(0.15)
+              : Colors.grey.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: active ? Colors.purple : Colors.grey.withOpacity(0.3),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+            color: active ? Colors.purple.shade700 : Colors.grey.shade700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGuestSelector({
+    required List<int> selectedIds,
+    required int? excludeId,
+    required Color color,
+    required IconData icon,
+    required Function(List<int>) onChanged,
+  }) {
+    final selectableGuests = widget.allGuests
+        .where((g) => g.id != null && g.id != excludeId)
+        .toList();
+
+    if (selectableGuests.isEmpty) {
+      return Text(
+        'Noch keine anderen Gäste vorhanden',
+        style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+      );
+    }
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: selectableGuests.map((g) {
+        final selected = selectedIds.contains(g.id);
+        final name = '${g.firstName} ${g.lastName}'.trim();
+        return GestureDetector(
+          onTap: () {
+            final updated = List<int>.from(selectedIds);
+            if (selected) {
+              updated.remove(g.id);
+            } else {
+              updated.add(g.id!);
+            }
+            onChanged(updated);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: selected
+                  ? color.withOpacity(0.15)
+                  : Colors.grey.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? color : Colors.grey.withOpacity(0.3),
+                width: selected ? 1.5 : 1.0,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  selected ? icon : Icons.person_outline,
+                  size: 13,
+                  color: selected ? color : Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: selected ? color : Colors.grey.shade700,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 }

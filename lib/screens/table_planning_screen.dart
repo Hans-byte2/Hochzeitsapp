@@ -3,16 +3,18 @@ import '../models/wedding_models.dart';
 import '../models/table_models.dart';
 import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
+import '../services/table_suggestion_service.dart';
+import 'table_suggestion_screen.dart';
 
 class TischplanungPage extends StatefulWidget {
   final List<Guest> guests;
   final Future<void> Function(Guest) onUpdateGuest;
 
   const TischplanungPage({
-    Key? key,
+    super.key,
     required this.guests,
     required this.onUpdateGuest,
-  }) : super(key: key);
+  });
 
   @override
   State<TischplanungPage> createState() => _TischplanungPageState();
@@ -63,6 +65,78 @@ class _TischplanungPageState extends State<TischplanungPage> {
     print('📊 Freie Gäste: $oldUnassigned → $newUnassigned');
   }
 
+  // ── Tischvorschlag ──────────────────────────────────────────────
+  void _openSuggestion() {
+    if (tables.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bitte zuerst Tische anlegen'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final confirmedGuests = widget.guests
+        .where((g) => g.confirmed == 'yes')
+        .length;
+    if (confirmedGuests == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Keine zugesagten Gäste vorhanden'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // TableData → TableModel konvertieren für den Service
+    final tableModels = tables
+        .map(
+          (t) => TableModel(
+            id: t.id,
+            tableName: t.tableName,
+            tableNumber: t.tableNumber,
+            seats: t.seats,
+          ),
+        )
+        .toList();
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TableSuggestionScreen(
+          // Immer aktuelle Gäste übergeben
+          guests: widget.guests,
+          tables: tableModels,
+          onApplySuggestion: (Map<int, int> assignments) async {
+            // Erst alle zugesagten Gäste auf tableNumber 0 zurücksetzen
+            for (final guest in widget.guests.where(
+              (g) => g.confirmed == 'yes',
+            )) {
+              if (guest.tableNumber != null && guest.tableNumber != 0) {
+                await widget.onUpdateGuest(guest.copyWith(tableNumber: 0));
+              }
+            }
+            // Dann neue Zuweisung übernehmen
+            for (final entry in assignments.entries) {
+              final matches = widget.guests.where((g) => g.id == entry.key);
+              if (matches.isNotEmpty) {
+                await widget.onUpdateGuest(
+                  matches.first.copyWith(tableNumber: entry.value),
+                );
+              }
+            }
+            if (mounted) setState(() {});
+          },
+        ),
+      ),
+    ).then((_) {
+      // Beim Zurücknavigieren Tischplanung neu aufbauen
+      if (mounted) setState(() {});
+    });
+  }
+
   // Nur Gäste mit Status 'yes' oder 'pending' werden berücksichtigt
   List<Guest> _getRelevantGuests() {
     return widget.guests
@@ -104,7 +178,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
     if (currentGuestsAtTable >= table.seats) {
       print(
-        '❌ Tisch $tableNumber ist voll! (${currentGuestsAtTable}/${table.seats})',
+        '❌ Tisch $tableNumber ist voll! ($currentGuestsAtTable/${table.seats})',
       );
       _showTableFullError();
       return false;
@@ -275,7 +349,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                 }).toList();
 
           return Dialog(
-            child: Container(
+            child: SizedBox(
               width: 600,
               height: 700,
               child: Column(
@@ -324,7 +398,8 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   // Gäste am Tisch
                   Expanded(
                     child: DragTarget<Guest>(
-                      onAccept: (guest) {
+                      onAcceptWithDetails: (details) {
+                        final guest = details.data;
                         if (guest.tableNumber != table.tableNumber) {
                           _assignGuestToTable(guest, table.tableNumber).then((
                             success,
@@ -347,14 +422,15 @@ class _TischplanungPageState extends State<TischplanungPage> {
                           decoration: BoxDecoration(
                             color: isHighlighted
                                 ? (isDraggingFromThisTable
-                                      ? theme.colorScheme.surfaceVariant
+                                      ? theme
+                                            .colorScheme
+                                            .surfaceContainerHighest
                                             .withOpacity(0.3)
                                       : scheme.primaryContainer.withOpacity(
                                           0.3,
                                         ))
-                                : theme.colorScheme.surfaceVariant.withOpacity(
-                                    0.2,
-                                  ),
+                                : theme.colorScheme.surfaceContainerHighest
+                                      .withOpacity(0.2),
                           ),
                           padding: const EdgeInsets.all(12),
                           child: Column(
@@ -518,10 +594,11 @@ class _TischplanungPageState extends State<TischplanungPage> {
                     ),
                   ),
                   // Freie Gäste
-                  Container(
+                  SizedBox(
                     height: 150,
                     child: DragTarget<Guest>(
-                      onAccept: (guest) {
+                      onAcceptWithDetails: (details) {
+                        final guest = details.data;
                         if (guest.tableNumber == table.tableNumber) {
                           _removeGuestFromTable(guest).then((_) {
                             setDialogState(() {});
@@ -541,7 +618,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             color: isHighlighted
                                 ? (isDraggingFromTable
                                       ? scheme.errorContainer
-                                      : scheme.surfaceVariant)
+                                      : scheme.surfaceContainerHighest)
                                 : theme.colorScheme.surface,
                             border: isHighlighted && isDraggingFromTable
                                 ? Border.all(color: scheme.error, width: 2)
@@ -679,7 +756,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceVariant,
+                      color: theme.colorScheme.surfaceContainerHighest,
                       border: Border(
                         top: BorderSide(color: theme.dividerColor),
                       ),
@@ -804,7 +881,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                     Navigator.pop(builderContext);
                   },
                 );
-              }).toList(),
+              }),
               const Divider(),
               ListTile(
                 title: const Text('Nicht zuweisen'),
@@ -1054,6 +1131,18 @@ class _TischplanungPageState extends State<TischplanungPage> {
                               ],
                             ),
                           ),
+                          // ── NEU: KI-Vorschlag Button ──────────────
+                          IconButton(
+                            onPressed: _openSuggestion,
+                            icon: const Icon(Icons.auto_awesome, size: 20),
+                            tooltip: 'KI-Tischvorschlag',
+                            style: IconButton.styleFrom(
+                              backgroundColor: scheme.primaryContainer,
+                              foregroundColor: scheme.onPrimaryContainer,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          // ─────────────────────────────────────────
                           IconButton(
                             onPressed: _showExportDialog,
                             icon: const Icon(Icons.share, size: 20),
@@ -1108,7 +1197,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: scheme.surfaceVariant,
+                            color: scheme.surfaceContainerHighest,
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(color: theme.dividerColor),
                           ),
@@ -1200,7 +1289,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             ),
                     ),
                     const SizedBox(height: 16),
-                    Container(
+                    SizedBox(
                       height: isTablet ? 180 : 140,
                       child: UnassignedGuestsArea(
                         guests: unassignedGuests,
@@ -1273,11 +1362,11 @@ class DraggableGuestCard extends StatelessWidget {
   final bool isTablet;
 
   const DraggableGuestCard({
-    Key? key,
+    super.key,
     required this.guest,
     required this.onTap,
     required this.isTablet,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1369,7 +1458,7 @@ class DragTargetTableCard extends StatelessWidget {
   final bool isTablet;
 
   const DragTargetTableCard({
-    Key? key,
+    super.key,
     required this.table,
     required this.guests,
     required this.onDelete,
@@ -1377,7 +1466,7 @@ class DragTargetTableCard extends StatelessWidget {
     required this.onGuestDropped,
     required this.onGuestTap,
     required this.isTablet,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1385,7 +1474,7 @@ class DragTargetTableCard extends StatelessWidget {
     final scheme = theme.colorScheme;
 
     return DragTarget<Guest>(
-      onAccept: (guest) => onGuestDropped(guest),
+      onAcceptWithDetails: (details) => onGuestDropped(details.data),
       onWillAcceptWithDetails: (details) =>
           details.data.tableNumber != table.tableNumber,
       builder: (builderContext, candidateData, rejectedData) {
@@ -1405,7 +1494,7 @@ class DragTargetTableCard extends StatelessWidget {
           elevation: isHighlighted ? 8 : 2,
           color: isHighlighted
               ? (isFromThisTable
-                    ? scheme.surfaceVariant
+                    ? scheme.surfaceContainerHighest
                     : (canAccept
                           ? scheme.primaryContainer
                           : scheme.errorContainer))
@@ -1574,7 +1663,7 @@ class DragTargetTableCard extends StatelessWidget {
                                     vertical: isTablet ? 6 : 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: scheme.surfaceVariant,
+                                    color: scheme.surfaceContainerHighest,
                                     border: Border.all(
                                       color: theme.dividerColor,
                                     ),
@@ -1680,12 +1769,12 @@ class UnassignedGuestsArea extends StatelessWidget {
   final bool isTablet;
 
   const UnassignedGuestsArea({
-    Key? key,
+    super.key,
     required this.guests,
     required this.onGuestDropped,
     required this.onGuestTap,
     required this.isTablet,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1693,8 +1782,8 @@ class UnassignedGuestsArea extends StatelessWidget {
     final scheme = theme.colorScheme;
 
     return DragTarget<Guest>(
-      onAccept: (guest) {
-        onGuestDropped(guest);
+      onAcceptWithDetails: (details) {
+        onGuestDropped(details.data);
       },
       onWillAcceptWithDetails: (details) => true,
       builder: (builderContext, candidateData, rejectedData) {
@@ -1704,7 +1793,7 @@ class UnassignedGuestsArea extends StatelessWidget {
           decoration: BoxDecoration(
             color: isHighlighted
                 ? scheme.secondaryContainer
-                : scheme.surfaceVariant.withOpacity(0.4),
+                : scheme.surfaceContainerHighest.withOpacity(0.4),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isHighlighted ? scheme.secondary : theme.dividerColor,
@@ -1716,7 +1805,7 @@ class UnassignedGuestsArea extends StatelessWidget {
               Container(
                 padding: EdgeInsets.all(isTablet ? 12 : 8),
                 decoration: BoxDecoration(
-                  color: scheme.surfaceVariant,
+                  color: scheme.surfaceContainerHighest,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(12),
                     topRight: Radius.circular(12),

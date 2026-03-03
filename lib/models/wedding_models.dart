@@ -43,6 +43,12 @@ class Guest {
   final double priorityScore; // 0.0 – 100.0
   final String? scoreUpdatedAt;
 
+  // NEU: Tischplanung
+  final String? conflictsJson; // JSON: '[1,5,12]' - Gäste-IDs mit Konflikt
+  final String? knowsJson; // JSON: '[3,7]'    - Gäste-IDs die sich kennen
+  final String? ageGroup; // 'kind'|'jugendlich'|'erwachsen'|'senior'
+  final String? hobbies; // kommagetrennte Tags: 'Sport,Musik,Reisen'
+
   Guest({
     this.id,
     required this.firstName,
@@ -63,6 +69,11 @@ class Guest {
     this.distanceKm = 0,
     this.priorityScore = 0.0,
     this.scoreUpdatedAt,
+    // Tischplanung
+    this.conflictsJson,
+    this.knowsJson,
+    this.ageGroup,
+    this.hobbies,
   });
 
   // Berechnet PriorityBadge aus Score
@@ -93,6 +104,55 @@ class Guest {
     }
   }
 
+  // Hilfsmethoden für JSON-Listen
+  List<int> get conflictIds {
+    if (conflictsJson == null || conflictsJson!.isEmpty) return [];
+    try {
+      final cleaned = conflictsJson!
+          .replaceAll('[', '')
+          .replaceAll(']', '')
+          .replaceAll(' ', '');
+      if (cleaned.isEmpty) return [];
+      return cleaned
+          .split(',')
+          .map((e) => int.tryParse(e) ?? -1)
+          .where((e) => e >= 0)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  List<int> get knowsIds {
+    if (knowsJson == null || knowsJson!.isEmpty) return [];
+    try {
+      final cleaned = knowsJson!
+          .replaceAll('[', '')
+          .replaceAll(']', '')
+          .replaceAll(' ', '');
+      if (cleaned.isEmpty) return [];
+      return cleaned
+          .split(',')
+          .map((e) => int.tryParse(e) ?? -1)
+          .where((e) => e >= 0)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  List<String> get hobbiesList {
+    if (hobbies == null || hobbies!.isEmpty) return [];
+    return hobbies!
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  bool hasConflictWith(int guestId) => conflictIds.contains(guestId);
+  bool knowsGuest(int guestId) => knowsIds.contains(guestId);
+
   Guest copyWith({
     int? id,
     String? firstName,
@@ -111,6 +171,10 @@ class Guest {
     int? distanceKm,
     double? priorityScore,
     String? scoreUpdatedAt,
+    String? conflictsJson,
+    String? knowsJson,
+    String? ageGroup,
+    String? hobbies,
   }) {
     return Guest(
       id: id ?? this.id,
@@ -130,6 +194,10 @@ class Guest {
       distanceKm: distanceKm ?? this.distanceKm,
       priorityScore: priorityScore ?? this.priorityScore,
       scoreUpdatedAt: scoreUpdatedAt ?? this.scoreUpdatedAt,
+      conflictsJson: conflictsJson ?? this.conflictsJson,
+      knowsJson: knowsJson ?? this.knowsJson,
+      ageGroup: ageGroup ?? this.ageGroup,
+      hobbies: hobbies ?? this.hobbies,
     );
   }
 
@@ -154,6 +222,11 @@ class Guest {
       'distance_km': distanceKm,
       'priority_score': priorityScore,
       'score_updated_at': scoreUpdatedAt,
+      // Tischplanung
+      'conflicts_json': conflictsJson,
+      'knows_json': knowsJson,
+      'age_group': ageGroup,
+      'hobbies': hobbies,
     };
   }
 
@@ -178,6 +251,11 @@ class Guest {
       distanceKm: map['distance_km']?.toInt() ?? 0,
       priorityScore: (map['priority_score'] ?? 0.0).toDouble(),
       scoreUpdatedAt: map['score_updated_at'],
+      // Tischplanung
+      conflictsJson: map['conflicts_json'],
+      knowsJson: map['knows_json'],
+      ageGroup: map['age_group'],
+      hobbies: map['hobbies'],
     );
   }
 

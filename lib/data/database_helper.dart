@@ -25,12 +25,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 10, // VERSION 10: Kinder + KI-Scoring
+        version: 11, // VERSION 11: Konflikte + Kennt + Altersgruppe + Hobbys
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v10 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v11 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -72,7 +72,11 @@ class DatabaseHelper {
           is_vip INTEGER DEFAULT 0,
           distance_km INTEGER DEFAULT 0,
           priority_score REAL DEFAULT 0.0,
-          score_updated_at TEXT
+          score_updated_at TEXT,
+          conflicts_json TEXT,
+          knows_json TEXT,
+          age_group TEXT,
+          hobbies TEXT
         )
       ''');
       ErrorLogger.info('✅ guests Tabelle erstellt');
@@ -311,6 +315,35 @@ class DatabaseHelper {
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ guests v10 Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v11: Konflikte + Kennt + Altersgruppe + Hobbys
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 11) {
+        ErrorLogger.info('🔧 v11: Füge Tischplanungs-Spalten hinzu...');
+        try {
+          if (!await columnExists('guests', 'conflicts_json')) {
+            await db.execute(
+              'ALTER TABLE guests ADD COLUMN conflicts_json TEXT',
+            );
+            ErrorLogger.success('  ✅ guests.conflicts_json hinzugefügt');
+          }
+          if (!await columnExists('guests', 'knows_json')) {
+            await db.execute('ALTER TABLE guests ADD COLUMN knows_json TEXT');
+            ErrorLogger.success('  ✅ guests.knows_json hinzugefügt');
+          }
+          if (!await columnExists('guests', 'age_group')) {
+            await db.execute('ALTER TABLE guests ADD COLUMN age_group TEXT');
+            ErrorLogger.success('  ✅ guests.age_group hinzugefügt');
+          }
+          if (!await columnExists('guests', 'hobbies')) {
+            await db.execute('ALTER TABLE guests ADD COLUMN hobbies TEXT');
+            ErrorLogger.success('  ✅ guests.hobbies hinzugefügt');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ℹ️ guests v11 Migration: \$e');
         }
       }
 
