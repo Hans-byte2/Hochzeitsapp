@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/wedding_models.dart';
 import '../models/table_models.dart';
+import '../models/table_categories.dart';
+import '../data/database_helper.dart';
 import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/table_suggestion_service.dart';
@@ -22,47 +24,49 @@ class TischplanungPage extends StatefulWidget {
 
 class _TischplanungPageState extends State<TischplanungPage> {
   List<TableData> tables = [];
+  bool _isLoadingTables = true;
   String newTableName = '';
   int newTableSeats = 8;
+  String newTableCategories = '';
+
+  final _db = DatabaseHelper.instance;
 
   @override
   void initState() {
     super.initState();
-    print('🟢 INIT: ${widget.guests.length} Gäste');
-    tables = [
-      TableData(id: 1, tableName: 'Brautpaar', tableNumber: 1, seats: 8),
-      TableData(id: 2, tableName: 'Familie Braut', tableNumber: 2, seats: 6),
-      TableData(
-        id: 3,
-        tableName: 'Familie Bräutigam',
-        tableNumber: 3,
-        seats: 6,
-      ),
-      TableData(id: 4, tableName: 'Freunde', tableNumber: 4, seats: 10),
-    ];
+    _loadTablesFromDb();
+  }
+
+  /// Lädt Tische aus der SQLite-DB.
+  /// Beim ersten Start (leere DB) werden keine Standardtische angelegt —
+  /// der User legt sie selbst an.
+  Future<void> _loadTablesFromDb() async {
+    try {
+      final dbTables = await _db.getAllTables();
+      final loaded = dbTables
+          .map(
+            (t) => TableData(
+              id: t.id!,
+              tableName: t.tableName,
+              tableNumber: t.tableNumber,
+              seats: t.seats,
+              categoriesRaw: t.categoriesRaw,
+            ),
+          )
+          .toList();
+      if (mounted)
+        setState(() {
+          tables = loaded;
+          _isLoadingTables = false;
+        });
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingTables = false);
+    }
   }
 
   @override
   void didUpdateWidget(TischplanungPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    print(
-      '🔄 WIDGET UPDATE: ${oldWidget.guests.length} → ${widget.guests.length} Gäste',
-    );
-    final oldUnassigned = oldWidget.guests
-        .where(
-          (g) =>
-              (g.confirmed == 'yes' || g.confirmed == 'pending') &&
-              (g.tableNumber == null || g.tableNumber == 0),
-        )
-        .length;
-    final newUnassigned = widget.guests
-        .where(
-          (g) =>
-              (g.confirmed == 'yes' || g.confirmed == 'pending') &&
-              (g.tableNumber == null || g.tableNumber == 0),
-        )
-        .length;
-    print('📊 Freie Gäste: $oldUnassigned → $newUnassigned');
   }
 
   // ── Tischvorschlag ──────────────────────────────────────────────
@@ -98,6 +102,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
             tableName: t.tableName,
             tableNumber: t.tableNumber,
             seats: t.seats,
+            categoriesRaw: t.categoriesRaw,
           ),
         )
         .toList();
@@ -168,7 +173,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
     final table = tables.firstWhere((t) => t.tableNumber == tableNumber);
 
     if (guest.tableNumber == tableNumber) {
-      print('⚠️ Gast ${guest.firstName} ist bereits an Tisch $tableNumber');
       return true;
     }
 
@@ -177,61 +181,53 @@ class _TischplanungPageState extends State<TischplanungPage> {
     ).where((g) => g.id != guest.id).length;
 
     if (currentGuestsAtTable >= table.seats) {
-      print(
-        '❌ Tisch $tableNumber ist voll! ($currentGuestsAtTable/${table.seats})',
-      );
       _showTableFullError();
       return false;
     }
 
-    print(
-      '🔵 ASSIGN: ${guest.firstName} ${guest.lastName} → Tisch $tableNumber (${currentGuestsAtTable + 1}/${table.seats})',
-    );
     final updatedGuest = guest.copyWith(tableNumber: tableNumber);
     await widget.onUpdateGuest(updatedGuest);
-    print('✅ ASSIGN fertig');
     return true;
   }
 
   Future<void> _removeGuestFromTable(Guest guest) async {
-    print(
-      '🟠 REMOVE: ${guest.firstName} ${guest.lastName} von Tisch ${guest.tableNumber}',
-    );
-    print(
-      '   Guest ID: ${guest.id}, aktuelle tableNumber: ${guest.tableNumber}',
-    );
     final updatedGuest = guest.copyWith(tableNumber: 0);
-    print(
-      '   Neuer Guest: ID ${updatedGuest.id}, neue tableNumber: ${updatedGuest.tableNumber}',
-    );
     await widget.onUpdateGuest(updatedGuest);
-    print('✅ REMOVE fertig');
-
-    final checkGuest = widget.guests.firstWhere((g) => g.id == guest.id);
-    print(
-      '   🔍 Check: Guest ${checkGuest.firstName} hat jetzt tableNumber: ${checkGuest.tableNumber}',
-    );
   }
 
-  void _addTable() {
-    if (newTableName.isNotEmpty) {
-      final nextTableNumber = tables.isEmpty
-          ? 1
-          : tables.map((t) => t.tableNumber).reduce((a, b) => a > b ? a : b) +
-                1;
-
-      setState(() {
-        tables.add(
-          TableData(
-            id: DateTime.now().millisecondsSinceEpoch,
-            tableName: newTableName,
-            tableNumber: nextTableNumber,
-            seats: newTableSeats,
-          ),
+  Future<void> _addTable() async {
+    if (newTableName.isEmpty) return;
+    final nextTableNumber = tables.isEmpty
+        ? 1
+        : tables.map((t) => t.tableNumber).reduce((a, b) => a > b ? a : b) + 1;
+    final model = TableModel(
+      tableName: newTableName,
+      tableNumber: nextTableNumber,
+      seats: newTableSeats,
+      categoriesRaw: newTableCategories.isEmpty ? null : newTableCategories,
+    );
+    try {
+      final saved = await _db.createTable(model);
+      if (mounted)
+        setState(() {
+          tables.add(
+            TableData(
+              id: saved.id!,
+              tableName: saved.tableName,
+              tableNumber: saved.tableNumber,
+              seats: saved.seats,
+              categoriesRaw: saved.categoriesRaw,
+            ),
+          );
+          newTableName = '';
+          newTableSeats = 8;
+          newTableCategories = '';
+        });
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
-        newTableName = '';
-        newTableSeats = 8;
-      });
     }
   }
 
@@ -241,12 +237,12 @@ class _TischplanungPageState extends State<TischplanungPage> {
       builder: (builderContext) {
         final scheme = Theme.of(builderContext).colorScheme;
         return AlertDialog(
-          title: const Text('Tisch löschen'),
-          content: const Text('Alle Gäste werden wieder freigegeben.'),
+          title: const Text("Tisch loeschen"),
+          content: const Text("Alle Gaeste werden wieder freigegeben."),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(builderContext),
-              child: const Text('Abbrechen'),
+              child: const Text("Abbrechen"),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -254,21 +250,21 @@ class _TischplanungPageState extends State<TischplanungPage> {
                 final guestsToUpdate = _getRelevantGuests()
                     .where((g) => g.tableNumber == table.tableNumber)
                     .toList();
-
                 for (final guest in guestsToUpdate) {
                   await _removeGuestFromTable(guest);
                 }
-
-                setState(() {
-                  tables.removeWhere((t) => t.id == tableId);
-                });
-                Navigator.pop(builderContext);
+                await _db.deleteTable(tableId);
+                if (mounted)
+                  setState(() {
+                    tables.removeWhere((t) => t.id == tableId);
+                  });
+                if (mounted) Navigator.pop(builderContext);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: scheme.error,
                 foregroundColor: scheme.onError,
               ),
-              child: const Text('Löschen'),
+              child: const Text("Loeschen"),
             ),
           ],
         );
@@ -279,51 +275,122 @@ class _TischplanungPageState extends State<TischplanungPage> {
   void _showTableForm() {
     final nameController = TextEditingController();
     final seatsController = TextEditingController(text: '8');
+    List<TableCategory> selectedCats = [];
 
     showDialog(
       context: context,
-      builder: (builderContext) {
-        final scheme = Theme.of(builderContext).colorScheme;
-        return AlertDialog(
-          title: const Text('Neuer Tisch'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(labelText: 'Tischname'),
+      builder: (builderContext) => StatefulBuilder(
+        builder: (ctx, setDS) {
+          final scheme = Theme.of(ctx).colorScheme;
+          return AlertDialog(
+            title: const Text('Neuer Tisch'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(labelText: 'Tischname'),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: seatsController,
+                    decoration: const InputDecoration(labelText: 'Plaetze'),
+                    keyboardType: TextInputType.number,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Kategorien',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Beeinflusst den automatischen Sitzvorschlag',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: TableCategory.values.map((cat) {
+                      final sel = selectedCats.contains(cat);
+                      return FilterChip(
+                        label: Text(
+                          cat.label,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        selected: sel,
+                        onSelected: (v) => setDS(() {
+                          if (v)
+                            selectedCats.add(cat);
+                          else
+                            selectedCats.remove(cat);
+                        }),
+                        selectedColor: scheme.primaryContainer,
+                        checkmarkColor: scheme.primary,
+                        side: BorderSide(
+                          color: sel ? scheme.primary : scheme.outlineVariant,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  if (selectedCats.any((c) => c.isHard))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.lock, size: 12, color: scheme.primary),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Familientisch: Nur Gaeste mit Beziehung "Familie" werden zugewiesen.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: scheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: seatsController,
-                decoration: const InputDecoration(labelText: 'Plätze'),
-                keyboardType: TextInputType.number,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(builderContext),
+                child: const Text('Abbrechen'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  if (nameController.text.isNotEmpty) {
+                    newTableName = nameController.text;
+                    newTableSeats = int.tryParse(seatsController.text) ?? 8;
+                    newTableCategories = TableCategories.serialize(
+                      selectedCats,
+                    );
+                    _addTable();
+                    Navigator.pop(builderContext);
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                ),
+                child: const Text('Erstellen'),
               ),
             ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(builderContext),
-              child: const Text('Abbrechen'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty) {
-                  newTableName = nameController.text;
-                  newTableSeats = int.tryParse(seatsController.text) ?? 8;
-                  _addTable();
-                  Navigator.pop(builderContext);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: scheme.primary,
-                foregroundColor: scheme.onPrimary,
-              ),
-              child: const Text('Erstellen'),
-            ),
-          ],
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
@@ -1274,9 +1341,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                   onDelete: () => _deleteTable(table.id),
                                   onEdit: () => _showEditTableDialog(table),
                                   onGuestDropped: (guest) {
-                                    print(
-                                      '🎯 Tisch ${table.tableNumber} onDrop: ${guest.firstName}',
-                                    );
                                     _assignGuestToTable(
                                       guest,
                                       table.tableNumber,
@@ -1294,9 +1358,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
                       child: UnassignedGuestsArea(
                         guests: unassignedGuests,
                         onGuestDropped: (guest) {
-                          print(
-                            '🎯 Freie Gäste onDrop: ${guest.firstName} (aktuell an Tisch ${guest.tableNumber})',
-                          );
                           _removeGuestFromTable(guest);
                         },
                         onGuestTap: _showGuestAssignDialog,

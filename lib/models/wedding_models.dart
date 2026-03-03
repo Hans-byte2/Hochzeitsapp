@@ -468,6 +468,9 @@ class TableModel {
   final int tableNumber;
   final int seats;
 
+  /// Kommagetrennte Kategorien: 'familie', 'freunde', 'kollegen', 'bekannte', 'brautpaar'
+  final String? categoriesRaw;
+
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
@@ -477,6 +480,7 @@ class TableModel {
     required this.tableName,
     required this.tableNumber,
     this.seats = 8,
+    this.categoriesRaw,
     this.updatedAt,
     this.deleted = 0,
     this.deletedAt,
@@ -487,6 +491,7 @@ class TableModel {
     String? tableName,
     int? tableNumber,
     int? seats,
+    String? categoriesRaw,
     String? updatedAt,
     int? deleted,
     String? deletedAt,
@@ -496,6 +501,7 @@ class TableModel {
       tableName: tableName ?? this.tableName,
       tableNumber: tableNumber ?? this.tableNumber,
       seats: seats ?? this.seats,
+      categoriesRaw: categoriesRaw ?? this.categoriesRaw,
       updatedAt: updatedAt ?? this.updatedAt,
       deleted: deleted ?? this.deleted,
       deletedAt: deletedAt ?? this.deletedAt,
@@ -508,6 +514,7 @@ class TableModel {
       'table_name': tableName,
       'table_number': tableNumber,
       'seats': seats,
+      'categories': categoriesRaw,
       'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
       'deleted': deleted,
       'deleted_at': deletedAt,
@@ -520,6 +527,7 @@ class TableModel {
       tableName: map['table_name'] ?? '',
       tableNumber: map['table_number']?.toInt() ?? 0,
       seats: map['seats']?.toInt() ?? 8,
+      categoriesRaw: map['categories'],
       updatedAt: map['updated_at'],
       deleted: map['deleted'] ?? 0,
       deletedAt: map['deleted_at'],

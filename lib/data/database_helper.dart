@@ -25,12 +25,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 11, // VERSION 11: Konflikte + Kennt + Altersgruppe + Hobbys
+        version: 13, // VERSION 13: wedding_data.total_budget
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v11 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v13 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -48,7 +48,8 @@ class DatabaseHelper {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           wedding_date TEXT,
           bride_name TEXT,
-          groom_name TEXT
+          groom_name TEXT,
+          total_budget REAL DEFAULT 0.0
         )
       ''');
       ErrorLogger.info('✅ wedding_data Tabelle erstellt');
@@ -124,6 +125,7 @@ class DatabaseHelper {
           table_name TEXT NOT NULL,
           table_number INTEGER NOT NULL,
           seats INTEGER DEFAULT 8,
+          categories TEXT,
           updated_at TEXT,
           deleted INTEGER DEFAULT 0,
           deleted_at TEXT
@@ -344,6 +346,75 @@ class DatabaseHelper {
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ guests v11 Migration: \$e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v12: tables.categories Spalte
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 12) {
+        ErrorLogger.info('🔧 v12: Füge categories Spalte zu tables hinzu...');
+        try {
+          if (!await columnExists('tables', 'categories')) {
+            await db.execute('ALTER TABLE tables ADD COLUMN categories TEXT');
+            ErrorLogger.success('  ✅ tables.categories hinzugefügt');
+          } else {
+            ErrorLogger.info('  ℹ️ tables.categories existiert bereits');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ tables.categories Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v13: wedding_data.total_budget
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 13) {
+        ErrorLogger.info('🔧 v13: Füge total_budget zu wedding_data hinzu...');
+        try {
+          if (!await columnExists('wedding_data', 'total_budget')) {
+            await db.execute(
+              'ALTER TABLE wedding_data ADD COLUMN total_budget REAL DEFAULT 0.0',
+            );
+            ErrorLogger.success('  ✅ wedding_data.total_budget hinzugefügt');
+          } else {
+            ErrorLogger.info(
+              '  ℹ️ wedding_data.total_budget existiert bereits',
+            );
+          }
+          // Bestehende total_budget BudgetItems in die neue Spalte migrieren
+          final existing = await db.query(
+            'budget_items',
+            where: "category = ? AND deleted = 0",
+            whereArgs: ['total_budget'],
+            orderBy: 'id DESC',
+            limit: 1,
+          );
+          if (existing.isNotEmpty) {
+            final val = existing.first['planned'] ?? 0.0;
+            final wd = await db.query('wedding_data');
+            if (wd.isNotEmpty) {
+              await db.update(
+                'wedding_data',
+                {'total_budget': val},
+                where: 'id = ?',
+                whereArgs: [wd.first['id']],
+              );
+              ErrorLogger.success(
+                '  ✅ Bestehendes Gesamtbudget ($val) migriert',
+              );
+            }
+            // Alten BudgetItem-Eintrag als gelöscht markieren
+            await db.update(
+              'budget_items',
+              {'deleted': 1, 'deleted_at': DateTime.now().toIso8601String()},
+              where: "category = ?",
+              whereArgs: ['total_budget'],
+            );
+            ErrorLogger.success('  ✅ Alten total_budget BudgetItem entfernt');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v13 Migration: $e');
         }
       }
 
@@ -790,17 +861,47 @@ class DatabaseHelper {
     try {
       final db = await database;
       final List<Map<String, dynamic>> maps = await db.query('wedding_data');
-
       if (maps.isNotEmpty) {
         ErrorLogger.info('Hochzeitsdaten geladen');
       } else {
         ErrorLogger.info('Keine Hochzeitsdaten vorhanden');
       }
-
       return maps.isNotEmpty ? maps.first : null;
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Hochzeitsdaten', e, stack);
       return null;
+    }
+  }
+
+  /// Liest nur das Gesamtbudget aus wedding_data.
+  Future<double> getTotalBudget() async {
+    try {
+      final data = await getWeddingData();
+      return (data?['total_budget'] as num?)?.toDouble() ?? 0.0;
+    } catch (e) {
+      return 0.0;
+    }
+  }
+
+  /// Speichert nur das Gesamtbudget in wedding_data.
+  Future<void> setTotalBudget(double amount) async {
+    try {
+      final db = await database;
+      final existing = await getWeddingData();
+      if (existing == null) {
+        await db.insert('wedding_data', {'total_budget': amount});
+      } else {
+        await db.update(
+          'wedding_data',
+          {'total_budget': amount},
+          where: 'id = ?',
+          whereArgs: [existing['id']],
+        );
+      }
+      ErrorLogger.success('✅ Gesamtbudget gespeichert: $amount');
+    } catch (e, stack) {
+      ErrorLogger.error('❌ Fehler beim Speichern des Gesamtbudgets', e, stack);
+      rethrow;
     }
   }
 
