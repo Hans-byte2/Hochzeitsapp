@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:sqflite/sqflite.dart';
 
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
@@ -8,7 +7,6 @@ import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
-// Smart Validation Import
 import '../widgets/forms/smart_text_field.dart';
 
 class EnhancedBudgetPage extends StatefulWidget {
@@ -58,14 +56,11 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   final _notesController = TextEditingController();
   bool _isPaid = false;
 
-  // Smart Validation State
   final Map<String, bool> _fieldValidation = {};
 
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
 
-  String _formatCurrency(double amount) {
-    return _currencyFormat.format(amount);
-  }
+  String _formatCurrency(double amount) => _currencyFormat.format(amount);
 
   @override
   void initState() {
@@ -86,52 +81,35 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) {
-      setState(() {
-        _fieldValidation[fieldKey] = isValid;
-      });
-    }
+    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
 
-  bool get _isFormValid {
-    return (_fieldValidation['item_name'] ?? false) &&
-        (_fieldValidation['planned_amount'] ?? false);
-  }
+  bool get _isFormValid =>
+      (_fieldValidation['item_name'] ?? false) &&
+      (_fieldValidation['planned_amount'] ?? false);
+
+  // ── Gesamtbudget: liest aus wedding_data.total_budget ─────────
 
   Future<void> _loadTotalBudget() async {
     try {
-      final db = await DatabaseHelper.instance.database;
-      final result = await db.query(
-        'app_settings',
-        where: 'key = ?',
-        whereArgs: ['total_budget'],
-      );
-
-      if (result.isNotEmpty) {
-        final value = result.first['value'];
+      final budget = await DatabaseHelper.instance.getTotalBudget();
+      if (mounted) {
         setState(() {
-          _totalBudget = double.tryParse(value.toString()) ?? 0.0;
-          _totalBudgetController.text = _totalBudget.toStringAsFixed(0);
+          _totalBudget = budget;
+          _totalBudgetController.text = budget.toStringAsFixed(0);
         });
       }
     } catch (e) {
-      print('Fehler beim Laden des Gesamtbudgets: $e');
+      debugPrint('Fehler beim Laden des Gesamtbudgets: $e');
     }
   }
 
   Future<void> _saveTotalBudget(double budget) async {
     try {
-      final db = await DatabaseHelper.instance.database;
-      await db.insert('app_settings', {
-        'key': 'total_budget',
-        'value': budget.toString(),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-      setState(() {
-        _totalBudget = budget;
-      });
+      await DatabaseHelper.instance.setTotalBudget(budget);
+      if (mounted) setState(() => _totalBudget = budget);
     } catch (e) {
-      print('Fehler beim Speichern des Gesamtbudgets: $e');
+      debugPrint('Fehler beim Speichern des Gesamtbudgets: $e');
     }
   }
 
@@ -182,69 +160,41 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       ),
     );
 
-    if (result != null) {
-      await _saveTotalBudget(result);
-    }
+    if (result != null) await _saveTotalBudget(result);
   }
+
+  // ── DB-Initialisierung (nur budget_items Spalten, kein app_settings) ──
 
   Future<void> _initializeDatabase() async {
     try {
       final db = await DatabaseHelper.instance.database;
 
-      try {
-        await db.execute(
-          'ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT \'other\'',
-        );
-      } catch (_) {}
-
-      try {
-        await db.execute(
-          'ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT \'\'',
-        );
-      } catch (_) {}
-
-      try {
-        await db.execute(
-          'ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0',
-        );
-      } catch (_) {}
-
-      try {
-        await db.execute('''
-          CREATE TABLE IF NOT EXISTS app_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-          )
-        ''');
-      } catch (e) {
-        print('Fehler bei app_settings Tabelle: $e');
+      for (final sql in [
+        "ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT 'other'",
+        "ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT ''",
+        "ALTER TABLE budget_items ADD COLUMN paid INTEGER DEFAULT 0",
+      ]) {
+        try {
+          await db.execute(sql);
+        } catch (_) {}
       }
     } catch (e) {
-      print('Fehler beim Initialisieren der Datenbank: $e');
+      debugPrint('Fehler beim Initialisieren der Datenbank: $e');
     }
   }
 
   Future<void> _loadBudgetItems() async {
     try {
-      setState(() {
-        _isLoading = true;
-      });
-
+      setState(() => _isLoading = true);
       final items = await DatabaseHelper.instance.getAllBudgetItems();
-
-      if (mounted) {
+      if (mounted)
         setState(() {
           _budgetItems = items;
           _isLoading = false;
         });
-      }
     } catch (e) {
-      print('Fehler beim Laden der Budget-Items: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      debugPrint('Fehler beim Laden der Budget-Items: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -257,17 +207,12 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   double get remaining => totalPlanned - totalActual;
 
   Map<String, Map<String, dynamic>> get categoryStats {
-    Map<String, Map<String, dynamic>> stats = {};
-    for (var category in _categoryLabels.keys) {
-      final items = _budgetItems
-          .where((item) => item.category == category)
-          .toList();
-      final plannedCat = items.fold(0.0, (sum, item) => sum + item.planned);
-      final actualCat = items.fold(0.0, (sum, item) => sum + item.actual);
-
+    final stats = <String, Map<String, dynamic>>{};
+    for (final category in _categoryLabels.keys) {
+      final items = _budgetItems.where((i) => i.category == category).toList();
       stats[category] = {
-        'plannedTotal': plannedCat,
-        'actualTotal': actualCat,
+        'plannedTotal': items.fold(0.0, (s, i) => s + i.planned),
+        'actualTotal': items.fold(0.0, (s, i) => s + i.actual),
         'itemCount': items.length,
       };
     }
@@ -336,14 +281,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
-
-      final budgetItems = _budgetItems;
-      await PdfExportService.exportBudgetToPdf(budgetItems);
-
+      await PdfExportService.exportBudgetToPdf(_budgetItems);
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -361,14 +302,13 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
                 const Icon(Icons.error, color: Colors.white),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
@@ -385,14 +325,10 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
-
-      final budgetItems = _budgetItems;
-      await ExcelExportService.exportBudgetToExcel(budgetItems);
-
+      await ExcelExportService.exportBudgetToExcel(_budgetItems);
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -410,14 +346,13 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
                 const Icon(Icons.error, color: Colors.white),
-                SizedBox(width: 8),
+                const SizedBox(width: 8),
                 Expanded(child: Text('Fehler beim Erstellen: $e')),
               ],
             ),
@@ -431,18 +366,18 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   Future<void> _togglePaid(int id, bool currentPaidStatus) async {
     try {
-      final item = _budgetItems.firstWhere((item) => item.id == id);
-      final updatedItem = item.copyWith(paid: !currentPaidStatus);
-      await DatabaseHelper.instance.updateBudgetItem(updatedItem);
+      final item = _budgetItems.firstWhere((i) => i.id == id);
+      await DatabaseHelper.instance.updateBudgetItem(
+        item.copyWith(paid: !currentPaidStatus),
+      );
       await _loadBudgetItems();
     } catch (e) {
-      print('Fehler beim Aktualisieren des Bezahlt-Status: $e');
+      debugPrint('Fehler beim Aktualisieren des Bezahlt-Status: $e');
     }
   }
 
   Future<void> _addBudgetItem() async {
     if (!_isFormValid) return;
-
     try {
       final db = await DatabaseHelper.instance.database;
       await db.insert('budget_items', {
@@ -456,19 +391,16 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         'deleted': 0,
       });
 
-      // Form zurücksetzen
       _itemNameController.clear();
       _plannedAmountController.clear();
       _actualAmountController.clear();
       _notesController.clear();
       _fieldValidation.clear();
-
       setState(() {
         _isPaid = false;
         _selectedCategory = 'other';
         _showForm = false;
       });
-
       await _loadBudgetItems();
 
       if (mounted) {
@@ -478,7 +410,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Budgetposten hinzugefügt! ✓'),
+                Text('Budgetposten hinzugefügt!'),
               ],
             ),
             backgroundColor: Colors.green,
@@ -487,28 +419,24 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         );
       }
     } catch (e) {
-      print('Fehler beim Hinzufügen des Budget-Items: $e');
+      debugPrint('Fehler beim Hinzufügen des Budget-Items: $e');
     }
   }
 
   Future<void> _editBudgetItem(BudgetItem item) async {
     showDialog(
       context: context,
-      builder: (builderContext) => _BudgetItemEditDialog(
+      builder: (_) => _BudgetItemEditDialog(
         item: item,
         categoryLabels: _categoryLabels,
-        onSave: () async {
-          await _loadBudgetItems();
-        },
+        onSave: _loadBudgetItems,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
 
     final scheme = Theme.of(context).colorScheme;
 
@@ -556,7 +484,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   setState(() {
                     _showForm = !_showForm;
                     if (!_showForm) {
-                      // Form zurücksetzen beim Schließen
                       _itemNameController.clear();
                       _plannedAmountController.clear();
                       _actualAmountController.clear();
@@ -592,7 +519,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   Widget _buildTotalBudgetCard() {
     final scheme = Theme.of(context).colorScheme;
-
     final budgetRemaining = _totalBudget - totalActual;
     final percentageUsed = _totalBudget > 0
         ? (totalActual / _totalBudget) * 100
@@ -650,41 +576,9 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ),
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Davon verplant:',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        Text(
-                          '€${_formatCurrency(totalPlanned)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
+                    _budgetRow('Davon verplant:', totalPlanned),
                     const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Ausgegeben:',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        Text(
-                          '€${_formatCurrency(totalActual)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
+                    _budgetRow('Ausgegeben:', totalActual),
                     const SizedBox(height: 8),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -709,7 +603,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: LinearProgressIndicator(
-                        value: percentageUsed / 100,
+                        value: (percentageUsed / 100).clamp(0.0, 1.0),
                         backgroundColor: Colors.white.withOpacity(0.3),
                         valueColor: AlwaysStoppedAnimation<Color>(
                           percentageUsed > 100 ? Colors.red : Colors.white,
@@ -732,7 +626,21 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // Smart Validation Add Item Form
+  Widget _budgetRow(String label, double amount) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: Colors.white)),
+      Text(
+        '€${_formatCurrency(amount)}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+        ),
+      ),
+    ],
+  );
+
   Widget _buildAddItemForm() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -749,8 +657,6 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-
-            // Fortschrittsanzeige
             LinearProgressIndicator(
               value: _isFormValid
                   ? 1.0
@@ -765,12 +671,9 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               '${_fieldValidation.values.where((v) => v).length} von 2 Pflichtfeldern ausgefüllt',
               style: TextStyle(fontSize: 11, color: Colors.grey[600]),
             ),
-
             const SizedBox(height: 16),
-
-            // Kategorie
             DropdownButtonFormField<String>(
-              value: _selectedCategory,
+              initialValue: _selectedCategory,
               decoration: const InputDecoration(
                 labelText: 'Kategorie',
                 border: OutlineInputBorder(),
@@ -779,18 +682,14 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   vertical: 8,
                 ),
               ),
-              items: _categoryLabels.entries.map((entry) {
-                return DropdownMenuItem(
-                  value: entry.key,
-                  child: Text(entry.value),
-                );
-              }).toList(),
-              onChanged: (value) => setState(() => _selectedCategory = value!),
+              items: _categoryLabels.entries
+                  .map(
+                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedCategory = v!),
             ),
-
             const SizedBox(height: 16),
-
-            // Bezeichnung - PFLICHT
             SmartTextField(
               label: 'Bezeichnung',
               fieldKey: 'item_name',
@@ -798,21 +697,15 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               controller: _itemNameController,
               onValidationChanged: _updateFieldValidation,
               isDisabled: false,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
+              validator: (v) {
+                if (v == null || v.trim().isEmpty)
                   return 'Bezeichnung ist erforderlich';
-                }
-                if (value.trim().length < 2) {
-                  return 'Mindestens 2 Zeichen';
-                }
+                if (v.trim().length < 2) return 'Mindestens 2 Zeichen';
                 return null;
               },
               textInputAction: TextInputAction.next,
             ),
-
             const SizedBox(height: 16),
-
-            // Geplant / Tatsächlich
             Row(
               children: [
                 Expanded(
@@ -824,17 +717,12 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty)
                         return 'Betrag erforderlich';
-                      }
-                      final parsed = double.tryParse(value.trim());
-                      if (parsed == null) {
-                        return 'Ungültige Zahl';
-                      }
-                      if (parsed < 0) {
-                        return 'Muss ≥ 0 sein';
-                      }
+                      final p = double.tryParse(v.trim());
+                      if (p == null) return 'Ungültige Zahl';
+                      if (p < 0) return 'Muss >= 0 sein';
                       return null;
                     },
                     textInputAction: TextInputAction.next,
@@ -850,15 +738,11 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value != null && value.trim().isNotEmpty) {
-                        final parsed = double.tryParse(value.trim());
-                        if (parsed == null) {
-                          return 'Ungültige Zahl';
-                        }
-                        if (parsed < 0) {
-                          return 'Muss ≥ 0 sein';
-                        }
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty) {
+                        final p = double.tryParse(v.trim());
+                        if (p == null) return 'Ungültige Zahl';
+                        if (p < 0) return 'Muss >= 0 sein';
                       }
                       return null;
                     },
@@ -867,10 +751,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Notizen - Optional
             SmartTextField(
               label: 'Notizen',
               fieldKey: 'notes',
@@ -881,18 +762,14 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.done,
             ),
-
             const SizedBox(height: 16),
-
             CheckboxListTile(
               title: const Text('Bereits bezahlt'),
               value: _isPaid,
-              onChanged: (value) => setState(() => _isPaid = value ?? false),
+              onChanged: (v) => setState(() => _isPaid = v ?? false),
               contentPadding: EdgeInsets.zero,
             ),
-
             const SizedBox(height: 16),
-
             Row(
               children: [
                 ElevatedButton(
@@ -977,7 +854,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     await Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => CategoryDetailPage(
+                        builder: (_) => CategoryDetailPage(
                           category: category,
                           categoryName: label,
                         ),
@@ -1040,14 +917,14 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         ),
                         const SizedBox(height: 2),
                         LinearProgressIndicator(
-                          value: percentage / 100,
+                          value: (percentage / 100).clamp(0.0, 1.0),
                           backgroundColor: Colors.grey.shade200,
                           valueColor: AlwaysStoppedAnimation<Color>(color),
                           minHeight: 2,
                         ),
                         const SizedBox(height: 1),
                         Text(
-                          '${stat['itemCount']} Posten →',
+                          '${stat['itemCount']} Posten ->',
                           style: const TextStyle(
                             fontSize: 7,
                             color: Colors.grey,
@@ -1098,8 +975,8 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   itemCount: _budgetItems.length,
                   itemBuilder: (context, index) {
                     final item = _budgetItems[index];
-                    final category = item.category ?? 'other';
-                    final isPaid = (item.paid ?? 0) == 1;
+                    final category = item.category;
+                    final isPaid = item.paid;
 
                     return InkWell(
                       onTap: () => _editBudgetItem(item),
@@ -1177,8 +1054,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                                           ),
                                         ),
                                       ),
-                                      if (item.notes != null &&
-                                          item.notes.toString().isNotEmpty) ...[
+                                      if (item.notes.isNotEmpty) ...[
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: Text(
@@ -1201,7 +1077,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  '€${_formatCurrency(item.actual ?? 0)}',
+                                  '€${_formatCurrency(item.actual)}',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.black87,
@@ -1237,7 +1113,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 }
 
 // ============================================================================
-// BUDGET ITEM EDIT DIALOG - Mit Smart Validation
+// BUDGET ITEM EDIT DIALOG
 // ============================================================================
 
 class _BudgetItemEditDialog extends StatefulWidget {
@@ -1290,34 +1166,27 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
   }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) {
-      setState(() {
-        _fieldValidation[fieldKey] = isValid;
-      });
-    }
+    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
 
-  bool get _isFormValid {
-    return (_fieldValidation['edit_name'] ?? false) &&
-        (_fieldValidation['edit_planned'] ?? false);
-  }
+  bool get _isFormValid =>
+      (_fieldValidation['edit_name'] ?? false) &&
+      (_fieldValidation['edit_planned'] ?? false);
 
   Future<void> _save() async {
     if (!_isFormValid) return;
-
     try {
-      final updatedItem = widget.item.copyWith(
-        name: _nameController.text.trim(),
-        planned: double.tryParse(_plannedController.text) ?? 0.0,
-        actual: double.tryParse(_actualController.text) ?? 0.0,
-        category: _selectedCategory,
-        notes: _notesController.text.trim(),
-        paid: _isPaid,
+      await DatabaseHelper.instance.updateBudgetItem(
+        widget.item.copyWith(
+          name: _nameController.text.trim(),
+          planned: double.tryParse(_plannedController.text) ?? 0.0,
+          actual: double.tryParse(_actualController.text) ?? 0.0,
+          category: _selectedCategory,
+          notes: _notesController.text.trim(),
+          paid: _isPaid,
+        ),
       );
-
-      await DatabaseHelper.instance.updateBudgetItem(updatedItem);
       widget.onSave();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1326,7 +1195,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Budgetposten aktualisiert! ✓'),
+                Text('Budgetposten aktualisiert!'),
               ],
             ),
             backgroundColor: Colors.green,
@@ -1347,7 +1216,6 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
     try {
       await DatabaseHelper.instance.deleteBudgetItem(widget.item.id!);
       widget.onSave();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1356,7 +1224,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Budgetposten gelöscht! ✓'),
+                Text('Budgetposten gelöscht!'),
               ],
             ),
             backgroundColor: Colors.green,
@@ -1368,7 +1236,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Fehler beim Löschen: $e')));
+        ).showSnackBar(SnackBar(content: Text('Fehler beim Loeschen: $e')));
       }
     }
   }
@@ -1383,7 +1251,6 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Fortschrittsanzeige
             LinearProgressIndicator(
               value: _isFormValid
                   ? 1.0
@@ -1399,10 +1266,8 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
               style: TextStyle(fontSize: 11, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
-
-            // Kategorie
             DropdownButtonFormField<String>(
-              value: _selectedCategory,
+              initialValue: _selectedCategory,
               decoration: const InputDecoration(
                 labelText: 'Kategorie',
                 border: OutlineInputBorder(),
@@ -1414,10 +1279,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                   .toList(),
               onChanged: (v) => setState(() => _selectedCategory = v!),
             ),
-
             const SizedBox(height: 16),
-
-            // Bezeichnung - PFLICHT
             SmartTextField(
               label: 'Bezeichnung',
               fieldKey: 'edit_name',
@@ -1425,21 +1287,15 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
               controller: _nameController,
               onValidationChanged: _updateFieldValidation,
               isDisabled: false,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
+              validator: (v) {
+                if (v == null || v.trim().isEmpty)
                   return 'Bezeichnung ist erforderlich';
-                }
-                if (value.trim().length < 2) {
-                  return 'Mindestens 2 Zeichen';
-                }
+                if (v.trim().length < 2) return 'Mindestens 2 Zeichen';
                 return null;
               },
               textInputAction: TextInputAction.next,
             ),
-
             const SizedBox(height: 16),
-
-            // Geplant / Tatsächlich
             Row(
               children: [
                 Expanded(
@@ -1451,17 +1307,11 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Erforderlich';
-                      }
-                      final parsed = double.tryParse(value.trim());
-                      if (parsed == null) {
-                        return 'Ungültig';
-                      }
-                      if (parsed < 0) {
-                        return 'Muss ≥ 0 sein';
-                      }
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Erforderlich';
+                      final p = double.tryParse(v.trim());
+                      if (p == null) return 'Ungueltig';
+                      if (p < 0) return 'Muss >= 0 sein';
                       return null;
                     },
                     textInputAction: TextInputAction.next,
@@ -1470,22 +1320,18 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: SmartTextField(
-                    label: 'Tatsächlich (€)',
+                    label: 'Tatsaechlich (€)',
                     fieldKey: 'edit_actual',
                     isRequired: false,
                     controller: _actualController,
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value != null && value.trim().isNotEmpty) {
-                        final parsed = double.tryParse(value.trim());
-                        if (parsed == null) {
-                          return 'Ungültig';
-                        }
-                        if (parsed < 0) {
-                          return 'Muss ≥ 0 sein';
-                        }
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty) {
+                        final p = double.tryParse(v.trim());
+                        if (p == null) return 'Ungueltig';
+                        if (p < 0) return 'Muss >= 0 sein';
                       }
                       return null;
                     },
@@ -1494,10 +1340,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Notizen
             SmartTextField(
               label: 'Notizen',
               fieldKey: 'edit_notes',
@@ -1508,9 +1351,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.done,
             ),
-
             const SizedBox(height: 16),
-
             CheckboxListTile(
               title: const Text('Bereits bezahlt'),
               value: _isPaid,
@@ -1527,7 +1368,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
         ),
         TextButton(
           onPressed: _delete,
-          child: const Text('Löschen', style: TextStyle(color: Colors.red)),
+          child: const Text('Loeschen', style: TextStyle(color: Colors.red)),
         ),
         ElevatedButton(
           onPressed: _isFormValid ? _save : null,

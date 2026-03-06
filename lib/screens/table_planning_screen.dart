@@ -3,6 +3,7 @@ import '../models/wedding_models.dart';
 import '../models/table_models.dart';
 import '../models/table_categories.dart';
 import '../data/database_helper.dart';
+import '../app_colors.dart';
 import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/table_suggestion_service.dart';
@@ -111,7 +112,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
       context,
       MaterialPageRoute(
         builder: (_) => TableSuggestionScreen(
-          // Immer aktuelle Gäste übergeben
           guests: widget.guests,
           tables: tableModels,
           onApplySuggestion: (Map<int, int> assignments) async {
@@ -134,10 +134,21 @@ class _TischplanungPageState extends State<TischplanungPage> {
             }
             if (mounted) setState(() {});
           },
+          onUndoSuggestion: (Map<int, int?> snapshot) async {
+            // Jeden Gast auf seine alte tableNumber zurücksetzen
+            for (final entry in snapshot.entries) {
+              final matches = widget.guests.where((g) => g.id == entry.key);
+              if (matches.isNotEmpty) {
+                await widget.onUpdateGuest(
+                  matches.first.copyWith(tableNumber: entry.value ?? 0),
+                );
+              }
+            }
+            if (mounted) setState(() {});
+          },
         ),
       ),
     ).then((_) {
-      // Beim Zurücknavigieren Tischplanung neu aufbauen
       if (mounted) setState(() {});
     });
   }
@@ -386,6 +397,186 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   foregroundColor: scheme.onPrimary,
                 ),
                 child: const Text('Erstellen'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Tisch-Eigenschaften bearbeiten: Name, Plätze, Kategorie → DB-Update
+  void _showTablePropertiesDialog(TableData table) {
+    final nameController = TextEditingController(text: table.tableName);
+    final seatsController = TextEditingController(text: table.seats.toString());
+    List<TableCategory> selectedCats = TableCategories.parse(
+      table.categoriesRaw,
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDia) {
+          final scheme = Theme.of(ctx).colorScheme;
+          return AlertDialog(
+            title: const Text('Tisch bearbeiten'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Name
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Tischname',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.table_restaurant),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Plätze
+                  TextField(
+                    controller: seatsController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Anzahl Plätze',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.event_seat),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Kategorien
+                  Text(
+                    'Tisch-Kategorie',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: TableCategory.values.map((cat) {
+                      final selected = selectedCats.contains(cat);
+                      return FilterChip(
+                        label: Text(
+                          cat.label,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        selected: selected,
+                        onSelected: (val) => setDia(() {
+                          if (val) {
+                            selectedCats.add(cat);
+                          } else {
+                            selectedCats.remove(cat);
+                          }
+                        }),
+                        selectedColor: AppColors.primary.withOpacity(0.2),
+                        checkmarkColor: AppColors.primary,
+                      );
+                    }).toList(),
+                  ),
+                  if (selectedCats.contains(TableCategory.familie)) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 14,
+                            color: Colors.orange,
+                          ),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Familientische nehmen nur Gäste mit Beziehung "Familie" an',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Abbrechen'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.save, size: 16),
+                label: const Text('Speichern'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  final newName = nameController.text.trim();
+                  final newSeats =
+                      int.tryParse(seatsController.text.trim()) ?? table.seats;
+                  if (newName.isEmpty) return;
+
+                  final newCatsRaw = TableCategories.serialize(selectedCats);
+
+                  // In DB speichern
+                  final updatedModel = TableModel(
+                    id: table.id,
+                    tableName: newName,
+                    tableNumber: table.tableNumber,
+                    seats: newSeats,
+                    categoriesRaw: newCatsRaw.isEmpty ? null : newCatsRaw,
+                  );
+                  try {
+                    await _db.updateTable(updatedModel);
+                    if (mounted) {
+                      setState(() {
+                        final idx = tables.indexWhere((t) => t.id == table.id);
+                        if (idx != -1) {
+                          tables[idx] = TableData(
+                            id: table.id,
+                            tableName: newName,
+                            tableNumber: table.tableNumber,
+                            seats: newSeats,
+                            categoriesRaw: newCatsRaw.isEmpty
+                                ? null
+                                : newCatsRaw,
+                          );
+                        }
+                      });
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Tisch "$newName" gespeichert'),
+                          backgroundColor: Colors.green,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Fehler: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                },
               ),
             ],
           );
@@ -1339,7 +1530,8 @@ class _TischplanungPageState extends State<TischplanungPage> {
                                   table: table,
                                   guests: tableGuests,
                                   onDelete: () => _deleteTable(table.id),
-                                  onEdit: () => _showEditTableDialog(table),
+                                  onEdit: () =>
+                                      _showTablePropertiesDialog(table),
                                   onGuestDropped: (guest) {
                                     _assignGuestToTable(
                                       guest,

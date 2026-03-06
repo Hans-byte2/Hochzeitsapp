@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../data/database_helper.dart';
 import '../models/wedding_models.dart';
-// Smart Validation Import
 import '../widgets/forms/smart_text_field.dart';
 
 class CategoryDetailPage extends StatefulWidget {
@@ -39,10 +38,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   };
 
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
-
-  String _formatCurrency(double amount) {
-    return _currencyFormat.format(amount);
-  }
+  String _formatCurrency(double amount) => _currencyFormat.format(amount);
 
   @override
   void initState() {
@@ -52,23 +48,17 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
   Future<void> _loadCategoryItems() async {
     try {
-      setState(() {
-        _isLoading = true;
-      });
-
+      setState(() => _isLoading = true);
       final allItems = await DatabaseHelper.instance.getAllBudgetItems();
       final categoryItems = allItems
-          .where((item) => (item.category ?? 'other') == widget.category)
+          .where((item) => item.category == widget.category)
           .toList();
 
       double planned = 0.0;
       double actual = 0.0;
-
       for (final item in categoryItems) {
-        final p = item.planned;
-        final a = item.actual;
-        planned += p is num ? p.toDouble() : 0.0;
-        actual += a is num ? a.toDouble() : 0.0;
+        planned += item.planned;
+        actual += item.actual;
       }
 
       if (mounted) {
@@ -81,11 +71,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       }
     } catch (e) {
       debugPrint('Fehler beim Laden der Kategorie-Items: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -107,7 +93,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   Future<void> _addNewBudgetItem() async {
     showDialog(
       context: context,
-      builder: (builderContext) => _AddBudgetItemDialog(
+      builder: (_) => _AddBudgetItemDialog(
         category: widget.category,
         categoryName: widget.categoryName,
         onSave: _loadCategoryItems,
@@ -118,10 +104,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
   Future<void> _editBudgetItemInDetail(BudgetItem item) async {
     showDialog(
       context: context,
-      builder: (builderContext) => _EditBudgetItemDialog(
+      builder: (_) => _EditBudgetItemDialog(
         item: item,
         onSave: _loadCategoryItems,
-        onDelete: () => _deleteItem(item.id as int),
+        onDelete: () => _deleteItem(item.id!),
       ),
     );
   }
@@ -138,7 +124,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Posten gelöscht! ✓'),
+                Text('Posten gelöscht!'),
               ],
             ),
             backgroundColor: Colors.green,
@@ -241,7 +227,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                           itemCount: _categoryItems.length,
                           itemBuilder: (context, index) {
                             final item = _categoryItems[index];
-                            final isPaid = (item.paid ?? 0) == 1;
+                            final isPaid = item.paid;
 
                             return Card(
                               margin: const EdgeInsets.only(bottom: 12),
@@ -261,10 +247,8 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                       Row(
                                         children: [
                                           GestureDetector(
-                                            onTap: () => _togglePaid(
-                                              item.id as int,
-                                              isPaid,
-                                            ),
+                                            onTap: () =>
+                                                _togglePaid(item.id!, isPaid),
                                             child: Container(
                                               padding: const EdgeInsets.all(4),
                                               decoration: BoxDecoration(
@@ -285,7 +269,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: Text(
-                                              item.name ?? '',
+                                              item.name,
                                               style: TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.bold,
@@ -303,10 +287,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                               if (value == 'edit') {
                                                 _editBudgetItemInDetail(item);
                                               } else if (value == 'delete') {
-                                                _deleteItem(item.id as int);
+                                                _deleteItem(item.id!);
                                               }
                                             },
-                                            itemBuilder: (context) => const [
+                                            itemBuilder: (_) => const [
                                               PopupMenuItem(
                                                 value: 'edit',
                                                 child: Row(
@@ -343,7 +327,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Geplant',
-                                              '€${_formatCurrency((item.planned is num) ? (item.planned as num).toDouble() : 0.0)}',
+                                              '€${_formatCurrency(item.planned)}',
                                               scheme.primary,
                                             ),
                                           ),
@@ -351,17 +335,13 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
                                           Expanded(
                                             child: _buildDetailCard(
                                               'Tatsächlich',
-                                              '€${_formatCurrency((item.actual is num) ? (item.actual as num).toDouble() : 0.0)}',
+                                              '€${_formatCurrency(item.actual)}',
                                               scheme.secondary,
                                             ),
                                           ),
                                         ],
                                       ),
-                                      if (item.notes != null &&
-                                          item.notes
-                                              .toString()
-                                              .trim()
-                                              .isNotEmpty) ...[
+                                      if (item.notes.trim().isNotEmpty) ...[
                                         const SizedBox(height: 12),
                                         Container(
                                           width: double.infinity,
@@ -472,7 +452,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 }
 
 // ============================================================================
-// ADD BUDGET ITEM DIALOG - Mit Smart Validation
+// ADD BUDGET ITEM DIALOG
 // ============================================================================
 
 class _AddBudgetItemDialog extends StatefulWidget {
@@ -496,7 +476,6 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
   final _actualController = TextEditingController();
   final _notesController = TextEditingController();
   bool _isPaid = false;
-
   final Map<String, bool> _fieldValidation = {};
 
   @override
@@ -509,36 +488,31 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
   }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) {
-      setState(() {
-        _fieldValidation[fieldKey] = isValid;
-      });
-    }
+    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
 
-  bool get _isFormValid {
-    return (_fieldValidation['name'] ?? false) &&
-        (_fieldValidation['planned'] ?? false);
-  }
+  bool get _isFormValid =>
+      (_fieldValidation['name'] ?? false) &&
+      (_fieldValidation['planned'] ?? false);
 
   Future<void> _save() async {
     if (!_isFormValid) return;
-
     try {
       final db = await DatabaseHelper.instance.database;
       await db.insert('budget_items', {
         'name': _nameController.text.trim(),
-        'planned': double.tryParse(_plannedController.text) ?? 0.0,
-        'actual': double.tryParse(_actualController.text) ?? 0.0,
+        'planned':
+            double.tryParse(_plannedController.text.replaceAll(',', '.')) ??
+            0.0,
+        'actual':
+            double.tryParse(_actualController.text.replaceAll(',', '.')) ?? 0.0,
         'category': widget.category,
         'notes': _notesController.text.trim(),
         'paid': _isPaid ? 1 : 0,
         'updated_at': DateTime.now().toIso8601String(),
         'deleted': 0,
       });
-
       widget.onSave();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -547,7 +521,7 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Posten hinzugefügt! ✓'),
+                Text('Posten hinzugefügt!'),
               ],
             ),
             backgroundColor: Colors.green,
@@ -567,14 +541,12 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-
     return AlertDialog(
       title: Text('Neuer Posten: ${widget.categoryName}'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Fortschrittsanzeige
             LinearProgressIndicator(
               value: _isFormValid
                   ? 1.0
@@ -590,8 +562,6 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
               style: TextStyle(fontSize: 11, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
-
-            // Bezeichnung - PFLICHT
             SmartTextField(
               label: 'Bezeichnung',
               fieldKey: 'name',
@@ -599,21 +569,15 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
               controller: _nameController,
               onValidationChanged: _updateFieldValidation,
               isDisabled: false,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
+              validator: (v) {
+                if (v == null || v.trim().isEmpty)
                   return 'Bezeichnung ist erforderlich';
-                }
-                if (value.trim().length < 2) {
-                  return 'Mindestens 2 Zeichen';
-                }
+                if (v.trim().length < 2) return 'Mindestens 2 Zeichen';
                 return null;
               },
               textInputAction: TextInputAction.next,
             ),
-
             const SizedBox(height: 16),
-
-            // Geplant / Tatsächlich
             Row(
               children: [
                 Expanded(
@@ -625,19 +589,11 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Erforderlich';
-                      }
-                      final parsed = double.tryParse(
-                        value.replaceAll(',', '.'),
-                      );
-                      if (parsed == null) {
-                        return 'Ungültig';
-                      }
-                      if (parsed < 0) {
-                        return 'Muss ≥ 0 sein';
-                      }
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Erforderlich';
+                      final p = double.tryParse(v.replaceAll(',', '.'));
+                      if (p == null) return 'Ungültig';
+                      if (p < 0) return 'Muss >= 0 sein';
                       return null;
                     },
                     textInputAction: TextInputAction.next,
@@ -653,17 +609,11 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value != null && value.trim().isNotEmpty) {
-                        final parsed = double.tryParse(
-                          value.replaceAll(',', '.'),
-                        );
-                        if (parsed == null) {
-                          return 'Ungültig';
-                        }
-                        if (parsed < 0) {
-                          return 'Muss ≥ 0 sein';
-                        }
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty) {
+                        final p = double.tryParse(v.replaceAll(',', '.'));
+                        if (p == null) return 'Ungültig';
+                        if (p < 0) return 'Muss >= 0 sein';
                       }
                       return null;
                     },
@@ -672,10 +622,7 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Notizen
             SmartTextField(
               label: 'Notizen (optional)',
               fieldKey: 'notes',
@@ -686,9 +633,7 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.done,
             ),
-
             const SizedBox(height: 12),
-
             CheckboxListTile(
               title: const Text('Bereits bezahlt'),
               value: _isPaid,
@@ -724,7 +669,7 @@ class _AddBudgetItemDialogState extends State<_AddBudgetItemDialog> {
 }
 
 // ============================================================================
-// EDIT BUDGET ITEM DIALOG - Mit Smart Validation
+// EDIT BUDGET ITEM DIALOG
 // ============================================================================
 
 class _EditBudgetItemDialog extends StatefulWidget {
@@ -748,29 +693,20 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
   late TextEditingController _actualController;
   late TextEditingController _notesController;
   late bool _isPaid;
-
   final Map<String, bool> _fieldValidation = {};
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.item.name ?? '');
+    _nameController = TextEditingController(text: widget.item.name);
     _plannedController = TextEditingController(
-      text:
-          ((widget.item.planned is num)
-                  ? (widget.item.planned as num).toDouble()
-                  : 0.0)
-              .toStringAsFixed(0),
+      text: widget.item.planned.toStringAsFixed(0),
     );
     _actualController = TextEditingController(
-      text:
-          ((widget.item.actual is num)
-                  ? (widget.item.actual as num).toDouble()
-                  : 0.0)
-              .toStringAsFixed(0),
+      text: widget.item.actual.toStringAsFixed(0),
     );
-    _notesController = TextEditingController(text: widget.item.notes ?? '');
-    _isPaid = (widget.item.paid ?? 0) == 1;
+    _notesController = TextEditingController(text: widget.item.notes);
+    _isPaid = widget.item.paid;
   }
 
   @override
@@ -783,21 +719,15 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
   }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) {
-      setState(() {
-        _fieldValidation[fieldKey] = isValid;
-      });
-    }
+    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
 
-  bool get _isFormValid {
-    return (_fieldValidation['edit_name'] ?? false) &&
-        (_fieldValidation['edit_planned'] ?? false);
-  }
+  bool get _isFormValid =>
+      (_fieldValidation['edit_name'] ?? false) &&
+      (_fieldValidation['edit_planned'] ?? false);
 
   Future<void> _save() async {
     if (!_isFormValid) return;
-
     try {
       final db = await DatabaseHelper.instance.database;
       await db.update(
@@ -816,9 +746,7 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
         where: 'id = ?',
         whereArgs: [widget.item.id],
       );
-
       widget.onSave();
-
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -827,7 +755,7 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
               children: [
                 Icon(Icons.check_circle, color: Colors.white),
                 SizedBox(width: 8),
-                Text('Änderungen gespeichert! ✓'),
+                Text('Änderungen gespeichert!'),
               ],
             ),
             backgroundColor: Colors.green,
@@ -863,7 +791,6 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
         ],
       ),
     );
-
     if (confirmed == true) {
       widget.onDelete();
       if (mounted) Navigator.pop(context);
@@ -873,14 +800,12 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-
     return AlertDialog(
       title: const Text('Posten bearbeiten'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Fortschrittsanzeige
             LinearProgressIndicator(
               value: _isFormValid
                   ? 1.0
@@ -896,8 +821,6 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
               style: TextStyle(fontSize: 11, color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
-
-            // Bezeichnung - PFLICHT
             SmartTextField(
               label: 'Bezeichnung',
               fieldKey: 'edit_name',
@@ -905,21 +828,15 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
               controller: _nameController,
               onValidationChanged: _updateFieldValidation,
               isDisabled: false,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
+              validator: (v) {
+                if (v == null || v.trim().isEmpty)
                   return 'Bezeichnung ist erforderlich';
-                }
-                if (value.trim().length < 2) {
-                  return 'Mindestens 2 Zeichen';
-                }
+                if (v.trim().length < 2) return 'Mindestens 2 Zeichen';
                 return null;
               },
               textInputAction: TextInputAction.next,
             ),
-
             const SizedBox(height: 16),
-
-            // Geplant / Tatsächlich
             Row(
               children: [
                 Expanded(
@@ -931,19 +848,11 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Erforderlich';
-                      }
-                      final parsed = double.tryParse(
-                        value.replaceAll(',', '.'),
-                      );
-                      if (parsed == null) {
-                        return 'Ungültig';
-                      }
-                      if (parsed < 0) {
-                        return 'Muss ≥ 0 sein';
-                      }
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) return 'Erforderlich';
+                      final p = double.tryParse(v.replaceAll(',', '.'));
+                      if (p == null) return 'Ungültig';
+                      if (p < 0) return 'Muss >= 0 sein';
                       return null;
                     },
                     textInputAction: TextInputAction.next,
@@ -959,17 +868,11 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
                     onValidationChanged: _updateFieldValidation,
                     isDisabled: false,
                     keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value != null && value.trim().isNotEmpty) {
-                        final parsed = double.tryParse(
-                          value.replaceAll(',', '.'),
-                        );
-                        if (parsed == null) {
-                          return 'Ungültig';
-                        }
-                        if (parsed < 0) {
-                          return 'Muss ≥ 0 sein';
-                        }
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty) {
+                        final p = double.tryParse(v.replaceAll(',', '.'));
+                        if (p == null) return 'Ungültig';
+                        if (p < 0) return 'Muss >= 0 sein';
                       }
                       return null;
                     },
@@ -978,10 +881,7 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
                 ),
               ],
             ),
-
             const SizedBox(height: 16),
-
-            // Notizen
             SmartTextField(
               label: 'Notizen (optional)',
               fieldKey: 'edit_notes',
@@ -992,9 +892,7 @@ class _EditBudgetItemDialogState extends State<_EditBudgetItemDialog> {
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.done,
             ),
-
             const SizedBox(height: 12),
-
             CheckboxListTile(
               title: const Text('Bereits bezahlt'),
               value: _isPaid,

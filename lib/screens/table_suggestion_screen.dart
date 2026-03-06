@@ -12,12 +12,14 @@ class TableSuggestionScreen extends StatefulWidget {
   final List<Guest> guests;
   final List<TableModel> tables;
   final Future<void> Function(Map<int, int>) onApplySuggestion;
+  final Future<void> Function(Map<int, int?>) onUndoSuggestion;
 
   const TableSuggestionScreen({
     super.key,
     required this.guests,
     required this.tables,
     required this.onApplySuggestion,
+    required this.onUndoSuggestion,
   });
 
   @override
@@ -73,6 +75,14 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
       }
     }
 
+    // Snapshot der aktuellen Zuweisung für Undo
+    final Map<int, int?> snapshot = {};
+    for (final guest in widget.guests) {
+      if (guest.id != null) {
+        snapshot[guest.id!] = guest.tableNumber;
+      }
+    }
+
     final hasConflicts = _result!.hasConflicts;
 
     showDialog(
@@ -96,12 +106,37 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              Navigator.pop(dialogContext); // nur Dialog schließen
+              Navigator.pop(dialogContext);
               await widget.onApplySuggestion(assignments);
               if (!mounted) return;
-              // Neu berechnen — SnackBar vorher wegräumen
               ScaffoldMessenger.of(context).clearSnackBars();
               _calculate();
+
+              // Undo-SnackBar für 10 Sekunden anzeigen
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text('Vorschlag übernommen'),
+                  duration: const Duration(seconds: 10),
+                  action: SnackBarAction(
+                    label: 'Rückgängig',
+                    textColor: Colors.white,
+                    onPressed: () async {
+                      await widget.onUndoSuggestion(snapshot);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).clearSnackBars();
+                      _calculate();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Zuweisung zurückgesetzt'),
+                          backgroundColor: Colors.green,
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                  ),
+                  backgroundColor: hasConflicts ? Colors.orange : Colors.green,
+                ),
+              );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: hasConflicts ? Colors.orange : AppColors.primary,

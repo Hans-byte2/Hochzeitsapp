@@ -137,28 +137,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
       await DatabaseHelper.instance.updateWeddingData(date, bride, groom);
 
-      // Budget als BudgetItem speichern (falls eingegeben)
+      // Gesamtbudget direkt in wedding_data speichern (nicht als BudgetItem)
       final budgetText = _budgetController.text.trim().replaceAll(',', '.');
       if (budgetText.isNotEmpty) {
         final budget = double.tryParse(budgetText);
         if (budget != null && budget > 0) {
-          // Nur speichern wenn noch kein Gesamtbudget-Eintrag existiert
-          final existing = await DatabaseHelper.instance.getAllBudgetItems();
-          final alreadyExists = existing.any(
-            (item) => item.category == 'total_budget',
-          );
-          if (!alreadyExists) {
-            await DatabaseHelper.instance.createBudgetItem(
-              BudgetItem(
-                name: 'Gesamtbudget',
-                planned: budget,
-                actual: 0.0,
-                category: 'total_budget',
-                notes: 'Im Onboarding festgelegt',
-                paid: false,
-              ),
-            );
-          }
+          await DatabaseHelper.instance.setTotalBudget(budget);
         }
       }
 
@@ -599,7 +583,7 @@ class _PageFeatures extends StatelessWidget {
       ('💰', 'Budget', 'Kategorien & Donut-Chart'),
       ('✅', 'Checkliste', 'Tasks mit Fälligkeitsdatum'),
       ('🏢', 'Dienstleister', 'Verträge & Kosten im Blick'),
-      // ('🔄', 'Partner-Sync', 'Daten mit Partner teilen'),
+      ('🔄', 'Partner-Sync', 'Daten mit Partner teilen'),
     ];
 
     return Padding(
