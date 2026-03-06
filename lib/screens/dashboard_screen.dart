@@ -7,10 +7,10 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/profile_providers.dart';
-// Smart Validation Imports
 import '../mixins/smart_form_validation_mixin.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../widgets/forms/smart_date_picker.dart';
+import '../sync/screens/sync_status_widget.dart';
 
 class DashboardPage extends StatefulWidget {
   final DateTime? weddingDate;
@@ -44,7 +44,6 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => DashboardPageState();
 }
 
-// ⚠️ State-Klasse ist PUBLIC (kein Unterstrich) damit GlobalKey funktioniert
 class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
   List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
@@ -57,8 +56,8 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
       'confirmed': 0,
       'declined': 0,
       'pending': 0,
-      'totalPersons': 0, // ← NEU: Gäste + Kinder
-      'totalChildren': 0, // ← NEU: nur Kinder
+      'totalPersons': 0,
+      'totalChildren': 0,
     },
     'tasks': {'total': 0, 'completed': 0},
   };
@@ -76,8 +75,6 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
     super.dispose();
   }
 
-  /// Öffentliche Methode – wird vom Parent via GlobalKey aufgerufen
-  /// wenn der Dashboard-Tab aktiviert wird.
   void reload() {
     _loadDashboardData();
   }
@@ -86,7 +83,6 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
     final now = DateTime.now();
     final midnight = DateTime(now.year, now.month, now.day + 1);
     final timeUntilMidnight = midnight.difference(now);
-
     _midnightTimer = Timer(timeUntilMidnight, () {
       if (mounted) setState(() {});
       _scheduleMidnightRefresh();
@@ -96,7 +92,6 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
   @override
   void didUpdateWidget(DashboardPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Tasks und Guests kommen als Props – bei Änderung Stats neu berechnen
     if (oldWidget.tasks != widget.tasks || oldWidget.guests != widget.guests) {
       _calculateStats();
     }
@@ -109,9 +104,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
       setState(() {
         _budgetItems = items;
       });
-
       _calculateStats();
-
       setState(() {
         _isLoading = false;
       });
@@ -144,16 +137,13 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
         .where((g) => g.confirmed == 'pending')
         .length;
 
-    // ── NEU: Kinder-Statistiken ──────────────────────────────────
     int totalChildren = widget.guests.fold(
       0,
       (sum, g) => sum + g.childrenCount,
     );
-    // Gesamt-Personen = alle Gäste (inkl. Absagen ausblenden) + Kinder
     int confirmedPersons = widget.guests
         .where((g) => g.confirmed == 'yes')
         .fold(0, (sum, g) => sum + g.totalPersons);
-    // ─────────────────────────────────────────────────────────────
 
     int completedTasks = widget.tasks.where((t) => t.completed).length;
 
@@ -170,8 +160,8 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
           'confirmed': confirmedGuests,
           'declined': declinedGuests,
           'pending': pendingGuests,
-          'totalPersons': confirmedPersons, // ← NEU
-          'totalChildren': totalChildren, // ← NEU
+          'totalPersons': confirmedPersons,
+          'totalChildren': totalChildren,
         },
         'tasks': {'total': widget.tasks.length, 'completed': completedTasks},
       };
@@ -265,6 +255,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
             borderRadius: BorderRadius.circular(24),
             child: Stack(
               children: [
+                // Hintergrundbild
                 if (imagePath != null)
                   Positioned.fill(
                     child: Image.file(File(imagePath), fit: BoxFit.cover),
@@ -299,6 +290,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                       ),
                     ),
                   ),
+                // Haupt-Inhalt
                 Padding(
                   padding: const EdgeInsets.all(32.0),
                   child: Column(
@@ -409,6 +401,12 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                       ),
                     ],
                   ),
+                ),
+                // ── Sync-Status oben rechts ──────────────────────
+                const Positioned(
+                  top: 12,
+                  right: 12,
+                  child: SyncStatusWidget(compact: true),
                 ),
               ],
             ),
@@ -679,7 +677,6 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
     );
   }
 
-  // ── NEU: Gäste-Card mit Kinder-Anzeige ──────────────────────────────────
   Widget _buildGuestsCard() {
     final guestData = _stats['guests'];
     final int totalChildren = guestData['totalChildren'] as int;
@@ -727,7 +724,6 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                 _buildGuestStat('${guestData['total']}', 'Gesamt', Colors.grey),
               ],
             ),
-            // ── NEU: Kinder + Personen-Zeile ──────────────────────
             if (hasChildren) ...[
               const SizedBox(height: 12),
               Container(
@@ -764,14 +760,12 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                 ),
               ),
             ],
-            // ─────────────────────────────────────────────────────
           ],
         ),
       ),
     );
   }
 
-  // Hilfsmethode für einzelne Gäste-Statistik-Spalte
   Widget _buildGuestStat(String value, String label, Color color) {
     return Column(
       children: [
@@ -787,7 +781,6 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
       ],
     );
   }
-  // ────────────────────────────────────────────────────────────────────────────
 
   Widget _buildTasksCard() {
     final taskData = _stats['tasks'];
@@ -1130,9 +1123,7 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
       _brideController.text.trim(),
       _groomController.text.trim(),
     );
-
     Navigator.of(context).pop();
-
     Future.microtask(() {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1186,12 +1177,9 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                  if (value == null || value.trim().isEmpty)
                     return 'Name der Braut ist erforderlich';
-                  }
-                  if (value.trim().length < 2) {
-                    return 'Mindestens 2 Zeichen';
-                  }
+                  if (value.trim().length < 2) return 'Mindestens 2 Zeichen';
                   return null;
                 },
                 textInputAction: TextInputAction.next,
@@ -1205,12 +1193,9 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
+                  if (value == null || value.trim().isEmpty)
                     return 'Name des Bräutigams ist erforderlich';
-                  }
-                  if (value.trim().length < 2) {
-                    return 'Mindestens 2 Zeichen';
-                  }
+                  if (value.trim().length < 2) return 'Mindestens 2 Zeichen';
                   return null;
                 },
                 textInputAction: TextInputAction.done,
@@ -1222,23 +1207,16 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                 isRequired: true,
                 selectedDate: _selectedWeddingDate,
                 onDateSelected: (date) {
-                  if (mounted) {
-                    setState(() {
-                      _selectedWeddingDate = date;
-                    });
-                  }
+                  if (mounted) setState(() => _selectedWeddingDate = date);
                 },
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 firstDate: DateTime.now(),
                 lastDate: DateTime.now().add(const Duration(days: 1095)),
                 validator: (date) {
-                  if (date == null) {
-                    return 'Hochzeitsdatum ist erforderlich';
-                  }
-                  if (date.isBefore(DateTime.now())) {
+                  if (date == null) return 'Hochzeitsdatum ist erforderlich';
+                  if (date.isBefore(DateTime.now()))
                     return 'Datum muss in der Zukunft liegen';
-                  }
                   return null;
                 },
               ),

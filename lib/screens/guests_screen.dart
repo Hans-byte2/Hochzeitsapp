@@ -8,6 +8,7 @@ import '../services/guest_scoring_service.dart'; // ← Scoring Service
 import '../mixins/smart_form_validation_mixin.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../widgets/forms/smart_dropdown.dart';
+import '../sync/services/sync_service.dart'; // ← NEU: Sync
 
 class GuestPage extends StatefulWidget {
   final List<Guest> guests;
@@ -57,6 +58,13 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 
   // Sortierung
   String _sortBy = 'name'; // 'name' | 'score' | 'status'
+
+  // ── NEU: Sync-Helper ──────────────────────────────────────────────────────
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
 
   @override
   void dispose() {
@@ -184,6 +192,8 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 
     _resetForm();
     Navigator.pop(context);
+
+    _syncNow(); // ← NEU: Sync nach Speichern
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -874,7 +884,10 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                       Text('Löschen', style: TextStyle(color: Colors.red)),
                     ],
                   ),
-                  onTap: () => widget.onDeleteGuest(guest.id!),
+                  onTap: () {
+                    widget.onDeleteGuest(guest.id!);
+                    _syncNow(); // ← NEU: Sync nach Löschen
+                  },
                 ),
               ],
             ),

@@ -8,6 +8,7 @@ import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/table_suggestion_service.dart';
 import 'table_suggestion_screen.dart';
+import '../sync/services/sync_service.dart'; // ← NEU: Sync
 
 class TischplanungPage extends StatefulWidget {
   final List<Guest> guests;
@@ -31,6 +32,13 @@ class _TischplanungPageState extends State<TischplanungPage> {
   String newTableCategories = '';
 
   final _db = DatabaseHelper.instance;
+
+  // ← NEU: Sync
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
 
   @override
   void initState() {
@@ -132,6 +140,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                 );
               }
             }
+            _syncNow(); // ← NEU
             if (mounted) setState(() {});
           },
           onUndoSuggestion: (Map<int, int?> snapshot) async {
@@ -144,6 +153,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                 );
               }
             }
+            _syncNow(); // ← NEU
             if (mounted) setState(() {});
           },
         ),
@@ -198,12 +208,14 @@ class _TischplanungPageState extends State<TischplanungPage> {
 
     final updatedGuest = guest.copyWith(tableNumber: tableNumber);
     await widget.onUpdateGuest(updatedGuest);
+    _syncNow(); // ← NEU
     return true;
   }
 
   Future<void> _removeGuestFromTable(Guest guest) async {
     final updatedGuest = guest.copyWith(tableNumber: 0);
     await widget.onUpdateGuest(updatedGuest);
+    _syncNow(); // ← NEU
   }
 
   Future<void> _addTable() async {
@@ -234,6 +246,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
           newTableSeats = 8;
           newTableCategories = '';
         });
+      _syncNow(); // ← NEU
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
@@ -269,6 +282,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                   setState(() {
                     tables.removeWhere((t) => t.id == tableId);
                   });
+                _syncNow(); // ← NEU
                 if (mounted) Navigator.pop(builderContext);
               },
               style: ElevatedButton.styleFrom(
@@ -557,6 +571,7 @@ class _TischplanungPageState extends State<TischplanungPage> {
                           );
                         }
                       });
+                      _syncNow(); // ← NEU
                       Navigator.pop(ctx);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -1389,7 +1404,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
                               ],
                             ),
                           ),
-                          // ── NEU: KI-Vorschlag Button ──────────────
                           IconButton(
                             onPressed: _openSuggestion,
                             icon: const Icon(Icons.auto_awesome, size: 20),
@@ -1400,7 +1414,6 @@ class _TischplanungPageState extends State<TischplanungPage> {
                             ),
                           ),
                           const SizedBox(width: 4),
-                          // ─────────────────────────────────────────
                           IconButton(
                             onPressed: _showExportDialog,
                             icon: const Icon(Icons.share, size: 20),

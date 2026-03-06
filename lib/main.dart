@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io'; // ← NEU
 
 // Core / Theme
 import 'services/theme_providers.dart';
@@ -23,12 +24,27 @@ import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
 import 'screens/settings_page.dart';
 import 'screens/onboarding_screen.dart'; // ← NEU
+// Sync
 
+import 'sync/services/sync_service.dart';
 // Debug
 import 'utils/error_logger.dart';
 
+// ── SSL-Fix für Emulator-Tests (vor Release entfernen!) ──────────────────────
+class _DevHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  HttpOverrides.global = _DevHttpOverrides(); // ← NEU: SSL-Fix
 
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
@@ -36,6 +52,11 @@ Future<void> main() async {
   // ── NEU: Onboarding-Status prüfen ────────────────────────
   final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
   // ─────────────────────────────────────────────────────────
+
+  // Sync initialisieren (non-blocking!)
+  SyncService.instance.initialize().catchError((e) {
+    print('Sync-Init fehlgeschlagen: $e');
+  });
 
   runApp(
     ProviderScope(
@@ -108,6 +129,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   bool _isLoading = true;
 
   Key _budgetPageKey = UniqueKey();
+  Key _tablePageKey = UniqueKey(); // ← NEU
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
@@ -120,6 +142,24 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     super.initState();
     ErrorLogger.info('App gestartet');
     _loadData();
+    // ← NEU: Auf eingehende Sync-Daten lauschen
+    SyncService.instance.addListener(_onSyncDataReceived);
+  }
+
+  // ← NEU: Wird aufgerufen wenn Partner Daten schickt
+  void _onSyncDataReceived() {
+    debugPrint('Sync-Event → lade Daten neu');
+    _loadData();
+    setState(() {
+      _budgetPageKey = UniqueKey();
+      _tablePageKey = UniqueKey(); // ← NEU
+    });
+  }
+
+  @override
+  void dispose() {
+    SyncService.instance.removeListener(_onSyncDataReceived); // ← NEU
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -402,7 +442,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onUpdateGuest: _updateGuest,
         onDeleteGuest: _deleteGuest,
       ),
-      TischplanungPage(guests: _guests, onUpdateGuest: _updateGuest),
+      TischplanungPage(
+        key: _tablePageKey, // ← NEU
+        guests: _guests,
+        onUpdateGuest: _updateGuest,
+      ),
       EnhancedBudgetPage(key: _budgetPageKey),
       TaskPage(
         key: _taskPageKey,
