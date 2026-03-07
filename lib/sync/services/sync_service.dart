@@ -1,9 +1,6 @@
 // lib/sync/services/sync_service.dart
 // ═══════════════════════════════════════════════════════════════
 // SYNC SERVICE – HAUPT-ORCHESTRATOR
-// Verbindet SyncRepository + SupabaseSignaling.
-// Dieser Service ist der einzige Einstiegspunkt für den Rest
-// der App. Alle anderen Sync-Klassen sind intern.
 // ═══════════════════════════════════════════════════════════════
 
 import 'dart:async';
@@ -40,7 +37,6 @@ class SyncService extends ChangeNotifier {
   Future<void> initialize() async {
     SyncLogger.info('SyncService wird initialisiert...');
 
-    // Callbacks registrieren
     _signaling.onMessageReceived = _onPayloadReceived;
     _signaling.onPartnerStatusChanged = _onPartnerStatusChanged;
 
@@ -68,12 +64,10 @@ class SyncService extends ChangeNotifier {
 
   // ── Pairing ──────────────────────────────────────────────────
 
-  /// Erstellt einen Pairing-Code. UI zeigt diesen an.
   Future<String> createPairingCode() async {
     return _signaling.createPairingCode();
   }
 
-  /// Wartet auf Partner. Gibt PairInfo zurück wenn erfolgreich.
   Future<PairInfo?> waitForPartner(String code) async {
     final pairInfo = await _signaling.waitForPartner(code);
     if (pairInfo != null) {
@@ -82,7 +76,6 @@ class SyncService extends ChangeNotifier {
     return pairInfo;
   }
 
-  /// Löst einen Code ein (Partner B).
   Future<PairInfo?> joinWithCode(String code) async {
     final pairInfo = await _signaling.joinWithCode(code);
     if (pairInfo != null) {
@@ -97,7 +90,6 @@ class SyncService extends ChangeNotifier {
       _status.copyWith(connectionState: SyncConnectionState.connected),
     );
     _startAutoSync();
-    // Sofort einen Full-Sync durchführen
     syncNow(fullSync: true);
   }
 
@@ -108,9 +100,11 @@ class SyncService extends ChangeNotifier {
     SyncLogger.info('Pairing aufgehoben');
   }
 
-  // ── Sync ─────────────────────────────────────────────────────
+  // ── Sync senden ──────────────────────────────────────────────
 
-  /// Manueller Sync-Auslöser.
+  /// Sendet lokale Änderungen an den Partner.
+  /// Verwendet ausschließlich _lastSentKey – wird NICHT durch
+  /// empfangene Daten zurückgesetzt.
   Future<void> syncNow({bool fullSync = false}) async {
     if (!isPaired) {
       SyncLogger.info('Kein Pairing – Sync übersprungen');
@@ -125,17 +119,14 @@ class SyncService extends ChangeNotifier {
     _setStatus(_status.copyWith(connectionState: SyncConnectionState.syncing));
 
     try {
-      final lastSyncedAt = fullSync
-          ? null
-          : await _repository.getLastSyncedAt();
+      // Letzten Sende-Zeitpunkt laden (getrennt vom Empfangs-Zeitpunkt!)
+      final lastSentAt = fullSync ? null : await _repository.getLastSyncedAt();
 
-      // Lokale Änderungen laden
-      final records = await _repository.getChangedRecords(since: lastSyncedAt);
+      final records = await _repository.getChangedRecords(since: lastSentAt);
 
       if (records.isEmpty && !fullSync) {
-        SyncLogger.info('Keine lokalen Änderungen');
+        SyncLogger.info('Keine lokalen Änderungen seit $lastSentAt');
       } else {
-        // Payload erstellen und senden
         final myDeviceId = await _signaling.getOrCreateDeviceId();
         final payload = SyncPayload(
           senderDeviceId: myDeviceId,
@@ -150,7 +141,7 @@ class SyncService extends ChangeNotifier {
         );
       }
 
-      // Sync-Zeit aktualisieren
+      // NUR Sende-Timestamp aktualisieren
       final now = DateTime.now().toIso8601String();
       await _repository.setLastSyncedAt(now);
 
@@ -185,7 +176,6 @@ class SyncService extends ChangeNotifier {
     );
 
     if (payload.type == SyncPayloadType.ping) {
-      // Pong zurücksenden
       final myDeviceId = await _signaling.getOrCreateDeviceId();
       await _signaling.sendPayload(
         SyncPayload(
@@ -199,7 +189,6 @@ class SyncService extends ChangeNotifier {
     }
 
     if (payload.type == SyncPayloadType.requestFull) {
-      // Partner möchte Full-Sync → senden
       await syncNow(fullSync: true);
       return;
     }
@@ -212,8 +201,10 @@ class SyncService extends ChangeNotifier {
       notifyListeners();
     }
 
-    // Sync-Zeit aktualisieren
-    await _repository.setLastSyncedAt(DateTime.now().toIso8601String());
+    // ⚠️ KEIN setLastSyncedAt hier! Das würde den Sende-Timestamp
+    // überschreiben und Gerät B würde danach seine eigenen Änderungen
+    // nicht mehr als "neu" erkennen → Richtungsfehler.
+    // Der Empfangs-Timestamp wird in applyRecords() selbst gesetzt.
 
     _setStatus(_status.copyWith(lastSyncAt: DateTime.now()));
   }
@@ -230,7 +221,6 @@ class SyncService extends ChangeNotifier {
       ),
     );
 
-    // Partner ist gerade online gekommen → sofort syncen
     if (isOnline && !_isSyncing) {
       syncNow();
     }

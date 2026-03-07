@@ -1,21 +1,14 @@
 // lib/sync/models/sync_models.dart
-// ═══════════════════════════════════════════════════════════════
-// SYNC DATENMODELLE
-// Alle Datenstrukturen die für den Partner-Sync benötigt werden.
-// ═══════════════════════════════════════════════════════════════
-
 import 'dart:convert';
 
-// ────────────────────────────────────────────────────────────────
-// SyncTable: Alle syncbaren Tabellen
-// ────────────────────────────────────────────────────────────────
 enum SyncTable {
   guests,
   tasks,
   budgetItems,
   tables,
   weddingData,
-} // ← NEU: weddingData
+  dienstleister, // ← NEU
+}
 
 extension SyncTableExtension on SyncTable {
   String get dbName {
@@ -28,21 +21,22 @@ extension SyncTableExtension on SyncTable {
         return 'budget_items';
       case SyncTable.tables:
         return 'tables';
-      case SyncTable.weddingData: // ← NEU
+      case SyncTable.weddingData:
         return 'wedding_data';
+      case SyncTable.dienstleister:
+        return 'dienstleister';
     }
   }
+
+  /// Dienstleister nutzen String-IDs (UUID-ähnlich), alle anderen Integer-IDs.
+  bool get hasStringId => this == SyncTable.dienstleister;
 }
 
-// ────────────────────────────────────────────────────────────────
-// SyncRecord: Ein einzelner Datensatz der synchronisiert wird
-// ────────────────────────────────────────────────────────────────
 class SyncRecord {
   final SyncTable table;
   final int localId;
   final Map<String, dynamic> data;
-  final String
-  updatedAt; // ISO8601 – entscheidet bei Konflikten (Last-Write-Wins)
+  final String updatedAt;
   final bool isDeleted;
 
   const SyncRecord({
@@ -77,20 +71,10 @@ class SyncRecord {
   }
 }
 
-// ────────────────────────────────────────────────────────────────
-// SyncPayload: Komplettes Paket das zwischen Geräten übertragen wird
-// ────────────────────────────────────────────────────────────────
 class SyncPayload {
-  /// Geräte-ID des Absenders (zur Konflikt-Erkennung)
   final String senderDeviceId;
-
-  /// Zeitstempel dieser Übertragung
   final String sentAt;
-
-  /// Die eigentlichen Datensätze
   final List<SyncRecord> records;
-
-  /// Typ des Payloads
   final SyncPayloadType type;
 
   const SyncPayload({
@@ -123,31 +107,13 @@ class SyncPayload {
   }
 }
 
-enum SyncPayloadType {
-  /// Nur geänderte Datensätze seit letztem Sync
-  delta,
+enum SyncPayloadType { delta, full, ping, pong, requestFull }
 
-  /// Kompletter Datenbestand (erster Sync / auf Anfrage)
-  full,
-
-  /// Nur ein Ping um Online-Status zu prüfen
-  ping,
-
-  /// Antwort auf einen Ping
-  pong,
-
-  /// Anfrage für einen Full-Sync
-  requestFull,
-}
-
-// ────────────────────────────────────────────────────────────────
-// PairInfo: Informationen über das aktive Pärchen
-// ────────────────────────────────────────────────────────────────
 class PairInfo {
-  final String pairId; // UUID aus Supabase
-  final String myDeviceId; // Eigene Geräte-ID (UUID, lokal generiert)
-  final String partnerDeviceId; // Geräte-ID des Partners
-  final String pairedAt; // ISO8601
+  final String pairId;
+  final String myDeviceId;
+  final String partnerDeviceId;
+  final String pairedAt;
 
   const PairInfo({
     required this.pairId,
@@ -171,26 +137,12 @@ class PairInfo {
   );
 }
 
-// ────────────────────────────────────────────────────────────────
-// SyncStatus: Aktueller Zustand des Sync-Systems
-// ────────────────────────────────────────────────────────────────
 enum SyncConnectionState {
-  /// Kein Pairing vorhanden
   unpaired,
-
-  /// Verbindet gerade
   connecting,
-
-  /// Partner online, bereit zum Sync
   connected,
-
-  /// Partner offline, aber Pairing vorhanden
   partnerOffline,
-
-  /// Sync läuft gerade
   syncing,
-
-  /// Fehler
   error,
 }
 
@@ -224,7 +176,6 @@ class SyncStatus {
   );
 
   bool get isPaired => connectionState != SyncConnectionState.unpaired;
-
   bool get canSync =>
       connectionState == SyncConnectionState.connected ||
       connectionState == SyncConnectionState.partnerOffline;

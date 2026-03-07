@@ -8,16 +8,16 @@ import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
 import '../widgets/forms/smart_text_field.dart';
-import '../sync/services/sync_service.dart'; // ← NEU: Sync
+import '../sync/services/sync_service.dart';
 
 class EnhancedBudgetPage extends StatefulWidget {
   const EnhancedBudgetPage({super.key});
 
   @override
-  State<EnhancedBudgetPage> createState() => _EnhancedBudgetPageState();
+  State<EnhancedBudgetPage> createState() => EnhancedBudgetPageState();
 }
 
-class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
+class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   List<BudgetItem> _budgetItems = [];
   bool _isLoading = true;
   bool _showForm = false;
@@ -63,12 +63,21 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   String _formatCurrency(double amount) => _currencyFormat.format(amount);
 
-  // ← NEU: Sync
   void _syncNow() {
     SyncService.instance.syncNow().catchError((e) {
       debugPrint('Sync-Fehler: $e');
     });
   }
+
+  // ── NEU: Gezieltes Reload für GlobalKey-Zugriff aus main.dart ────────────
+  /// Wird von main.dart über GlobalKey<EnhancedBudgetPageState> aufgerufen.
+  /// Lädt Budget-Items und Gesamtbudget neu – OHNE den Widget-Tree zu zerstören.
+  /// Dadurch kein Flackern beim Sync-Empfang.
+  void reload() {
+    _loadBudgetItems();
+    _loadTotalBudget();
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -114,7 +123,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     try {
       await DatabaseHelper.instance.setTotalBudget(budget);
       if (mounted) setState(() => _totalBudget = budget);
-      _syncNow(); // ← NEU
+      _syncNow();
     } catch (e) {
       debugPrint('Fehler beim Speichern des Gesamtbudgets: $e');
     }
@@ -376,7 +385,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         item.copyWith(paid: !currentPaidStatus),
       );
       await _loadBudgetItems();
-      _syncNow(); // ← NEU
+      _syncNow();
     } catch (e) {
       debugPrint('Fehler beim Aktualisieren des Bezahlt-Status: $e');
     }
@@ -408,7 +417,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         _showForm = false;
       });
       await _loadBudgetItems();
-      _syncNow(); // ← NEU
+      _syncNow();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -438,7 +447,7 @@ class _EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         categoryLabels: _categoryLabels,
         onSave: () {
           _loadBudgetItems();
-          _syncNow(); // ← NEU
+          _syncNow();
         },
       ),
     );
@@ -1196,7 +1205,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
           paid: _isPaid,
         ),
       );
-      widget.onSave(); // onSave ruft jetzt auch _syncNow() auf ← NEU
+      widget.onSave();
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1225,7 +1234,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
   Future<void> _delete() async {
     try {
       await DatabaseHelper.instance.deleteBudgetItem(widget.item.id!);
-      widget.onSave(); // onSave ruft jetzt auch _syncNow() auf ← NEU
+      widget.onSave();
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(

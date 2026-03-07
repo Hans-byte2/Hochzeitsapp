@@ -6,8 +6,8 @@ import 'dienstleister_detail_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
-// Smart Validation Imports
 import '../widgets/forms/smart_text_field.dart';
+import '../sync/services/sync_service.dart'; // ← NEU
 
 class DienstleisterListScreen extends StatefulWidget {
   const DienstleisterListScreen({Key? key}) : super(key: key);
@@ -28,6 +28,14 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
   final ScrollController _scrollController = ScrollController();
   final Map<DienstleisterKategorie, GlobalKey> _kategorieKeys = {};
+
+  // ── Sync ─────────────────────────────────────────────────────────────────
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   String _formatCurrency(double amount) {
     return _currencyFormat.format(amount);
@@ -60,7 +68,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Fehler beim Laden: $e');
+      debugPrint('Fehler beim Laden: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -194,7 +202,10 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
       context: context,
       builder: (context) => _DienstleisterFormDialog(
         dienstleister: dienstleister,
-        onSave: () => _loadData(),
+        onSave: () {
+          _loadData();
+          _syncNow(); // ← NEU
+        },
       ),
     );
   }
@@ -227,6 +238,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         await DienstleisterDatabase.instance.deleteDienstleister(
           dienstleister.id,
         );
+        _syncNow(); // ← NEU
         await _loadData();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -316,11 +328,8 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-
       await PdfExportService.exportServiceProvidersToPdf(_alleDienstleister);
-
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -338,7 +347,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -365,13 +373,10 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-
       await ExcelExportService.exportServiceProvidersToExcel(
         _alleDienstleister,
       );
-
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -389,7 +394,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -416,14 +420,12 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         barrierDismissible: false,
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
-
       final result = await ExcelExportService.importServiceProvidersFromExcel();
-
       if (mounted) Navigator.pop(context);
 
       if (result != null) {
+        _syncNow(); // ← NEU
         await _loadData();
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -433,7 +435,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      '${result['imported']} Dienstleister erfolgreich importiert! (${result['skipped']} übersprungen)',
+                      '${result['imported']} Dienstleister importiert! (${result['skipped']} übersprungen)',
                     ),
                   ),
                 ],
@@ -446,7 +448,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -485,7 +486,6 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -622,10 +622,10 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                           children: kategorieStats.entries.map((entry) {
                             final kategorie = entry.key;
                             final data = entry.value;
-                            final prozent = stats['gesamtkosten'] > 0
-                                ? (data['gesamtkosten'] /
-                                      stats['gesamtkosten'] *
-                                      100)
+                            final gesamtkosten =
+                                stats['gesamtkosten'] as double;
+                            final prozent = gesamtkosten > 0
+                                ? (data['gesamtkosten'] / gesamtkosten * 100)
                                 : 0.0;
 
                             return InkWell(
@@ -675,7 +675,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                                             ),
                                           ),
                                           Text(
-                                            '${data['dienstleister'].length} Dienstleister',
+                                            '${(data['dienstleister'] as List).length} Dienstleister',
                                             style: TextStyle(
                                               fontSize: 10,
                                               color: Colors.grey.shade600,
@@ -689,7 +689,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                                           CrossAxisAlignment.end,
                                       children: [
                                         Text(
-                                          '€${_formatCurrency(data['gesamtkosten'])}',
+                                          '€${_formatCurrency(data['gesamtkosten'] as double)}',
                                           style: const TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 12,
@@ -825,10 +825,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                                 _selectedKategorien.remove(kategorie);
                               }
                             });
-
-                            if (selected) {
-                              _scrollToKategorie(kategorie);
-                            }
+                            if (selected) _scrollToKategorie(kategorie);
                           },
                         );
                       }).toList(),
@@ -846,7 +843,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                     child: Text(
                       _alleDienstleister.isEmpty
                           ? 'Noch keine Dienstleister hinzugefügt.'
-                          : 'Keine Dienstleister gefunden, die den Kriterien entsprechen.',
+                          : 'Keine Dienstleister gefunden.',
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
                   ),
@@ -894,7 +891,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
-                                    '${gefiltert.length} Dienstleister • €${_formatCurrency(data['gesamtkosten'])}',
+                                    '${gefiltert.length} Dienstleister • €${_formatCurrency(data['gesamtkosten'] as double)}',
                                     style: const TextStyle(fontSize: 12),
                                   ),
                                 ),
@@ -907,11 +904,8 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
                             child: ListView.builder(
                               padding: const EdgeInsets.all(16),
                               itemCount: gefiltert.length,
-                              itemBuilder: (context, index) {
-                                return _buildDienstleisterListItem(
-                                  gefiltert[index],
-                                );
-                              },
+                              itemBuilder: (context, index) =>
+                                  _buildDienstleisterListItem(gefiltert[index]),
                             ),
                           ),
                         ],
@@ -1164,7 +1158,7 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
 }
 
 // ============================================================================
-// DIENSTLEISTER FORM DIALOG - Mit Smart Validation
+// DIENSTLEISTER FORM DIALOG
 // ============================================================================
 
 class _DienstleisterFormDialog extends StatefulWidget {
@@ -1234,20 +1228,11 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
   }
 
   void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) {
-      setState(() {
-        _fieldValidation[fieldKey] = isValid;
-      });
-    }
+    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
 
-  bool get _areAllFieldsValid {
-    return _fieldValidation['name'] ?? false;
-  }
-
-  int get _validFieldsCount {
-    return _fieldValidation['name'] == true ? 1 : 0;
-  }
+  bool get _areAllFieldsValid => _fieldValidation['name'] ?? false;
+  int get _validFieldsCount => _fieldValidation['name'] == true ? 1 : 0;
 
   Future<void> _save() async {
     if (!_areAllFieldsValid) return;
@@ -1281,7 +1266,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
       await DienstleisterDatabase.instance.createDienstleister(dienstleister);
     }
 
-    widget.onSave();
+    widget.onSave(); // enthält _syncNow() vom Aufrufer
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1336,7 +1321,6 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Fortschrittsanzeige
                     LinearProgressIndicator(
                       value: _validFieldsCount / 1.0,
                       backgroundColor: Colors.grey[200],
@@ -1350,8 +1334,6 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     ),
                     const SizedBox(height: 16),
-
-                    // Name - PFLICHT
                     SmartTextField(
                       label: 'Name',
                       fieldKey: 'name',
@@ -1360,20 +1342,15 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       onValidationChanged: _updateFieldValidation,
                       isDisabled: false,
                       validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
+                        if (value == null || value.trim().isEmpty)
                           return 'Name ist erforderlich';
-                        }
-                        if (value.trim().length < 2) {
+                        if (value.trim().length < 2)
                           return 'Mindestens 2 Zeichen';
-                        }
                         return null;
                       },
                       textInputAction: TextInputAction.next,
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Kategorie
                     DropdownButtonFormField<DienstleisterKategorie>(
                       value: _kategorie,
                       decoration: const InputDecoration(
@@ -1390,10 +1367,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                           .toList(),
                       onChanged: (v) => setState(() => _kategorie = v!),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Status
                     DropdownButtonFormField<DienstleisterStatus>(
                       value: _status,
                       decoration: const InputDecoration(
@@ -1410,10 +1384,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                           .toList(),
                       onChanged: (v) => setState(() => _status = v!),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Angebotssumme
                     SmartTextField(
                       label: 'Angebotssumme (€)',
                       fieldKey: 'angebot',
@@ -1425,21 +1396,14 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       validator: (value) {
                         if (value != null && value.trim().isNotEmpty) {
                           final parsed = double.tryParse(value.trim());
-                          if (parsed == null) {
-                            return 'Ungültige Zahl';
-                          }
-                          if (parsed < 0) {
-                            return 'Betrag muss positiv sein';
-                          }
+                          if (parsed == null) return 'Ungültige Zahl';
+                          if (parsed < 0) return 'Betrag muss positiv sein';
                         }
                         return null;
                       },
                       textInputAction: TextInputAction.next,
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Ansprechpartner
                     SmartTextField(
                       label: 'Ansprechpartner',
                       fieldKey: 'kontakt_name',
@@ -1449,10 +1413,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       isDisabled: false,
                       textInputAction: TextInputAction.next,
                     ),
-
                     const SizedBox(height: 16),
-
-                    // E-Mail & Telefon
                     Row(
                       children: [
                         Expanded(
@@ -1469,9 +1430,8 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                                 final emailRegex = RegExp(
                                   r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
                                 );
-                                if (!emailRegex.hasMatch(value.trim())) {
+                                if (!emailRegex.hasMatch(value.trim()))
                                   return 'Ungültige E-Mail';
-                                }
                               }
                               return null;
                             },
@@ -1493,10 +1453,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Website & Instagram
                     Row(
                       children: [
                         Expanded(
@@ -1525,10 +1482,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Option gültig bis
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Option gültig bis'),
@@ -1548,16 +1502,11 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                               const Duration(days: 365),
                             ),
                           );
-                          if (date != null) {
-                            setState(() => _optionBis = date);
-                          }
+                          if (date != null) setState(() => _optionBis = date);
                         },
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Notizen
                     SmartTextField(
                       label: 'Notizen',
                       fieldKey: 'notizen',
@@ -1568,10 +1517,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       keyboardType: TextInputType.multiline,
                       textInputAction: TextInputAction.done,
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Favorit
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Als Favorit markieren'),

@@ -22,11 +22,13 @@ class _PairingScreenState extends State<PairingScreen>
   bool _isWaiting = false;
   bool _isJoining = false;
   String? _errorMessage;
+  bool _isPaired = false;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _checkPairingStatus();
   }
 
   @override
@@ -35,6 +37,64 @@ class _PairingScreenState extends State<PairingScreen>
     _codeController.dispose();
     super.dispose();
   }
+
+  Future<void> _checkPairingStatus() async {
+    final status = SyncService.instance.status;
+    setState(() => _isPaired = status.isPaired);
+  }
+
+  // ── Pairing aufheben ─────────────────────────────────────────────────────
+  Future<void> _unpair() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Verbindung trennen?'),
+        content: const Text(
+          'Die Verbindung zum Partner wird getrennt.\n\n'
+          'Deine lokalen Daten bleiben erhalten. '
+          'Du kannst jederzeit neu verbinden.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Trennen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await SyncService.instance.unpair();
+      setState(() {
+        _isPaired = false;
+        _generatedCode = null;
+        _isWaiting = false;
+        _errorMessage = null;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verbindung getrennt'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        Navigator.of(context).pop(false);
+      }
+    } catch (e) {
+      setState(() => _errorMessage = 'Fehler beim Trennen: $e');
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _createCode() async {
     setState(() {
@@ -132,9 +192,73 @@ class _PairingScreenState extends State<PairingScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [_buildCreateTab(), _buildJoinTab()],
+      body: Column(
+        children: [
+          // ── Aktueller Status + Trennen-Button ──────────────────────────
+          _buildStatusBanner(),
+          // ── Tab-Inhalt ─────────────────────────────────────────────────
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [_buildCreateTab(), _buildJoinTab()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Zeigt den aktuellen Verbindungsstatus und den Trennen-Button wenn gepairt.
+  Widget _buildStatusBanner() {
+    final status = SyncService.instance.status;
+    final isPaired = status.isPaired;
+
+    if (!isPaired) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Colors.grey.shade100,
+        child: Row(
+          children: [
+            Icon(Icons.link_off, size: 16, color: Colors.grey.shade600),
+            const SizedBox(width: 8),
+            Text(
+              'Kein Partner verbunden',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: Colors.green.shade50,
+      child: Row(
+        children: [
+          Icon(Icons.link, size: 16, color: Colors.green.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Partner verbunden',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.green.shade700,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _unpair,
+            icon: const Icon(Icons.link_off, size: 16),
+            label: const Text('Trennen', style: TextStyle(fontSize: 13)),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -239,6 +363,16 @@ class _PairingScreenState extends State<PairingScreen>
               Text(
                 'Warte auf Partner...',
                 style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _generatedCode = null;
+                    _isWaiting = false;
+                  });
+                },
+                child: const Text('Abbrechen'),
               ),
             ],
           ],

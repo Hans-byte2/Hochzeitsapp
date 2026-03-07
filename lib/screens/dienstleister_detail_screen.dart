@@ -3,6 +3,7 @@ import '../models/dienstleister_models.dart';
 import '../data/dienstleister_database.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
+import '../sync/services/sync_service.dart'; // ← NEU
 
 class DienstleisterDetailScreen extends StatefulWidget {
   final String dienstleisterId;
@@ -24,6 +25,14 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
   bool _isLoading = true;
 
   late TabController _tabController;
+
+  // ── Sync ─────────────────────────────────────────────────────────────────
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -61,7 +70,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
         _isLoading = false;
       });
     } catch (e) {
-      print('Fehler beim Laden: $e');
+      debugPrint('Fehler beim Laden: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -70,6 +79,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     if (_dienstleister == null) return;
     final updated = _dienstleister!.copyWith(status: newStatus);
     await DienstleisterDatabase.instance.updateDienstleister(updated);
+    _syncNow(); // ← NEU
     _loadData();
   }
 
@@ -79,14 +89,13 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
       istFavorit: !_dienstleister!.istFavorit,
     );
     await DienstleisterDatabase.instance.updateDienstleister(updated);
+    _syncNow(); // ← NEU
     _loadData();
   }
 
   Future<void> _launchUrl(String url) async {
     final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
   }
 
   String _formatEuro(double betrag) {
@@ -130,7 +139,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
       ),
       body: Column(
         children: [
-          // Header mit Status
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -198,8 +206,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               ],
             ),
           ),
-
-          // Tabs
           Container(
             color: scheme.surface,
             child: TabBar(
@@ -218,8 +224,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               ],
             ),
           ),
-
-          // Tab Content
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -238,7 +242,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Tab 1: Übersicht
   Widget _buildUebersichtTab() {
     final statusAktionen = _getAvailableStatusActions();
     final scheme = Theme.of(context).colorScheme;
@@ -284,8 +287,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             ),
             const SizedBox(height: 16),
           ],
-
-          // Kontaktdaten
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -342,8 +343,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             ),
           ),
           const SizedBox(height: 16),
-
-          // Bewertung & Tags
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -398,7 +397,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Tab 2: Angebot
   Widget _buildAngebotTab() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -492,7 +490,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Tab 3: Zahlungen
   Widget _buildZahlungenTab() {
     final gesamt = _zahlungen.fold<double>(
       0,
@@ -506,7 +503,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
 
     return Column(
       children: [
-        // Zusammenfassung
         Container(
           padding: const EdgeInsets.all(16),
           color: Colors.grey.shade100,
@@ -519,8 +515,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             ],
           ),
         ),
-
-        // Liste
         Expanded(
           child: _zahlungen.isEmpty
               ? Center(
@@ -543,13 +537,10 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: _zahlungen.length,
-                  itemBuilder: (context, index) {
-                    return _buildZahlungsCard(_zahlungen[index]);
-                  },
+                  itemBuilder: (context, index) =>
+                      _buildZahlungsCard(_zahlungen[index]),
                 ),
         ),
-
-        // Add Button
         Padding(
           padding: const EdgeInsets.all(16),
           child: ElevatedButton.icon(
@@ -567,7 +558,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Tab 4: Ablauf & Logistik
   Widget _buildAblaufTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -652,7 +642,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Tab 5: Kommunikation
   Widget _buildKommunikationTab() {
     final scheme = Theme.of(context).colorScheme;
 
@@ -676,12 +665,10 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               : ListView.builder(
                   padding: const EdgeInsets.all(16),
                   itemCount: _notizen.length,
-                  itemBuilder: (context, index) {
-                    return _buildNotizCard(_notizen[index]);
-                  },
+                  itemBuilder: (context, index) =>
+                      _buildNotizCard(_notizen[index]),
                 ),
         ),
-
         if (_aufgaben.isNotEmpty) ...[
           const Divider(height: 1),
           Container(
@@ -699,7 +686,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             ),
           ),
         ],
-
         Padding(
           padding: const EdgeInsets.all(16),
           child: Row(
@@ -734,7 +720,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Tab 6: Dateien
   Widget _buildDateienTab() {
     return Center(
       child: Column(
@@ -751,7 +736,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Helper Widgets
   Widget _buildInfoRow(
     IconData icon,
     String label,
@@ -759,7 +743,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     VoidCallback? onTap,
   }) {
     final scheme = Theme.of(context).colorScheme;
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -824,6 +807,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
           onChanged: (value) async {
             final updated = zahlung.copyWith(bezahlt: value ?? false);
             await DienstleisterDatabase.instance.updateZahlung(updated);
+            _syncNow(); // ← NEU
             _loadData();
           },
         ),
@@ -857,13 +841,16 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${notiz.erstelltAm.day}.${notiz.erstelltAm.month}.${notiz.erstelltAm.year} ${notiz.erstelltAm.hour}:${notiz.erstelltAm.minute.toString().padLeft(2, '0')}',
+                  '${notiz.erstelltAm.day}.${notiz.erstelltAm.month}.${notiz.erstelltAm.year} '
+                  '${notiz.erstelltAm.hour}:${notiz.erstelltAm.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete, size: 18),
                   onPressed: () async {
                     await DienstleisterDatabase.instance.deleteNotiz(notiz.id);
+                    // Notizen werden nicht separat synchronisiert (kein updated_at),
+                    // aber der Parent-Dienstleister-Timestamp wird nicht berührt.
                     _loadData();
                   },
                   padding: EdgeInsets.zero,
@@ -896,14 +883,16 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     );
   }
 
-  // Dialoge
   void _showZahlungDialog([DienstleisterZahlung? zahlung]) {
     showDialog(
       context: context,
       builder: (context) => _ZahlungDialog(
         dienstleisterId: widget.dienstleisterId,
         zahlung: zahlung,
-        onSave: _loadData,
+        onSave: () {
+          _syncNow(); // ← NEU
+          _loadData();
+        },
       ),
     );
   }
@@ -984,9 +973,7 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                       firstDate: DateTime.now(),
                       lastDate: DateTime.now().add(const Duration(days: 365)),
                     );
-                    if (date != null) {
-                      setState(() => faelligAm = date);
-                    }
+                    if (date != null) setState(() => faelligAm = date);
                   },
                 ),
               ),
@@ -1077,11 +1064,13 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
     tags.remove(tag);
     final updated = _dienstleister!.copyWith(tags: tags);
     await DienstleisterDatabase.instance.updateDienstleister(updated);
+    _syncNow(); // ← NEU
     _loadData();
   }
 }
 
-// Zahlungs-Dialog
+// ── Zahlungs-Dialog ───────────────────────────────────────────────────────────
+
 class _ZahlungDialog extends StatefulWidget {
   final String dienstleisterId;
   final DienstleisterZahlung? zahlung;
@@ -1172,9 +1161,7 @@ class _ZahlungDialogState extends State<_ZahlungDialog> {
                   firstDate: DateTime.now(),
                   lastDate: DateTime.now().add(const Duration(days: 365)),
                 );
-                if (date != null) {
-                  setState(() => _faelligAm = date);
-                }
+                if (date != null) setState(() => _faelligAm = date);
               },
             ),
           ),
@@ -1215,13 +1202,11 @@ class _ZahlungDialogState extends State<_ZahlungDialog> {
                 faelligAm: _faelligAm,
                 bezahlt: _bezahlt,
               );
-
               if (widget.zahlung != null) {
                 await DienstleisterDatabase.instance.updateZahlung(zahlung);
               } else {
                 await DienstleisterDatabase.instance.createZahlung(zahlung);
               }
-
               widget.onSave();
               if (context.mounted) Navigator.pop(context);
             }

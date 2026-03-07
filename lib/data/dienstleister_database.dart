@@ -1,16 +1,18 @@
+// lib/data/dienstleister_database.dart
 import 'package:sqflite/sqflite.dart';
 import 'dart:convert';
 import '../models/dienstleister_models.dart';
 import 'database_helper.dart';
 
 class DienstleisterDatabase {
-  // Singleton pattern
   static final DienstleisterDatabase instance = DienstleisterDatabase._init();
   DienstleisterDatabase._init();
 
-  // Tabellen erstellen
+  // ── Tabellen erstellen ────────────────────────────────────────────────────
+  // Wird von DatabaseHelper beim DB-Upgrade aufgerufen.
+  // updated_at und is_deleted sind für den Partner-Sync notwendig.
+
   static Future<void> createTables(Database db) async {
-    // Dienstleister Tabelle
     await db.execute('''
       CREATE TABLE dienstleister (
         id TEXT PRIMARY KEY,
@@ -32,11 +34,12 @@ class DienstleisterDatabase {
         tags_json TEXT,
         dateien_json TEXT,
         notizen TEXT,
-        ist_favorit INTEGER DEFAULT 0
+        ist_favorit INTEGER DEFAULT 0,
+        updated_at TEXT,
+        is_deleted INTEGER DEFAULT 0
       )
     ''');
 
-    // Zahlungen Tabelle
     await db.execute('''
       CREATE TABLE dienstleister_zahlungen (
         id TEXT PRIMARY KEY,
@@ -50,7 +53,6 @@ class DienstleisterDatabase {
       )
     ''');
 
-    // Notizen Tabelle
     await db.execute('''
       CREATE TABLE dienstleister_notizen (
         id TEXT PRIMARY KEY,
@@ -61,7 +63,6 @@ class DienstleisterDatabase {
       )
     ''');
 
-    // Aufgaben Tabelle
     await db.execute('''
       CREATE TABLE dienstleister_aufgaben (
         id TEXT PRIMARY KEY,
@@ -72,25 +73,44 @@ class DienstleisterDatabase {
         FOREIGN KEY (dienstleister_id) REFERENCES dienstleister (id) ON DELETE CASCADE
       )
     ''');
-
-    // KEINE Demo-Daten mehr einfügen - Tabellen bleiben leer
-    // await seedDienstleisterData(db);
   }
 
-  // Demo-Daten Funktion auskommentiert oder entfernt
-  /*
-  static Future<void> seedDienstleisterData(Database db) async {
-    // Keine Demo-Daten mehr
+  // ── Migration: updated_at + is_deleted nachrüsten ────────────────────────
+  // Wird von DatabaseHelper.onUpgrade() aufgerufen wenn die Tabellen
+  // bereits existieren aber die neuen Felder fehlen.
+  static Future<void> migrateAddSyncColumns(Database db) async {
+    // Prüfen ob updated_at bereits existiert
+    final tableInfo = await db.rawQuery('PRAGMA table_info(dienstleister)');
+    final columns = tableInfo.map((c) => c['name'] as String).toSet();
+
+    if (!columns.contains('updated_at')) {
+      await db.execute("ALTER TABLE dienstleister ADD COLUMN updated_at TEXT");
+      // Bestehende Einträge mit aktuellem Timestamp befüllen
+      final now = DateTime.now().toIso8601String();
+      await db.execute(
+        "UPDATE dienstleister SET updated_at = ? WHERE updated_at IS NULL",
+        [now],
+      );
+    }
+
+    if (!columns.contains('is_deleted')) {
+      await db.execute(
+        "ALTER TABLE dienstleister ADD COLUMN is_deleted INTEGER DEFAULT 0",
+      );
+    }
   }
-  */
 
-  // ==================== CRUD Operationen ====================
-  // Nutzt DatabaseHelper.instance aus main.dart
+  // ── Hilfsmethode: updated_at setzen ──────────────────────────────────────
+  static String _nowIso() => DateTime.now().toIso8601String();
 
-  // Dienstleister
+  // ── CRUD: Dienstleister ───────────────────────────────────────────────────
+
   Future<List<Dienstleister>> getAlleDienstleister() async {
     final db = await DatabaseHelper.instance.database;
-    final result = await db.query('dienstleister');
+    final result = await db.query(
+      'dienstleister',
+      where: 'is_deleted = 0 OR is_deleted IS NULL',
+    );
     return result.map((map) => Dienstleister.fromMap(map)).toList();
   }
 
@@ -98,7 +118,7 @@ class DienstleisterDatabase {
     final db = await DatabaseHelper.instance.database;
     final result = await db.query(
       'dienstleister',
-      where: 'id = ?',
+      where: 'id = ? AND (is_deleted = 0 OR is_deleted IS NULL)',
       whereArgs: [id],
     );
     return result.isNotEmpty ? Dienstleister.fromMap(result.first) : null;
@@ -106,26 +126,39 @@ class DienstleisterDatabase {
 
   Future<String> createDienstleister(Dienstleister dienstleister) async {
     final db = await DatabaseHelper.instance.database;
-    await db.insert('dienstleister', dienstleister.toMap());
+    final map = dienstleister.toMap();
+    map['updated_at'] = _nowIso();
+    map['is_deleted'] = 0;
+    await db.insert('dienstleister', map);
     return dienstleister.id;
   }
 
   Future<void> updateDienstleister(Dienstleister dienstleister) async {
     final db = await DatabaseHelper.instance.database;
+    final map = dienstleister.toMap();
+    map['updated_at'] = _nowIso();
     await db.update(
       'dienstleister',
-      dienstleister.toMap(),
+      map,
       where: 'id = ?',
       whereArgs: [dienstleister.id],
     );
   }
 
+  /// Soft-Delete: setzt is_deleted=1 und updated_at, damit der Partner
+  /// den Löschvorgang per Sync empfangen kann.
   Future<void> deleteDienstleister(String id) async {
     final db = await DatabaseHelper.instance.database;
-    await db.delete('dienstleister', where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'dienstleister',
+      {'is_deleted': 1, 'updated_at': _nowIso()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
-  // Zahlungen
+  // ── CRUD: Zahlungen ───────────────────────────────────────────────────────
+
   Future<List<DienstleisterZahlung>> getZahlungenFuer(
     String dienstleisterId,
   ) async {
@@ -169,7 +202,8 @@ class DienstleisterDatabase {
     );
   }
 
-  // Notizen
+  // ── CRUD: Notizen ─────────────────────────────────────────────────────────
+
   Future<List<DienstleisterNotiz>> getNotizenFuer(
     String dienstleisterId,
   ) async {
@@ -193,7 +227,8 @@ class DienstleisterDatabase {
     await db.delete('dienstleister_notizen', where: 'id = ?', whereArgs: [id]);
   }
 
-  // Aufgaben
+  // ── CRUD: Aufgaben ────────────────────────────────────────────────────────
+
   Future<List<DienstleisterAufgabe>> getAufgabenFuer(
     String dienstleisterId,
   ) async {

@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io'; // ← NEU
+import 'dart:io';
 
 // Core / Theme
 import 'services/theme_providers.dart';
@@ -23,10 +23,11 @@ import 'screens/tasks_screen.dart';
 import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
 import 'screens/settings_page.dart';
-import 'screens/onboarding_screen.dart'; // ← NEU
-// Sync
+import 'screens/onboarding_screen.dart';
 
+// Sync
 import 'sync/services/sync_service.dart';
+
 // Debug
 import 'utils/error_logger.dart';
 
@@ -44,16 +45,13 @@ class _DevHttpOverrides extends HttpOverrides {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  HttpOverrides.global = _DevHttpOverrides(); // ← NEU: SSL-Fix
+  HttpOverrides.global = _DevHttpOverrides();
 
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
 
-  // ── NEU: Onboarding-Status prüfen ────────────────────────
   final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
-  // ─────────────────────────────────────────────────────────
 
-  // Sync initialisieren (non-blocking!)
   SyncService.instance.initialize().catchError((e) {
     print('Sync-Init fehlgeschlagen: $e');
   });
@@ -66,15 +64,15 @@ Future<void> main() async {
         ),
         profileControllerProvider.overrideWith((ref) => ProfileController()),
       ],
-      child: WeddingApp(showOnboarding: !onboardingCompleted), // ← NEU
+      child: WeddingApp(showOnboarding: !onboardingCompleted),
     ),
   );
 }
 
 class WeddingApp extends ConsumerWidget {
-  final bool showOnboarding; // ← NEU
+  final bool showOnboarding;
 
-  const WeddingApp({super.key, required this.showOnboarding}); // ← NEU
+  const WeddingApp({super.key, required this.showOnboarding});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -84,14 +82,11 @@ class WeddingApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       title: 'HeartPebble',
       theme: theme,
-      // ── NEU: Onboarding oder Hauptapp ────────────────────
       home: showOnboarding ? const OnboardingWrapper() : const HochzeitsApp(),
-      // ─────────────────────────────────────────────────────
     );
   }
 }
 
-// ── NEU: Wrapper – wechselt nach Onboarding zur Hauptapp ─────────────────────
 class OnboardingWrapper extends StatefulWidget {
   const OnboardingWrapper({super.key});
 
@@ -105,11 +100,9 @@ class _OnboardingWrapperState extends State<OnboardingWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_done) return const HochzeitsApp();
-
     return OnboardingScreen(onFinished: () => setState(() => _done = true));
   }
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 class HochzeitsApp extends ConsumerStatefulWidget {
   const HochzeitsApp({super.key});
@@ -128,37 +121,50 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
+  // UniqueKeys NUR noch für manuelles _reloadAllData (Einstellungen etc.)
+  // Beim Sync werden sie NICHT mehr neu gesetzt → kein Flackern.
   Key _budgetPageKey = UniqueKey();
-  Key _tablePageKey = UniqueKey(); // ← NEU
+  Key _tablePageKey = UniqueKey();
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
-  // ✅ GlobalKey für direkten Zugriff auf DashboardPageState.reload()
+  // GlobalKeys für gezieltes Reload ohne Widget-Neuaufbau
   final GlobalKey<DashboardPageState> _dashboardKey =
       GlobalKey<DashboardPageState>();
+  final GlobalKey<EnhancedBudgetPageState> _budgetKey =
+      GlobalKey<EnhancedBudgetPageState>();
+  final GlobalKey<TischplanungPageState> _tableKey =
+      GlobalKey<TischplanungPageState>();
 
   @override
   void initState() {
     super.initState();
     ErrorLogger.info('App gestartet');
     _loadData();
-    // ← NEU: Auf eingehende Sync-Daten lauschen
     SyncService.instance.addListener(_onSyncDataReceived);
   }
 
-  // ← NEU: Wird aufgerufen wenn Partner Daten schickt
+  /// Wird aufgerufen wenn der Partner Daten geschickt hat.
+  ///
+  /// KEIN UniqueKey hier – das würde den Widget-Tree komplett
+  /// wegwerfen und neu aufbauen → Flackern.
+  /// Stattdessen rufen wir gezielt reload() auf den betroffenen
+  /// Screens auf, die das intern ohne Rebuild tun.
   void _onSyncDataReceived() {
-    debugPrint('Sync-Event → lade Daten neu');
+    debugPrint('🔄 Sync-Event → gezieltes Reload');
+
+    // Guests + Tasks neu laden (sind State-Variablen in _HochzeitsAppState)
     _loadData();
-    setState(() {
-      _budgetPageKey = UniqueKey();
-      _tablePageKey = UniqueKey(); // ← NEU
-    });
+
+    // Budget und Tisch gezielt über GlobalKey aktualisieren
+    _budgetKey.currentState?.reload();
+    _tableKey.currentState?.reload();
+    _dashboardKey.currentState?.reload();
   }
 
   @override
   void dispose() {
-    SyncService.instance.removeListener(_onSyncDataReceived); // ← NEU
+    SyncService.instance.removeListener(_onSyncDataReceived);
     super.dispose();
   }
 
@@ -168,49 +174,56 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
       final weddingData = await DatabaseHelper.instance.getWeddingData();
       if (weddingData != null) {
-        setState(() {
-          _weddingDate = weddingData['wedding_date'] != null
-              ? DateTime.parse(weddingData['wedding_date'])
-              : null;
-          _brideName = weddingData['bride_name'] ?? '';
-          _groomName = weddingData['groom_name'] ?? '';
-        });
+        // Einmaliges setState für alle wedding-Felder
+        if (mounted) {
+          setState(() {
+            _weddingDate = weddingData['wedding_date'] != null
+                ? DateTime.parse(weddingData['wedding_date'])
+                : null;
+            _brideName = weddingData['bride_name'] ?? '';
+            _groomName = weddingData['groom_name'] ?? '';
+          });
+        }
         ErrorLogger.success('Hochzeitsdaten geladen');
       }
 
       final guests = await DatabaseHelper.instance.getAllGuests();
-      setState(() {
-        _guests = guests;
-      });
-      ErrorLogger.success('${guests.length} Gäste geladen');
-
       final tasks = await DatabaseHelper.instance.getAllTasks();
-      setState(() {
-        _tasks = tasks;
-        _isLoading = false;
-      });
-      ErrorLogger.success('${tasks.length} Tasks geladen');
+
+      // Einmaliges setState für guests + tasks + isLoading
+      if (mounted) {
+        setState(() {
+          _guests = guests;
+          _tasks = tasks;
+          _isLoading = false;
+        });
+      }
+
+      ErrorLogger.success(
+        '${guests.length} Gäste, ${tasks.length} Tasks geladen',
+      );
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Laden der Daten', e, stack);
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  /// Manueller Full-Reload (z.B. aus Einstellungen).
+  /// Hier dürfen UniqueKeys neu gesetzt werden, weil der User
+  /// das aktiv ausgelöst hat und ein kurzes Flackern erwartet.
   Future<void> _reloadAllData() async {
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     await _loadData();
 
-    setState(() {
-      _budgetPageKey = UniqueKey();
-      _taskPageKey = UniqueKey();
-    });
+    if (mounted) {
+      setState(() {
+        _budgetPageKey = UniqueKey();
+        _taskPageKey = UniqueKey();
+        _tablePageKey = UniqueKey();
+      });
+    }
 
-    // ✅ Dashboard nach globalem Reload ebenfalls aktualisieren
     _dashboardKey.currentState?.reload();
 
     if (mounted) {
@@ -224,36 +237,26 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
-  // ✅ Tab-Wechsel: Dashboard wird neu geladen wenn Tab 0 aktiv wird
   void _onTabChanged(int index) {
     if (index == 3) {
-      setState(() {
-        _budgetPageKey = UniqueKey();
-      });
+      // Budget-Tab: gezieltes Reload statt UniqueKey
+      _budgetKey.currentState?.reload();
     }
     if (index == 4) {
-      setState(() {
-        _selectedTaskId = null;
-      });
+      setState(() => _selectedTaskId = null);
     }
-    // ✅ Wenn zurück zum Dashboard → Budget aus DB neu laden
     if (index == 0 && _currentIndex != 0) {
       _dashboardKey.currentState?.reload();
     }
-    setState(() {
-      _currentIndex = index;
-    });
+    setState(() => _currentIndex = index);
   }
 
-  // Callback-Funktionen für Gäste
+  // ── Gäste-Callbacks ──────────────────────────────────────────
+
   Future<void> _addGuest(Guest guest) async {
     try {
-      ErrorLogger.info('Füge Gast hinzu: ${guest.firstName} ${guest.lastName}');
       final newGuest = await DatabaseHelper.instance.createGuest(guest);
-      setState(() {
-        _guests.add(newGuest);
-      });
-      ErrorLogger.success('Gast hinzugefügt');
+      setState(() => _guests.add(newGuest));
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Hinzufügen des Gastes', e, stack);
       if (mounted) {
@@ -266,7 +269,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   Future<void> _updateGuest(Guest updatedGuest) async {
     try {
-      ErrorLogger.info('Aktualisiere Gast: ${updatedGuest.firstName}');
       await DatabaseHelper.instance.updateGuest(updatedGuest);
       final index = _guests.indexWhere((g) => g.id == updatedGuest.id);
       if (index != -1) {
@@ -278,7 +280,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           ];
         });
       }
-      ErrorLogger.success('Gast aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Aktualisieren des Gastes', e, stack);
     }
@@ -286,26 +287,19 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   Future<void> _deleteGuest(int guestId) async {
     try {
-      ErrorLogger.info('Lösche Gast: $guestId');
       await DatabaseHelper.instance.deleteGuest(guestId);
-      setState(() {
-        _guests.removeWhere((g) => g.id == guestId);
-      });
-      ErrorLogger.success('Gast gelöscht');
+      setState(() => _guests.removeWhere((g) => g.id == guestId));
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Löschen des Gastes', e, stack);
     }
   }
 
-  // Callback-Funktionen für Aufgaben
+  // ── Task-Callbacks ───────────────────────────────────────────
+
   Future<void> _addTask(Task task) async {
     try {
-      ErrorLogger.info('Füge Task hinzu: ${task.title}');
       final newTask = await DatabaseHelper.instance.createTask(task);
-      setState(() {
-        _tasks.add(newTask);
-      });
-      ErrorLogger.success('Task hinzugefügt');
+      setState(() => _tasks.add(newTask));
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Hinzufügen der Aufgabe', e, stack);
       if (mounted) {
@@ -318,15 +312,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   Future<void> _updateTask(Task updatedTask) async {
     try {
-      ErrorLogger.info('Aktualisiere Task: ${updatedTask.title}');
       await DatabaseHelper.instance.updateTask(updatedTask);
       setState(() {
         final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
-        if (index != -1) {
-          _tasks[index] = updatedTask;
-        }
+        if (index != -1) _tasks[index] = updatedTask;
       });
-      ErrorLogger.success('Task aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Aktualisieren der Aufgabe', e, stack);
     }
@@ -334,16 +324,14 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   Future<void> _deleteTask(int taskId) async {
     try {
-      ErrorLogger.info('Lösche Task: $taskId');
       await DatabaseHelper.instance.deleteTask(taskId);
-      setState(() {
-        _tasks.removeWhere((t) => t.id == taskId);
-      });
-      ErrorLogger.success('Task gelöscht');
+      setState(() => _tasks.removeWhere((t) => t.id == taskId));
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Löschen der Aufgabe', e, stack);
     }
   }
+
+  // ── Wedding-Data-Callback ────────────────────────────────────
 
   Future<void> _updateWeddingData(
     DateTime date,
@@ -351,14 +339,12 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     String groom,
   ) async {
     try {
-      ErrorLogger.info('Aktualisiere Hochzeitsdaten');
       await DatabaseHelper.instance.updateWeddingData(date, bride, groom);
       setState(() {
         _weddingDate = date;
         _brideName = bride;
         _groomName = groom;
       });
-      ErrorLogger.success('Hochzeitsdaten aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error(
         'Fehler beim Aktualisieren der Hochzeitsdaten',
@@ -373,9 +359,9 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
-  void _navigateToPage(int pageIndex) {
-    _onTabChanged(pageIndex);
-  }
+  // ── Navigation ───────────────────────────────────────────────
+
+  void _navigateToPage(int pageIndex) => _onTabChanged(pageIndex);
 
   void _navigateToTaskWithId(int taskId) {
     setState(() {
@@ -385,11 +371,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     });
   }
 
-  void _clearSelectedTask() {
-    setState(() {
-      _selectedTaskId = null;
-    });
-  }
+  void _clearSelectedTask() => setState(() => _selectedTaskId = null);
 
   Color _getNavColor(int index, BrandColors brand) {
     switch (index) {
@@ -421,7 +403,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     final scheme = Theme.of(context).colorScheme;
 
     final List<Widget> pages = [
-      // ✅ GlobalKey hier übergeben
       DashboardPage(
         key: _dashboardKey,
         weddingDate: _weddingDate,
@@ -443,11 +424,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onDeleteGuest: _deleteGuest,
       ),
       TischplanungPage(
-        key: _tablePageKey, // ← NEU
+        key: _tableKey, // ← GlobalKey statt UniqueKey
         guests: _guests,
         onUpdateGuest: _updateGuest,
       ),
-      EnhancedBudgetPage(key: _budgetPageKey),
+      EnhancedBudgetPage(key: _budgetKey), // ← GlobalKey statt UniqueKey
       TaskPage(
         key: _taskPageKey,
         tasks: _tasks,
@@ -459,11 +440,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         groomName: _groomName,
         selectedTaskId: _selectedTaskId,
         onClearSelectedTask: _clearSelectedTask,
-        onNavigateToHome: () {
-          setState(() {
-            _currentIndex = 0;
-          });
-        },
+        onNavigateToHome: () => setState(() => _currentIndex = 0),
       ),
       const DienstleisterListScreen(),
     ];
@@ -611,7 +588,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         unselectedFontSize: 10,
         backgroundColor: Colors.white,
         elevation: 8,
-        // ✅ Alle Tab-Wechsel laufen über _onTabChanged
         onTap: _onTabChanged,
         items: [
           BottomNavigationBarItem(

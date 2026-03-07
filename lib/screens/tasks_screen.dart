@@ -8,6 +8,7 @@ import '../services/excel_export_service.dart';
 import '../services/calendar_export_service.dart';
 import '../services/notification_service.dart';
 import '../utils/category_utils.dart';
+import '../sync/services/sync_service.dart'; // ← NEU: Sync
 
 class TaskPage extends StatefulWidget {
   final List<Task> tasks;
@@ -75,6 +76,13 @@ class _TaskPageState extends State<TaskPage>
     'medium': 'Mittel',
     'low': 'Niedrig',
   };
+
+  // ← NEU: Sync
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
 
   @override
   void initState() {
@@ -215,9 +223,7 @@ class _TaskPageState extends State<TaskPage>
                     subtitle: const Text('Erledigte Aufgaben ausschließen'),
                     value: onlyOpenTasks,
                     onChanged: (value) {
-                      setDialogState(() {
-                        onlyOpenTasks = value ?? false;
-                      });
+                      setDialogState(() => onlyOpenTasks = value ?? false);
                     },
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
@@ -238,11 +244,10 @@ class _TaskPageState extends State<TaskPage>
                     value: selectedReminders.contains('1day'),
                     onChanged: (value) {
                       setDialogState(() {
-                        if (value == true) {
+                        if (value == true)
                           selectedReminders.add('1day');
-                        } else {
+                        else
                           selectedReminders.remove('1day');
-                        }
                       });
                     },
                     controlAffinity: ListTileControlAffinity.leading,
@@ -253,11 +258,10 @@ class _TaskPageState extends State<TaskPage>
                     value: selectedReminders.contains('3days'),
                     onChanged: (value) {
                       setDialogState(() {
-                        if (value == true) {
+                        if (value == true)
                           selectedReminders.add('3days');
-                        } else {
+                        else
                           selectedReminders.remove('3days');
-                        }
                       });
                     },
                     controlAffinity: ListTileControlAffinity.leading,
@@ -268,11 +272,10 @@ class _TaskPageState extends State<TaskPage>
                     value: selectedReminders.contains('1week'),
                     onChanged: (value) {
                       setDialogState(() {
-                        if (value == true) {
+                        if (value == true)
                           selectedReminders.add('1week');
-                        } else {
+                        else
                           selectedReminders.remove('1week');
-                        }
                       });
                     },
                     controlAffinity: ListTileControlAffinity.leading,
@@ -283,11 +286,10 @@ class _TaskPageState extends State<TaskPage>
                     value: selectedReminders.contains('2weeks'),
                     onChanged: (value) {
                       setDialogState(() {
-                        if (value == true) {
+                        if (value == true)
                           selectedReminders.add('2weeks');
-                        } else {
+                        else
                           selectedReminders.remove('2weeks');
-                        }
                       });
                     },
                     controlAffinity: ListTileControlAffinity.leading,
@@ -410,6 +412,7 @@ class _TaskPageState extends State<TaskPage>
     }
 
     await _initializeDefaultMilestones();
+    _syncNow(); // ← NEU
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1238,6 +1241,7 @@ class _TaskPageState extends State<TaskPage>
                 _selectedPriority = localPriority;
                 _selectedDeadline = localDeadline;
                 _handleSubmit();
+                _syncNow(); // ← NEU
                 Navigator.pop(builderContext);
               },
               style: ElevatedButton.styleFrom(
@@ -1275,6 +1279,7 @@ class _TaskPageState extends State<TaskPage>
 
   void _toggleTaskComplete(Task task) {
     widget.onUpdateTask(task.copyWith(completed: !task.completed));
+    _syncNow(); // ← NEU
   }
 
   Future<void> _exportAsExcel() async {
@@ -2021,6 +2026,7 @@ class _TaskPageState extends State<TaskPage>
                     break;
                   case 'delete':
                     widget.onDeleteTask(task.id!);
+                    _syncNow(); // ← NEU
                     break;
                 }
               },
@@ -2050,10 +2056,6 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
-
-  // ═══════════════════════════════════════════════════════
-  // QUICK RESCHEDULE CHIP
-  // ═══════════════════════════════════════════════════════
 
   Widget _buildQuickRescheduleChip({
     required String label,
@@ -2129,7 +2131,6 @@ class _TaskPageState extends State<TaskPage>
     final timelineTasksCount = widget.tasks
         .where((t) => t.category == 'timeline')
         .length;
-
     final overdueTimelineCount = widget.tasks
         .where(
           (t) =>
@@ -2325,10 +2326,6 @@ class _TaskPageState extends State<TaskPage>
       ],
     );
   }
-
-  // ═══════════════════════════════════════════════════════
-  // INTELLIGENTE TIMELINE-GRUPPIERUNG
-  // ═══════════════════════════════════════════════════════
 
   Map<String, List<Map<String, dynamic>>> _generateGroupedTimeline() {
     final timeline = _generateTimeline();
@@ -2574,10 +2571,6 @@ class _TaskPageState extends State<TaskPage>
     );
   }
 
-  // ═══════════════════════════════════════════════════════
-  // TIMELINE ITEM mit PopupMenuButton (drei Punkte)
-  // ═══════════════════════════════════════════════════════
-
   Widget _buildCompactTimelineItem(
     Map<String, dynamic> item, [
     bool isOverdueSection = false,
@@ -2591,16 +2584,13 @@ class _TaskPageState extends State<TaskPage>
 
     return InkWell(
       onTap: () {
-        if (task != null && !isWeddingDay) {
-          _showTaskForm(task);
-        }
+        if (task != null && !isWeddingDay) _showTaskForm(task);
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Checkbox / Hochzeits-Icon ──
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: !isWeddingDay
@@ -2610,6 +2600,7 @@ class _TaskPageState extends State<TaskPage>
                           widget.onUpdateTask(
                             task.copyWith(completed: !task.completed),
                           );
+                          _syncNow(); // ← NEU
                         }
                       },
                       child: Container(
@@ -2655,13 +2646,10 @@ class _TaskPageState extends State<TaskPage>
                     ),
             ),
             const SizedBox(width: 12),
-
-            // ── Inhalt ──
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Titel
                   Row(
                     children: [
                       if (isTimelineTask && !isWeddingDay)
@@ -2703,8 +2691,6 @@ class _TaskPageState extends State<TaskPage>
                       ),
                     ],
                   ),
-
-                  // Datum + "X Tage überfällig" Badge
                   if (date != null && !isWeddingDay) ...[
                     const SizedBox(height: 2),
                     Row(
@@ -2753,8 +2739,6 @@ class _TaskPageState extends State<TaskPage>
                       ],
                     ),
                   ],
-
-                  // Schnell-Aktionen für überfällige Aufgaben
                   if (isOverdueSection && task != null) ...[
                     const SizedBox(height: 6),
                     Wrap(
@@ -2773,6 +2757,7 @@ class _TaskPageState extends State<TaskPage>
                                 ),
                               ),
                             );
+                            _syncNow(); // ← NEU
                           },
                         ),
                         _buildQuickRescheduleChip(
@@ -2787,6 +2772,7 @@ class _TaskPageState extends State<TaskPage>
                                 ),
                               ),
                             );
+                            _syncNow(); // ← NEU
                           },
                         ),
                         _buildQuickRescheduleChip(
@@ -2810,14 +2796,13 @@ class _TaskPageState extends State<TaskPage>
                               widget.onUpdateTask(
                                 task.copyWith(deadline: newDate),
                               );
+                              _syncNow(); // ← NEU
                             }
                           },
                         ),
                       ],
                     ),
                   ],
-
-                  // Beschreibung
                   if (item['description'] != null &&
                       item['description'].toString().isNotEmpty &&
                       item['description'] != item['title']) ...[
@@ -2835,8 +2820,6 @@ class _TaskPageState extends State<TaskPage>
                 ],
               ),
             ),
-
-            // ── PopupMenuButton (drei Punkte) ──
             if (task != null && !isWeddingDay)
               PopupMenuButton<String>(
                 icon: Icon(
@@ -2846,7 +2829,6 @@ class _TaskPageState extends State<TaskPage>
                 ),
                 padding: EdgeInsets.zero,
                 itemBuilder: (menuContext) => [
-                  // Bearbeiten
                   const PopupMenuItem<String>(
                     value: 'edit',
                     child: Row(
@@ -2857,7 +2839,6 @@ class _TaskPageState extends State<TaskPage>
                       ],
                     ),
                   ),
-                  // In Kalender – nur wenn Deadline vorhanden
                   if (task.deadline != null)
                     const PopupMenuItem<String>(
                       value: 'calendar',
@@ -2876,7 +2857,6 @@ class _TaskPageState extends State<TaskPage>
                         ],
                       ),
                     ),
-                  // Erinnerung – nur wenn Deadline vorhanden
                   if (task.deadline != null)
                     const PopupMenuItem<String>(
                       value: 'notification',
@@ -2895,9 +2875,7 @@ class _TaskPageState extends State<TaskPage>
                         ],
                       ),
                     ),
-                  // Trennlinie
                   const PopupMenuDivider(),
-                  // Löschen
                   const PopupMenuItem<String>(
                     value: 'delete',
                     child: Row(
@@ -2948,6 +2926,7 @@ class _TaskPageState extends State<TaskPage>
                       );
                       if (confirmed == true) {
                         widget.onDeleteTask(task.id!);
+                        _syncNow(); // ← NEU
                       }
                       break;
                   }
@@ -2958,10 +2937,6 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
-
-  // ═══════════════════════════════════════════════════════
-  // TASK FORM (Timeline)
-  // ═══════════════════════════════════════════════════════
 
   void _showTaskForm([Task? editingTask]) {
     final scheme = Theme.of(context).colorScheme;
@@ -3093,9 +3068,8 @@ class _TaskPageState extends State<TaskPage>
                                       const Duration(days: 1095),
                                     ),
                               );
-                              if (date != null) {
+                              if (date != null)
                                 setDialogState(() => deadline = date);
-                              }
                             },
                           ),
                           if (deadline != null)
@@ -3119,6 +3093,7 @@ class _TaskPageState extends State<TaskPage>
               TextButton(
                 onPressed: () {
                   widget.onDeleteTask(editingTask.id!);
+                  _syncNow(); // ← NEU
                   Navigator.pop(builderContext);
                 },
                 child: const Text(
@@ -3148,6 +3123,7 @@ class _TaskPageState extends State<TaskPage>
                   } else {
                     widget.onAddTask(taskData);
                   }
+                  _syncNow(); // ← NEU
                   Navigator.pop(builderContext);
                 }
               },
@@ -3162,10 +3138,6 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
-
-  // ═══════════════════════════════════════════════════════
-  // RESET TIMELINE DIALOG
-  // ═══════════════════════════════════════════════════════
 
   void _showResetTimelineTasksDialog() {
     showDialog(
@@ -3235,10 +3207,9 @@ class _TaskPageState extends State<TaskPage>
                 }
 
                 await Future.delayed(const Duration(milliseconds: 500));
+                _syncNow(); // ← NEU
 
-                if (mounted) {
-                  Navigator.of(context, rootNavigator: true).pop();
-                }
+                if (mounted) Navigator.of(context, rootNavigator: true).pop();
 
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -3257,9 +3228,7 @@ class _TaskPageState extends State<TaskPage>
                   }
                 }
               } catch (e) {
-                if (mounted) {
-                  Navigator.of(context, rootNavigator: true).pop();
-                }
+                if (mounted) Navigator.of(context, rootNavigator: true).pop();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -3281,10 +3250,6 @@ class _TaskPageState extends State<TaskPage>
       ),
     );
   }
-
-  // ═══════════════════════════════════════════════════════
-  // REMINDER HELPER WIDGETS
-  // ═══════════════════════════════════════════════════════
 
   Widget _buildReminderOption({
     required BuildContext context,
