@@ -182,11 +182,148 @@ class SyncStatusWidget extends StatelessWidget {
     }
   }
 
+  // ── Tap-Handler ───────────────────────────────────────────────────────────
+
   void _handleTap(BuildContext context, SyncStatus status) {
     if (!status.isPaired) {
       _openPairingScreen(context);
     } else {
-      SyncService.instance.syncNow();
+      _showSyncDialog(context, status);
+    }
+  }
+
+  /// Dialog wenn gepairt: zeigt Status + Sync + Trennen
+  void _showSyncDialog(BuildContext context, SyncStatus status) {
+    final (icon, color, label) = _getStatusInfo(status);
+
+    showDialog(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 10),
+            const Text('Partner-Sync'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Status-Zeile
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 16, color: color),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (status.lastSyncAt != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.history, size: 14, color: Colors.grey[500]),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Zuletzt: ${_formatTime(status.lastSyncAt!)}',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                  ),
+                ],
+              ),
+            ],
+            if (status.errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                status.errorMessage!,
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          // Trennen
+          TextButton.icon(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _confirmUnpair(context);
+            },
+            icon: const Icon(Icons.link_off, size: 16),
+            label: const Text('Trennen'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+          // Jetzt syncen
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              SyncService.instance.syncNow();
+            },
+            icon: const Icon(Icons.sync, size: 16),
+            label: const Text('Jetzt syncen'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Bestätigungsdialog vor dem Trennen
+  Future<void> _confirmUnpair(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Verbindung trennen?'),
+        content: const Text(
+          'Die Verbindung zum Partner wird getrennt.\n\n'
+          'Deine lokalen Daten bleiben erhalten. '
+          'Du kannst jederzeit neu verbinden.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Trennen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await SyncService.instance.unpair();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verbindung getrennt'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     }
   }
 
