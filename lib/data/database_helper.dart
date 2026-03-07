@@ -25,12 +25,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 13, // VERSION 13: wedding_data.total_budget
+        version: 14, // VERSION 14: wedding_data.updated_at für Sync
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v13 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v14 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -42,14 +42,15 @@ class DatabaseHelper {
     try {
       ErrorLogger.info('Erstelle Datenbank-Tabellen (Version $version)...');
 
-      // Wedding Data
+      // Wedding Data - MIT updated_at für Sync
       await db.execute('''
         CREATE TABLE wedding_data (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           wedding_date TEXT,
           bride_name TEXT,
           groom_name TEXT,
-          total_budget REAL DEFAULT 0.0
+          total_budget REAL DEFAULT 0.0,
+          updated_at TEXT
         )
       ''');
       ErrorLogger.info('✅ wedding_data Tabelle erstellt');
@@ -175,7 +176,7 @@ class DatabaseHelper {
           '🔧 Füge fehlende Spalten zu bestehenden Tabellen hinzu...',
         );
 
-        // TASKS: Füge fehlende Spalten hinzu
+        // TASKS
         try {
           if (!await columnExists('tasks', 'location')) {
             await db.execute(
@@ -201,7 +202,7 @@ class DatabaseHelper {
           ErrorLogger.info('  ℹ️ tasks Migration: $e');
         }
 
-        // GUESTS: Füge fehlende Spalten hinzu
+        // GUESTS
         try {
           if (!await columnExists('guests', 'updated_at')) {
             await db.execute('ALTER TABLE guests ADD COLUMN updated_at TEXT');
@@ -221,7 +222,7 @@ class DatabaseHelper {
           ErrorLogger.info('  ℹ️ guests Migration: $e');
         }
 
-        // BUDGET_ITEMS: Füge fehlende Spalten hinzu
+        // BUDGET_ITEMS
         try {
           if (!await columnExists('budget_items', 'updated_at')) {
             await db.execute(
@@ -245,7 +246,7 @@ class DatabaseHelper {
           ErrorLogger.info('  ℹ️ budget_items Migration: $e');
         }
 
-        // TABLES: Füge fehlende Spalten hinzu
+        // TABLES
         try {
           if (!await columnExists('tables', 'updated_at')) {
             await db.execute('ALTER TABLE tables ADD COLUMN updated_at TEXT');
@@ -345,7 +346,7 @@ class DatabaseHelper {
             ErrorLogger.success('  ✅ guests.hobbies hinzugefügt');
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ guests v11 Migration: \$e');
+          ErrorLogger.info('  ℹ️ guests v11 Migration: $e');
         }
       }
 
@@ -404,7 +405,6 @@ class DatabaseHelper {
                 '  ✅ Bestehendes Gesamtbudget ($val) migriert',
               );
             }
-            // Alten BudgetItem-Eintrag als gelöscht markieren
             await db.update(
               'budget_items',
               {'deleted': 1, 'deleted_at': DateTime.now().toIso8601String()},
@@ -415,6 +415,25 @@ class DatabaseHelper {
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ v13 Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v14: wedding_data.updated_at für Sync
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 14) {
+        ErrorLogger.info('🔧 v14: Füge updated_at zu wedding_data hinzu...');
+        try {
+          if (!await columnExists('wedding_data', 'updated_at')) {
+            await db.execute(
+              'ALTER TABLE wedding_data ADD COLUMN updated_at TEXT',
+            );
+            ErrorLogger.success('  ✅ wedding_data.updated_at hinzugefügt');
+          } else {
+            ErrorLogger.info('  ℹ️ wedding_data.updated_at existiert bereits');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v14 Migration: $e');
         }
       }
 
@@ -888,12 +907,19 @@ class DatabaseHelper {
     try {
       final db = await database;
       final existing = await getWeddingData();
+      final now = DateTime.now().toIso8601String(); // ← NEU
       if (existing == null) {
-        await db.insert('wedding_data', {'total_budget': amount});
+        await db.insert('wedding_data', {
+          'total_budget': amount,
+          'updated_at': now, // ← NEU
+        });
       } else {
         await db.update(
           'wedding_data',
-          {'total_budget': amount},
+          {
+            'total_budget': amount,
+            'updated_at': now, // ← NEU
+          },
           where: 'id = ?',
           whereArgs: [existing['id']],
         );
@@ -915,12 +941,14 @@ class DatabaseHelper {
 
       final db = await database;
       final existing = await getWeddingData();
+      final now = DateTime.now().toIso8601String(); // ← NEU
 
       if (existing == null) {
         final id = await db.insert('wedding_data', {
           'wedding_date': date.toIso8601String(),
           'bride_name': brideName,
           'groom_name': groomName,
+          'updated_at': now, // ← NEU
         });
         ErrorLogger.success('✅ Hochzeitsdaten erstellt mit ID: $id');
       } else {
@@ -930,6 +958,7 @@ class DatabaseHelper {
             'wedding_date': date.toIso8601String(),
             'bride_name': brideName,
             'groom_name': groomName,
+            'updated_at': now, // ← NEU
           },
           where: 'id = ?',
           whereArgs: [existing['id']],

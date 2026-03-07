@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../data/database_helper.dart';
 import '../models/wedding_models.dart';
 import '../widgets/forms/smart_text_field.dart';
+import '../sync/services/sync_service.dart'; // ← NEU: Sync
 
 class CategoryDetailPage extends StatefulWidget {
   final String category;
@@ -39,6 +40,13 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
 
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
   String _formatCurrency(double amount) => _currencyFormat.format(amount);
+
+  // ← NEU: Sync
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
 
   @override
   void initState() {
@@ -85,6 +93,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
         whereArgs: [id],
       );
       await _loadCategoryItems();
+      _syncNow(); // ← NEU
     } catch (e) {
       debugPrint('Fehler beim Aktualisieren des Bezahlt-Status: $e');
     }
@@ -96,7 +105,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       builder: (_) => _AddBudgetItemDialog(
         category: widget.category,
         categoryName: widget.categoryName,
-        onSave: _loadCategoryItems,
+        onSave: () {
+          _loadCategoryItems();
+          _syncNow(); // ← NEU
+        },
       ),
     );
   }
@@ -106,7 +118,10 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       context: context,
       builder: (_) => _EditBudgetItemDialog(
         item: item,
-        onSave: _loadCategoryItems,
+        onSave: () {
+          _loadCategoryItems();
+          _syncNow(); // ← NEU
+        },
         onDelete: () => _deleteItem(item.id!),
       ),
     );
@@ -117,6 +132,7 @@ class _CategoryDetailPageState extends State<CategoryDetailPage> {
       final db = await DatabaseHelper.instance.database;
       await db.delete('budget_items', where: 'id = ?', whereArgs: [id]);
       await _loadCategoryItems();
+      _syncNow(); // ← NEU
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

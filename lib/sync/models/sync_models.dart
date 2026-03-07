@@ -9,7 +9,13 @@ import 'dart:convert';
 // ────────────────────────────────────────────────────────────────
 // SyncTable: Alle syncbaren Tabellen
 // ────────────────────────────────────────────────────────────────
-enum SyncTable { guests, tasks, budgetItems, tables }
+enum SyncTable {
+  guests,
+  tasks,
+  budgetItems,
+  tables,
+  weddingData,
+} // ← NEU: weddingData
 
 extension SyncTableExtension on SyncTable {
   String get dbName {
@@ -22,6 +28,8 @@ extension SyncTableExtension on SyncTable {
         return 'budget_items';
       case SyncTable.tables:
         return 'tables';
+      case SyncTable.weddingData: // ← NEU
+        return 'wedding_data';
     }
   }
 }
