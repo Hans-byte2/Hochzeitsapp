@@ -96,6 +96,7 @@ class SyncService extends ChangeNotifier {
   Future<void> unpair() async {
     _stopAutoSync();
     await _signaling.unpair();
+    await _repository.clearSyncTimestamps(); // ← Timestamps zurücksetzen
     _setStatus(const SyncStatus(connectionState: SyncConnectionState.unpaired));
     SyncLogger.info('Pairing aufgehoben');
   }

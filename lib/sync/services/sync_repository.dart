@@ -39,6 +39,15 @@ class SyncRepository {
     SyncLogger.info('Letzte Empfangs-Zeit gespeichert: $isoDateTime');
   }
 
+  /// Löscht beide Timestamps – wird beim Unpair aufgerufen damit
+  /// nach einem neuen Pairing ein vollständiger Full-Sync stattfindet.
+  Future<void> clearSyncTimestamps() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_lastSentKey);
+    await prefs.remove(_lastReceivedKey);
+    SyncLogger.info('Sync-Timestamps zurückgesetzt');
+  }
+
   // ── Änderungen lesen ─────────────────────────────────────────
 
   Future<List<SyncRecord>> getChangedRecords({String? since}) async {
@@ -63,6 +72,28 @@ class SyncRepository {
     String? since,
   }) async {
     List<Map<String, dynamic>> rows;
+
+    // wedding_data hat kein deleted-Feld → einfach alle Rows
+    if (table == SyncTable.weddingData) {
+      rows = since == null
+          ? await db.query(table.dbName)
+          : await db.query(
+              table.dbName,
+              where: 'updated_at > ?',
+              whereArgs: [since],
+            );
+      return rows.map((row) {
+        final updatedAt =
+            (row['updated_at'] as String?) ?? DateTime.now().toIso8601String();
+        return SyncRecord(
+          table: table,
+          localId: row['id'] as int,
+          data: Map<String, dynamic>.from(row),
+          updatedAt: updatedAt,
+          isDeleted: false,
+        );
+      }).toList();
+    }
 
     if (since == null) {
       rows = await db.query(table.dbName);
@@ -153,6 +184,31 @@ class SyncRepository {
     // ── Dienstleister: String-ID aus data['id'] verwenden ────────────────
     if (record.table.hasStringId) {
       return _applyStringIdRecord(db, record, tableName, incomingUpdatedAt);
+    }
+
+    // ── wedding_data: kein deleted-Feld, immer per id=1 upsert ──────────
+    if (record.table == SyncTable.weddingData) {
+      final existing = await db.query(tableName, limit: 1);
+      if (existing.isEmpty) {
+        await db.insert(
+          tableName,
+          Map<String, dynamic>.from(record.data),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        return true;
+      }
+      final localUpdatedAt = existing.first['updated_at'] as String?;
+      if (localUpdatedAt != null &&
+          localUpdatedAt.compareTo(incomingUpdatedAt) >= 0) {
+        return false;
+      }
+      await db.update(
+        tableName,
+        Map<String, dynamic>.from(record.data),
+        where: 'id = ?',
+        whereArgs: [existing.first['id']],
+      );
+      return true;
     }
 
     // ── Standard: Integer-ID ────────────────────────────────────────────
