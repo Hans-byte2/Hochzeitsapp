@@ -135,6 +135,8 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       GlobalKey<EnhancedBudgetPageState>();
   final GlobalKey<TischplanungPageState> _tableKey =
       GlobalKey<TischplanungPageState>();
+  final GlobalKey<DienstleisterListScreenState> _dienstleisterKey =
+      GlobalKey<DienstleisterListScreenState>();
 
   @override
   void initState() {
@@ -156,10 +158,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     // Guests + Tasks neu laden (sind State-Variablen in _HochzeitsAppState)
     _loadData();
 
-    // Budget und Tisch gezielt über GlobalKey aktualisieren
+    // Budget, Tisch und Dienstleister gezielt über GlobalKey aktualisieren
     _budgetKey.currentState?.reload();
     _tableKey.currentState?.reload();
     _dashboardKey.currentState?.reload();
+    _dienstleisterKey.currentState?.reload();
   }
 
   @override
@@ -442,7 +445,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onClearSelectedTask: _clearSelectedTask,
         onNavigateToHome: () => setState(() => _currentIndex = 0),
       ),
-      const DienstleisterListScreen(),
+      DienstleisterListScreen(key: _dienstleisterKey),
     ];
 
     return Scaffold(

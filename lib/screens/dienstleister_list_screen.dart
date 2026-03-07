@@ -14,10 +14,10 @@ class DienstleisterListScreen extends StatefulWidget {
 
   @override
   State<DienstleisterListScreen> createState() =>
-      _DienstleisterListScreenState();
+      DienstleisterListScreenState();
 }
 
-class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
+class DienstleisterListScreenState extends State<DienstleisterListScreen> {
   List<Dienstleister> _alleDienstleister = [];
   List<DienstleisterZahlung> _alleZahlungen = [];
   bool _isLoading = true;
@@ -34,6 +34,11 @@ class _DienstleisterListScreenState extends State<DienstleisterListScreen> {
     SyncService.instance.syncNow().catchError((e) {
       debugPrint('Sync-Fehler: $e');
     });
+  }
+
+  /// Wird von main.dart aufgerufen wenn der Partner Daten geschickt hat.
+  void reload() {
+    _loadData();
   }
   // ─────────────────────────────────────────────────────────────────────────
 
