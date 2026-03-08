@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
 
 // Core / Theme
 import 'services/theme_providers.dart';
@@ -31,21 +30,8 @@ import 'sync/services/sync_service.dart';
 // Debug
 import 'utils/error_logger.dart';
 
-// ── SSL-Fix für Emulator-Tests (vor Release entfernen!) ──────────────────────
-class _DevHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
-  }
-}
-// ─────────────────────────────────────────────────────────────────────────────
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  HttpOverrides.global = _DevHttpOverrides();
 
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
