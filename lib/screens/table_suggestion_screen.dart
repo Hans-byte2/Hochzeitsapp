@@ -5,7 +5,6 @@ import '../models/wedding_models.dart';
 import '../models/table_categories.dart';
 import '../app_colors.dart';
 import '../services/table_suggestion_service.dart';
-import '../services/guest_scoring_service.dart';
 import '../services/table_explanation.dart';
 
 class TableSuggestionScreen extends StatefulWidget {
@@ -890,7 +889,7 @@ class _WarumSheet extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${explanation.guestCount} Gaeste · Score: ${ts.toStringAsFixed(0)}',
+                          '${explanation.guestCount} Gäste · Score: ${ts.toStringAsFixed(0)}',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -927,18 +926,10 @@ class _WarumSheet extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Divider(color: Colors.grey.shade200),
-            // Gruende
+            // Gründe
             Expanded(
               child: explanation.reasons.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Keine Gast-Details vorhanden.',
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 13,
-                        ),
-                      ),
-                    )
+                  ? _buildNoReasonsInfo(ctrl)
                   : ListView(
                       controller: ctrl,
                       padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
@@ -965,6 +956,60 @@ class _WarumSheet extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildNoReasonsInfo(ScrollController ctrl) {
+    return ListView(
+      controller: ctrl,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.blue.shade700,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Neutrale Zuweisung',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.blue.shade700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Diese Gäste wurden platziert, weil an diesem Tisch noch Plätze frei waren '
+                'und keine Konflikte bestehen.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Für eine höhere Kompatibilität kannst du in den Gast-Details '
+                'Altersgruppe, Beziehungstyp, Hobbys oder „kennt sich mit"-Verbindungen hinterlegen.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _scoreLegend(),
+      ],
     );
   }
 
