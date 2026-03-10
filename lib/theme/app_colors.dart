@@ -3,18 +3,22 @@ import 'package:flutter/material.dart';
 
 /// Vintage Mint — light
 class AppColorsVintageMint {
-  static const primary = Color(0xFF7FB8A5); // gedämpftes Mint
+  static const primary = Color(
+    0xFF5A9E8A,
+  ); // gedämpftes Mint — etwas dunkler für besseren Kontrast
   static const background = Color(0xFFFAF3E7); // warmes Papier
   static const cardColor = Color(0xFFFEFCF6); // off-white
-  static const cardBorder = Color(0xFFE6DEC9); // Papier-Kante
+  static const cardBorder = Color(
+    0xFFD4C9B0,
+  ); // etwas dunkler für sichtbare Kante
   static const secondary = Color(0xFFEFE7D8); // sepia
 
-  static const homeColor = Color(0xFF556F66);
-  static const guestColor = Color(0xFF3C4A4E);
-  static const budgetColor = Color(0xFFB79A5B);
-  static const taskColor = Color(0xFF8A7FA1);
-  static const tableColor = Color(0xFF7B4B4B);
-  static const serviceColor = Color(0xFF6FAF9E);
+  static const homeColor = Color(0xFF3A5249); // dunkler für bessere Lesbarkeit
+  static const guestColor = Color(0xFF2A363A); // dunkler
+  static const budgetColor = Color(0xFF8A6E2A); // dunkler Goldton
+  static const taskColor = Color(0xFF5E5278); // dunkler Lila
+  static const tableColor = Color(0xFF5A3232); // dunkler Rot-Braun
+  static const serviceColor = Color(0xFF3D8A78); // dunkler Grün
 }
 
 /// Vintage Mint — dark
@@ -35,18 +39,18 @@ class AppColorsVintageMintDark {
 
 /// Sand Vintage Cream (deine Hauptpalette)
 class AppColorsSandVintageCream {
-  static const primary = Color(0xffCFB997); // Sand
+  static const primary = Color(0xffB89A6E); // etwas dunkler für mehr Kontrast
   static const background = Color(0xffFAF6F0); // Creme
   static const cardColor = Color(0xffffffff); // Weiß
-  static const cardBorder = Color(0xffE5DED7); // Hellbeige
+  static const cardBorder = Color(0xffCFC5BA); // deutlich sichtbarer
   static const secondary = Color(0xffF5E7C4); // Vanille
 
-  static const homeColor = Color(0xffC9B198); // Sandgrau
-  static const guestColor = Color(0xffA4957B); // Dunkelbeige
-  static const budgetColor = Color(0xffDDC3A5); // Helles Braun
-  static const taskColor = Color(0xffBCA97D); // Senf
-  static const tableColor = Color(0xffF7CAC9); // Pastellrosa
-  static const serviceColor = Color(0xffB8C6B8); // Salbeigrün
+  static const homeColor = Color(0xff8A7260); // deutlich dunkler
+  static const guestColor = Color(0xff6B5C44); // deutlich dunkler
+  static const budgetColor = Color(0xff9E7D52); // mehr Kontrast
+  static const taskColor = Color(0xff7A6438); // dunkleres Senf
+  static const tableColor = Color(0xffC4827F); // dunkleres Rosa
+  static const serviceColor = Color(0xff6A8F6A); // dunkleres Salbeigrün
 }
 
 /// Fresh Mint & Sand
@@ -131,34 +135,38 @@ class AppColorsRomanticPink {
 
 // 🧁 Creme Elegance
 class AppColorsCremeElegance {
-  static const primary = Color(0xFFD8C7A1); // Creme-Gold
+  static const primary = Color(
+    0xFFB89B6A,
+  ); // dunkler Creme-Gold für besseren Kontrast
   static const background = Color(0xFFFAF5ED); // Cremeweiß
   static const cardColor = Color(0xFFFFFFFF);
-  static const cardBorder = Color(0xFFE8DFD0); // Beige
+  static const cardBorder = Color(0xFFD4C8B4); // deutlich sichtbarere Kante
   static const secondary = Color(0xFFF3E9D6); // Vanille
 
-  static const homeColor = Color(0xFFCDB89B);
-  static const guestColor = Color(0xFFA0907A);
-  static const budgetColor = Color(0xFFD7C3A1);
-  static const taskColor = Color(0xFFB49C6A);
-  static const tableColor = Color(0xFFE8CFC3);
-  static const serviceColor = Color(0xFFC9D2C1);
+  static const homeColor = Color(0xFF8C6E50); // deutlich dunkler
+  static const guestColor = Color(0xFF6B5540); // deutlich dunkler
+  static const budgetColor = Color(0xFF9A7845); // mehr Kontrast
+  static const taskColor = Color(0xFF7A6030); // dunkleres Gold-Braun
+  static const tableColor = Color(0xFFBF8A80); // dunkleres Altrosa
+  static const serviceColor = Color(0xFF6A8A65); // dunkleres Salbei
 }
 
 // ⚫️⚪️ Black & White Minimal
 class AppColorsBlackWhite {
-  static const primary = Color(0xFF000000); // Schwarz
+  static const primary = Color(0xFF1A1A1A); // fast Schwarz, minimal weicher
   static const background = Color(0xFFF7F7F7); // fast Weiß
   static const cardColor = Color(0xFFFFFFFF);
-  static const cardBorder = Color(0xFFE0E0E0); // Hellgrau
-  static const secondary = Color(0xFF333333); // Dunkelgrau
+  static const cardBorder = Color(0xFFCCCCCC); // deutlich sichtbarer als vorher
+  static const secondary = Color(
+    0xFFEEEEEE,
+  ); // helles Grau statt Dunkelgrau — für Hintergrundeinsatz
 
-  static const homeColor = Color(0xFF000000);
-  static const guestColor = Color(0xFF424242);
-  static const budgetColor = Color(0xFF616161);
-  static const taskColor = Color(0xFF757575);
-  static const tableColor = Color(0xFF9E9E9E);
-  static const serviceColor = Color(0xFF212121);
+  static const homeColor = Color(0xFF111111); // sehr dunkel
+  static const guestColor = Color(0xFF222222); // sehr dunkel
+  static const budgetColor = Color(0xFF333333); // dunkel
+  static const taskColor = Color(0xFF444444); // mittelgrau-dunkel
+  static const tableColor = Color(0xFF555555); // mittelgrau
+  static const serviceColor = Color(0xFF1A1A1A); // sehr dunkel
 }
 
 // ✨ Royal Gold
@@ -179,16 +187,18 @@ class AppColorsRoyalGold {
 
 // 🍃 Frozen Mint
 class AppColorsFrozenMint {
-  static const primary = Color(0xFF7ECFC0); // Iced Mint
+  static const primary = Color(
+    0xFF4AADA0,
+  ); // deutlich dunkler für besseren Kontrast
   static const background = Color(0xFFF2FBF8); // Mint-Weiß
   static const cardColor = Color(0xFFFFFFFF);
-  static const cardBorder = Color(0xFFD5EFEA);
+  static const cardBorder = Color(0xFFB0DDD6); // sichtbarere Kante
   static const secondary = Color(0xFFBCEDE4);
 
-  static const homeColor = Color(0xFF60B7A8);
-  static const guestColor = Color(0xFF4AAE9B);
-  static const budgetColor = Color(0xFF8FD9CD);
-  static const taskColor = Color(0xFF5FAE9C);
-  static const tableColor = Color(0xFFA8E5D8);
-  static const serviceColor = Color(0xFF79C9BB);
+  static const homeColor = Color(0xFF2E7D74); // deutlich dunkler
+  static const guestColor = Color(0xFF236B5E); // deutlich dunkler
+  static const budgetColor = Color(0xFF4A9E93); // mehr Kontrast
+  static const taskColor = Color(0xFF2D7D6E); // deutlich dunkler
+  static const tableColor = Color(0xFF5AAFA0); // etwas dunkler
+  static const serviceColor = Color(0xFF3A9087); // deutlich dunkler
 }
