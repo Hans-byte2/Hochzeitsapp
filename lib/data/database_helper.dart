@@ -25,12 +25,13 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 14, // VERSION 14: wedding_data.updated_at für Sync
+        version:
+            15, // VERSION 15: dienstleister updated_at + is_deleted für Sync
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v14 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v15 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -434,6 +435,21 @@ class DatabaseHelper {
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ v14 Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v15: dienstleister.updated_at + is_deleted
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 15) {
+        ErrorLogger.info('🔧 v15: Füge Sync-Spalten zu dienstleister hinzu...');
+        try {
+          await DienstleisterDatabase.migrateAddSyncColumns(db);
+          ErrorLogger.success(
+            '  ✅ dienstleister.updated_at + is_deleted hinzugefügt',
+          );
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v15 Migration: $e');
         }
       }
 
@@ -907,19 +923,16 @@ class DatabaseHelper {
     try {
       final db = await database;
       final existing = await getWeddingData();
-      final now = DateTime.now().toIso8601String(); // ← NEU
+      final now = DateTime.now().toIso8601String();
       if (existing == null) {
         await db.insert('wedding_data', {
           'total_budget': amount,
-          'updated_at': now, // ← NEU
+          'updated_at': now,
         });
       } else {
         await db.update(
           'wedding_data',
-          {
-            'total_budget': amount,
-            'updated_at': now, // ← NEU
-          },
+          {'total_budget': amount, 'updated_at': now},
           where: 'id = ?',
           whereArgs: [existing['id']],
         );
@@ -941,14 +954,14 @@ class DatabaseHelper {
 
       final db = await database;
       final existing = await getWeddingData();
-      final now = DateTime.now().toIso8601String(); // ← NEU
+      final now = DateTime.now().toIso8601String();
 
       if (existing == null) {
         final id = await db.insert('wedding_data', {
           'wedding_date': date.toIso8601String(),
           'bride_name': brideName,
           'groom_name': groomName,
-          'updated_at': now, // ← NEU
+          'updated_at': now,
         });
         ErrorLogger.success('✅ Hochzeitsdaten erstellt mit ID: $id');
       } else {
@@ -958,7 +971,7 @@ class DatabaseHelper {
             'wedding_date': date.toIso8601String(),
             'bride_name': brideName,
             'groom_name': groomName,
-            'updated_at': now, // ← NEU
+            'updated_at': now,
           },
           where: 'id = ?',
           whereArgs: [existing['id']],
