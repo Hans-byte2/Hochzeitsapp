@@ -9,6 +9,7 @@ import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../sync/services/sync_service.dart';
+import '../services/budget_ai_service.dart';
 
 class EnhancedBudgetPage extends StatefulWidget {
   const EnhancedBudgetPage({super.key});
@@ -23,6 +24,13 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   bool _showForm = false;
   double _totalBudget = 0.0;
   final _totalBudgetController = TextEditingController();
+
+  // ── Smart Budget: Gästedaten ─────────────────────────────────────────────
+  int _guestCount = 0;
+  int _childCount = 0;
+  double _childMenuPrice = 0.0;
+  double _adultMenuPrice = 0.0;
+  bool _bannerDismissed = false;
 
   final Map<String, String> _categoryLabels = {
     'location': 'Location & Catering',
@@ -69,15 +77,11 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     });
   }
 
-  // ── NEU: Gezieltes Reload für GlobalKey-Zugriff aus main.dart ────────────
-  /// Wird von main.dart über GlobalKey<EnhancedBudgetPageState> aufgerufen.
-  /// Lädt Budget-Items und Gesamtbudget neu – OHNE den Widget-Tree zu zerstören.
-  /// Dadurch kein Flackern beim Sync-Empfang.
   void reload() {
     _loadBudgetItems();
     _loadTotalBudget();
+    _loadGuestData();
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -85,6 +89,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     _initializeDatabase();
     _loadBudgetItems();
     _loadTotalBudget();
+    _loadGuestData();
   }
 
   @override
@@ -97,6 +102,34 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     super.dispose();
   }
 
+  // ── Gästezahl + Menüpreise aus DB laden ──────────────────────────────────
+  Future<void> _loadGuestData() async {
+    try {
+      final guests = await DatabaseHelper.instance.getAllGuests();
+      // Erwachsene = Anzahl Gäste (jeder Gast zählt als 1 Erwachsener)
+      final adults = guests.length;
+      // Kinder = Summe aller children_count Felder
+      final children = guests.fold(0, (sum, g) => sum + g.childrenCount);
+
+      // Menüpreise aus Settings laden (Fallback auf Defaults)
+      final adultPrice =
+          await DatabaseHelper.instance.getSetting('adult_menu_price') ?? '65';
+      final childPrice =
+          await DatabaseHelper.instance.getSetting('child_menu_price') ?? '28';
+
+      if (mounted) {
+        setState(() {
+          _guestCount = adults;
+          _childCount = children;
+          _adultMenuPrice = double.tryParse(adultPrice) ?? 65.0;
+          _childMenuPrice = double.tryParse(childPrice) ?? 28.0;
+        });
+      }
+    } catch (e) {
+      debugPrint('Fehler beim Laden der Gästedaten: $e');
+    }
+  }
+
   void _updateFieldValidation(String fieldKey, bool isValid) {
     if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
   }
@@ -104,6 +137,22 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   bool get _isFormValid =>
       (_fieldValidation['item_name'] ?? false) &&
       (_fieldValidation['planned_amount'] ?? false);
+
+  // ── Budget-Überschreitung ─────────────────────────────────────────────────
+  bool get _isOverBudget => _totalBudget > 0 && totalActual > _totalBudget;
+
+  int get _overBudgetCategoryCount =>
+      _budgetItems.where((i) => i.actual > i.planned && i.planned > 0).length;
+
+  double get _overBudgetAmount => _totalBudget > 0
+      ? (totalActual - _totalBudget).clamp(0, double.infinity)
+      : 0;
+
+  // ── Pro-Kopf ──────────────────────────────────────────────────────────────
+  int get _totalGuests => _guestCount + _childCount;
+
+  double get _perPersonActual =>
+      _totalGuests > 0 ? totalActual / _totalGuests : 0;
 
   Future<void> _loadTotalBudget() async {
     try {
@@ -182,7 +231,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   Future<void> _initializeDatabase() async {
     try {
       final db = await DatabaseHelper.instance.database;
-
       for (final sql in [
         "ALTER TABLE budget_items ADD COLUMN category TEXT DEFAULT 'other'",
         "ALTER TABLE budget_items ADD COLUMN notes TEXT DEFAULT ''",
@@ -201,11 +249,12 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     try {
       setState(() => _isLoading = true);
       final items = await DatabaseHelper.instance.getAllBudgetItems();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _budgetItems = items;
           _isLoading = false;
         });
+      }
     } catch (e) {
       debugPrint('Fehler beim Laden der Budget-Items: $e');
       if (mounted) setState(() => _isLoading = false);
@@ -323,7 +372,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               children: [
                 const Icon(Icons.error, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Erstellen: $e')),
+                Expanded(child: Text('Fehler: $e')),
               ],
             ),
             backgroundColor: Colors.red,
@@ -367,7 +416,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               children: [
                 const Icon(Icons.error, color: Colors.white),
                 const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Erstellen: $e')),
+                Expanded(child: Text('Fehler: $e')),
               ],
             ),
             backgroundColor: Colors.red,
@@ -453,6 +502,25 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
+  // ── KI-Analyse Dialog öffnen ──────────────────────────────────────────────
+  void _showAiAnalysisDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AiBudgetAnalysisSheet(
+        budgetItems: _budgetItems,
+        totalBudget: _totalBudget,
+        guestCount: _guestCount,
+        childCount: _childCount,
+        childMenuPrice: _childMenuPrice,
+        adultMenuPrice: _adultMenuPrice,
+        categoryLabels: _categoryLabels,
+        formatCurrency: _formatCurrency,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
@@ -463,6 +531,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
+          // ── Header ──────────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -488,14 +557,20 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
-                onPressed: _showExportDialog,
-                icon: const Icon(Icons.share),
-                tooltip: 'Exportieren',
-                style: IconButton.styleFrom(
-                  backgroundColor: scheme.secondaryContainer,
-                  foregroundColor: scheme.onSecondaryContainer,
-                ),
+              // Badge-Icon für Budget-Tab
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  IconButton(
+                    onPressed: _showExportDialog,
+                    icon: const Icon(Icons.share),
+                    tooltip: 'Exportieren',
+                    style: IconButton.styleFrom(
+                      backgroundColor: scheme.secondaryContainer,
+                      foregroundColor: scheme.onSecondaryContainer,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(width: 4),
               ElevatedButton.icon(
@@ -525,6 +600,21 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             ],
           ),
           const SizedBox(height: 16),
+
+          // ── Überschreitungs-Banner ───────────────────────────────────────
+          if (_isOverBudget && !_bannerDismissed) ...[
+            _buildOverBudgetBanner(),
+            const SizedBox(height: 12),
+          ],
+
+          // ── KI-Analyse Button ────────────────────────────────────────────
+          _buildAiAnalysisButton(),
+          const SizedBox(height: 12),
+
+          // ── Quick-Chips: Pro Kopf / Kinder / Überzogen ───────────────────
+          _buildQuickChips(),
+          const SizedBox(height: 16),
+
           _buildTotalBudgetCard(),
           const SizedBox(height: 16),
           if (_showForm) ...[_buildAddItemForm(), const SizedBox(height: 16)],
@@ -533,6 +623,194 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           _buildBudgetItemsList(),
         ],
       ),
+    );
+  }
+
+  // ── Überschreitungs-Banner ─────────────────────────────────────────────────
+  Widget _buildOverBudgetBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        border: Border.all(color: Colors.red.shade200),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Text('🚨', style: TextStyle(fontSize: 20)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Budget überschritten',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red.shade800,
+                    fontSize: 13,
+                  ),
+                ),
+                Text(
+                  '${_overBudgetCategoryCount} ${_overBudgetCategoryCount == 1 ? 'Kategorie' : 'Kategorien'} über dem Budget · +€${_formatCurrency(_overBudgetAmount)} gesamt',
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: () => setState(() => _bannerDismissed = true),
+            icon: Icon(Icons.close, color: Colors.red.shade400, size: 18),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── KI-Analyse Button ──────────────────────────────────────────────────────
+  Widget _buildAiAnalysisButton() {
+    final isOver = _isOverBudget;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _showAiAnalysisDialog,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF2c1810), Color(0xFF6d3050)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF2c1810).withOpacity(0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Text('🤖', style: TextStyle(fontSize: 22)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'KI Budget-Analyse',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    Text(
+                      'Pro-Kopf-Kosten · Einsparpotenzial · Empfehlungen',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isOver)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade400,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_overBudgetCategoryCount} Warnung${_overBudgetCategoryCount != 1 ? 'en' : ''}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                )
+              else
+                const Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white54,
+                  size: 14,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Quick-Chips ────────────────────────────────────────────────────────────
+  Widget _buildQuickChips() {
+    final chips = [
+      (
+        '👥',
+        'Pro Person',
+        _totalGuests > 0 ? '€${_formatCurrency(_perPersonActual)}' : '–',
+        false,
+      ),
+      (
+        '👶',
+        'Kinder-Menü',
+        _childCount > 0 ? '€${_formatCurrency(_childMenuPrice)}/Kind' : '–',
+        false,
+      ),
+      (
+        '🚨',
+        'Überzogen',
+        '$_overBudgetCategoryCount ${_overBudgetCategoryCount == 1 ? 'Kat.' : 'Kat.'}',
+        _overBudgetCategoryCount > 0,
+      ),
+    ];
+
+    return Row(
+      children: chips.map((chip) {
+        final (icon, label, value, isWarn) = chip;
+        return Expanded(
+          child: Container(
+            margin: EdgeInsets.only(right: chip == chips.last ? 0 : 8),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            decoration: BoxDecoration(
+              color: isWarn ? Colors.red.shade50 : Colors.white,
+              border: Border.all(
+                color: isWarn ? Colors.red.shade200 : Colors.grey.shade200,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              children: [
+                Text(icon, style: const TextStyle(fontSize: 16)),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: isWarn ? Colors.red.shade700 : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -579,10 +857,47 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.edit, color: Colors.white, size: 20),
-                    onPressed: _showEditTotalBudgetDialog,
-                    tooltip: 'Gesamtbudget bearbeiten',
+                  // Badge für Überschreitung
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                        onPressed: _showEditTotalBudgetDialog,
+                        tooltip: 'Gesamtbudget bearbeiten',
+                      ),
+                      if (_isOverBudget)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade400,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: scheme.primary,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                '$_overBudgetCategoryCount',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),
@@ -864,6 +1179,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 final label = _categoryLabels[category]!;
                 final color = _categoryColors[category]!;
                 final stat = stats[category]!;
+                final isOver =
+                    stat['actualTotal'] > stat['plannedTotal'] &&
+                    stat['plannedTotal'] > 0;
                 final percentage = stat['plannedTotal'] > 0
                     ? (stat['actualTotal'] / stat['plannedTotal']) * 100
                     : 0.0;
@@ -884,9 +1202,15 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.05),
+                      color: isOver
+                          ? Colors.red.withOpacity(0.05)
+                          : color.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: color.withOpacity(0.2)),
+                      border: Border.all(
+                        color: isOver
+                            ? Colors.red.withOpacity(0.3)
+                            : color.withOpacity(0.2),
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -907,14 +1231,20 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                             ),
                             Row(
                               children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    borderRadius: BorderRadius.circular(2),
+                                if (isOver)
+                                  const Text(
+                                    '⚠️',
+                                    style: TextStyle(fontSize: 8),
+                                  )
+                                else
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
                                   ),
-                                ),
                                 const SizedBox(width: 2),
                                 Icon(
                                   Icons.arrow_forward_ios,
@@ -932,13 +1262,19 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         ),
                         Text(
                           'Tatsächlich: €${_formatCurrency(stat['actualTotal'])}',
-                          style: const TextStyle(fontSize: 8),
+                          style: TextStyle(
+                            fontSize: 8,
+                            color: isOver ? Colors.red : null,
+                            fontWeight: isOver ? FontWeight.bold : null,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         LinearProgressIndicator(
                           value: (percentage / 100).clamp(0.0, 1.0),
                           backgroundColor: Colors.grey.shade200,
-                          valueColor: AlwaysStoppedAnimation<Color>(color),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isOver ? Colors.red : color,
+                          ),
                           minHeight: 2,
                         ),
                         const SizedBox(height: 1),
@@ -996,6 +1332,8 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     final item = _budgetItems[index];
                     final category = item.category;
                     final isPaid = item.paid;
+                    final isItemOver =
+                        item.actual > item.planned && item.planned > 0;
 
                     return InkWell(
                       onTap: () => _editBudgetItem(item),
@@ -1003,8 +1341,13 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         margin: const EdgeInsets.only(bottom: 6),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          border: Border.all(color: dividerColor),
+                          border: Border.all(
+                            color: isItemOver
+                                ? Colors.red.shade200
+                                : dividerColor,
+                          ),
                           borderRadius: BorderRadius.circular(6),
+                          color: isItemOver ? Colors.red.shade50 : null,
                         ),
                         child: Row(
                           children: [
@@ -1097,9 +1440,11 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                               children: [
                                 Text(
                                   '€${_formatCurrency(item.actual)}',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black87,
+                                    color: isItemOver
+                                        ? Colors.red
+                                        : Colors.black87,
                                     fontSize: 12,
                                   ),
                                 ),
@@ -1132,7 +1477,586 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 }
 
 // ============================================================================
-// BUDGET ITEM EDIT DIALOG
+// KI BUDGET ANALYSE BOTTOM SHEET
+// ============================================================================
+
+class _AiBudgetAnalysisSheet extends StatefulWidget {
+  final List<BudgetItem> budgetItems;
+  final double totalBudget;
+  final int guestCount;
+  final int childCount;
+  final double childMenuPrice;
+  final double adultMenuPrice;
+  final Map<String, String> categoryLabels;
+  final String Function(double) formatCurrency;
+
+  const _AiBudgetAnalysisSheet({
+    required this.budgetItems,
+    required this.totalBudget,
+    required this.guestCount,
+    required this.childCount,
+    required this.childMenuPrice,
+    required this.adultMenuPrice,
+    required this.categoryLabels,
+    required this.formatCurrency,
+  });
+
+  @override
+  State<_AiBudgetAnalysisSheet> createState() => _AiBudgetAnalysisSheetState();
+}
+
+class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
+  int _tab = 0; // 0=Übersicht, 1=Pro Kopf, 2=Tipps
+  BudgetAiAnalysis? _analysis;
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAnalysis();
+  }
+
+  Future<void> _loadAnalysis() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+      final result = await BudgetAiService.analyze(
+        budgetItems: widget.budgetItems,
+        totalBudget: widget.totalBudget,
+        guestCount: widget.guestCount,
+        childCount: widget.childCount,
+        childMenuPrice: widget.childMenuPrice,
+        adultMenuPrice: widget.adultMenuPrice,
+        categoryLabels: widget.categoryLabels,
+      );
+      if (mounted) setState(() => _analysis = result);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Handle
+          const SizedBox(height: 12),
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey.shade300,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          const SizedBox(height: 4),
+
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  _buildHeader(),
+                  const SizedBox(height: 16),
+
+                  // Tabs
+                  _buildTabs(),
+                  const SizedBox(height: 16),
+
+                  // Content
+                  if (_isLoading)
+                    _buildLoadingState()
+                  else if (_error != null)
+                    _buildErrorState()
+                  else if (_analysis != null)
+                    _buildContent(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF6d3050), Color(0xFFa05070)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          const Text('🤖', style: TextStyle(fontSize: 26)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'KI Budget-Analyse',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 17,
+                  ),
+                ),
+                Text(
+                  '${widget.guestCount + widget.childCount} Gäste · ${widget.guestCount} Erw. + ${widget.childCount} Kinder',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.8),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_analysis != null) ...[
+            Column(
+              children: [
+                Text(
+                  '${_analysis!.score}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  '/ 100',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabs() {
+    const tabs = ['📊 Übersicht', '👥 Pro Kopf', '💡 Tipps'];
+    return Row(
+      children: List.generate(tabs.length, (i) {
+        final active = _tab == i;
+        return Expanded(
+          child: GestureDetector(
+            onTap: () => setState(() => _tab = i),
+            child: Container(
+              margin: EdgeInsets.only(right: i < tabs.length - 1 ? 8 : 0),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: active
+                    ? const Color(0xFFa05070)
+                    : const Color(0xFFf5eaf0),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                tabs[i],
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: active ? Colors.white : const Color(0xFFa05070),
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 40),
+      child: Column(
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text(
+            'KI analysiert euer Budget …',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          const Text('⚠️', style: TextStyle(fontSize: 32)),
+          const SizedBox(height: 8),
+          Text(
+            'Analyse konnte nicht geladen werden.',
+            style: TextStyle(color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: _loadAnalysis,
+            child: const Text('Erneut versuchen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    final a = _analysis!;
+    if (_tab == 0) return _buildOverviewTab(a);
+    if (_tab == 1) return _buildPerPersonTab();
+    return _buildTipsTab(a);
+  }
+
+  Widget _buildOverviewTab(BudgetAiAnalysis a) {
+    final totalPlanned = widget.budgetItems.fold(0.0, (s, i) => s + i.planned);
+    final totalActual = widget.budgetItems.fold(0.0, (s, i) => s + i.actual);
+    final diff = totalActual - widget.totalBudget;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Status
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: diff > 0 ? Colors.red.shade50 : Colors.green.shade50,
+            border: Border.all(
+              color: diff > 0 ? Colors.red.shade200 : Colors.green.shade200,
+            ),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  a.statusLabel,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: diff > 0
+                        ? Colors.red.shade800
+                        : Colors.green.shade800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Zahlen
+        ...[
+          (
+            'Gesamtbudget',
+            '€${widget.formatCurrency(widget.totalBudget)}',
+            false,
+          ),
+          ('Geplante Kosten', '€${widget.formatCurrency(totalPlanned)}', false),
+          ('Ausgegeben', '€${widget.formatCurrency(totalActual)}', diff > 0),
+          (
+            'Differenz',
+            '${diff > 0 ? '+' : ''}€${widget.formatCurrency(diff)}',
+            diff > 0,
+          ),
+        ].map(
+          (row) => Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: row.$3 ? Colors.red.shade50 : const Color(0xFFfaf5f8),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: row.$3 ? Colors.red.shade200 : const Color(0xFFf0e6ec),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  row.$1,
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                Text(
+                  row.$2,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: row.$3 ? Colors.red : Colors.black87,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFfaf5f8),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text(
+            a.summary,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF7a5060),
+              height: 1.6,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPerPersonTab() {
+    final totalGuests = widget.guestCount + widget.childCount;
+    final cateringActual =
+        widget.adultMenuPrice * widget.guestCount +
+        widget.childMenuPrice * widget.childCount;
+    final a = _analysis!;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Gästestruktur
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFfdf0f5),
+            border: Border.all(color: const Color(0xFFf0d0dc)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Gästestruktur & Catering',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              const SizedBox(height: 12),
+              _perPersonRow(
+                '👩‍👨 Erwachsene',
+                '${widget.guestCount} Pers.',
+                '× €${widget.formatCurrency(widget.adultMenuPrice)} = €${widget.formatCurrency(widget.adultMenuPrice * widget.guestCount)}',
+              ),
+              const SizedBox(height: 8),
+              _perPersonRow(
+                '👶 Kinder',
+                '${widget.childCount} Kinder',
+                '× €${widget.formatCurrency(widget.childMenuPrice)} = €${widget.formatCurrency(widget.childMenuPrice * widget.childCount)}',
+              ),
+              const Divider(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Catering gesamt',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    '€${widget.formatCurrency(cateringActual)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Color(0xFFa05070),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Gesamtkosten pro Person
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFfaf5f8),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Gesamtkosten pro Person',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Geplant', style: TextStyle(color: Colors.grey)),
+                  Text(
+                    '€${widget.formatCurrency(a.perPersonCostPlanned)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Aktuell', style: TextStyle(color: Colors.grey)),
+                  Text(
+                    '€${widget.formatCurrency(a.perPersonCostActual)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      color: a.perPersonCostActual > a.perPersonCostPlanned
+                          ? Colors.red
+                          : Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: a.perPersonCostPlanned > 0
+                      ? (a.perPersonCostPlanned / a.perPersonCostActual).clamp(
+                          0.0,
+                          1.0,
+                        )
+                      : 0,
+                  backgroundColor: Colors.grey.shade200,
+                  valueColor: const AlwaysStoppedAnimation(Color(0xFFa05070)),
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '$totalGuests Gäste gesamt',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _perPersonRow(String title, String count, String calc) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+            Text(
+              count,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
+        Text(
+          calc,
+          style: const TextStyle(color: Color(0xFF7a5060), fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTipsTab(BudgetAiAnalysis a) {
+    return Column(
+      children: [
+        ...a.recommendations.map(
+          (rec) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFfaf5f8),
+              border: Border.all(color: const Color(0xFFf0e6ec)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('💡', style: TextStyle(fontSize: 18)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    rec,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF4a3040),
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (a.totalSavingsPotential > 0)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              border: Border.all(color: Colors.green.shade200),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                const Text('💰', style: TextStyle(fontSize: 18)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Gesamteinsparpotenzial: ca. €${widget.formatCurrency(a.totalSavingsPotential)}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green.shade800,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+// BUDGET ITEM EDIT DIALOG (unverändert)
 // ============================================================================
 
 class _BudgetItemEditDialog extends StatefulWidget {
@@ -1255,7 +2179,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Fehler beim Loeschen: $e')));
+        ).showSnackBar(SnackBar(content: Text('Fehler beim Löschen: $e')));
       }
     }
   }
@@ -1329,7 +2253,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) return 'Erforderlich';
                       final p = double.tryParse(v.trim());
-                      if (p == null) return 'Ungueltig';
+                      if (p == null) return 'Ungültig';
                       if (p < 0) return 'Muss >= 0 sein';
                       return null;
                     },
@@ -1339,7 +2263,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: SmartTextField(
-                    label: 'Tatsaechlich (€)',
+                    label: 'Tatsächlich (€)',
                     fieldKey: 'edit_actual',
                     isRequired: false,
                     controller: _actualController,
@@ -1349,7 +2273,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
                     validator: (v) {
                       if (v != null && v.trim().isNotEmpty) {
                         final p = double.tryParse(v.trim());
-                        if (p == null) return 'Ungueltig';
+                        if (p == null) return 'Ungültig';
                         if (p < 0) return 'Muss >= 0 sein';
                       }
                       return null;
@@ -1387,7 +2311,7 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
         ),
         TextButton(
           onPressed: _delete,
-          child: const Text('Loeschen', style: TextStyle(color: Colors.red)),
+          child: const Text('Löschen', style: TextStyle(color: Colors.red)),
         ),
         ElevatedButton(
           onPressed: _isFormValid ? _save : null,

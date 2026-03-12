@@ -25,13 +25,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version:
-            15, // VERSION 15: dienstleister updated_at + is_deleted für Sync
+        version: 16, // VERSION 16: app_settings Tabelle für Menüpreise etc.
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v15 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v16 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -84,7 +83,7 @@ class DatabaseHelper {
       ''');
       ErrorLogger.info('✅ guests Tabelle erstellt');
 
-      // Tasks - VOLLSTÄNDIG mit allen Spalten
+      // Tasks
       await db.execute('''
         CREATE TABLE tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,7 +102,7 @@ class DatabaseHelper {
       ''');
       ErrorLogger.info('✅ tasks Tabelle erstellt');
 
-      // Budget Items - VOLLSTÄNDIG mit allen Spalten
+      // Budget Items
       await db.execute('''
         CREATE TABLE budget_items (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,7 +119,7 @@ class DatabaseHelper {
       ''');
       ErrorLogger.info('✅ budget_items Tabelle erstellt');
 
-      // Tables - VOLLSTÄNDIG mit allen Spalten
+      // Tables
       await db.execute('''
         CREATE TABLE tables (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,8 +148,32 @@ class DatabaseHelper {
       ''');
       ErrorLogger.info('✅ timeline_milestones Tabelle erstellt');
 
+      // ── NEU v16: App Settings ──────────────────────────────────────────
+      await db.execute('''
+        CREATE TABLE app_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT
+        )
+      ''');
+      ErrorLogger.info('✅ app_settings Tabelle erstellt');
+
       await DienstleisterDatabase.createTables(db);
       ErrorLogger.info('✅ Dienstleister Tabellen erstellt');
+
+      // Standardwerte für Menüpreise eintragen
+      final now = DateTime.now().toIso8601String();
+      await db.insert('app_settings', {
+        'key': 'adult_menu_price',
+        'value': '65',
+        'updated_at': now,
+      });
+      await db.insert('app_settings', {
+        'key': 'child_menu_price',
+        'value': '28',
+        'updated_at': now,
+      });
+      ErrorLogger.info('✅ Standard-Menüpreise eingetragen');
 
       ErrorLogger.success('🎉 Alle Tabellen erfolgreich erstellt!');
     } catch (e, stack) {
@@ -163,10 +186,17 @@ class DatabaseHelper {
     try {
       ErrorLogger.info('🔄 Upgrade DB von v$oldVersion zu v$newVersion');
 
-      // Hilfsfunktion zum Prüfen ob Spalte existiert
       Future<bool> columnExists(String table, String column) async {
         final result = await db.rawQuery('PRAGMA table_info($table)');
         return result.any((col) => col['name'] == column);
+      }
+
+      Future<bool> tableExists(String table) async {
+        final result = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+          [table],
+        );
+        return result.isNotEmpty;
       }
 
       // ═══════════════════════════════════════════════════════════
@@ -177,91 +207,74 @@ class DatabaseHelper {
           '🔧 Füge fehlende Spalten zu bestehenden Tabellen hinzu...',
         );
 
-        // TASKS
         try {
           if (!await columnExists('tasks', 'location')) {
             await db.execute(
               'ALTER TABLE tasks ADD COLUMN location TEXT DEFAULT ""',
             );
-            ErrorLogger.success('  ✅ tasks.location hinzugefügt');
           }
           if (!await columnExists('tasks', 'updated_at')) {
             await db.execute('ALTER TABLE tasks ADD COLUMN updated_at TEXT');
-            ErrorLogger.success('  ✅ tasks.updated_at hinzugefügt');
           }
           if (!await columnExists('tasks', 'deleted')) {
             await db.execute(
               'ALTER TABLE tasks ADD COLUMN deleted INTEGER DEFAULT 0',
             );
-            ErrorLogger.success('  ✅ tasks.deleted hinzugefügt');
           }
           if (!await columnExists('tasks', 'deleted_at')) {
             await db.execute('ALTER TABLE tasks ADD COLUMN deleted_at TEXT');
-            ErrorLogger.success('  ✅ tasks.deleted_at hinzugefügt');
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ tasks Migration: $e');
         }
 
-        // GUESTS
         try {
           if (!await columnExists('guests', 'updated_at')) {
             await db.execute('ALTER TABLE guests ADD COLUMN updated_at TEXT');
-            ErrorLogger.success('  ✅ guests.updated_at hinzugefügt');
           }
           if (!await columnExists('guests', 'deleted')) {
             await db.execute(
               'ALTER TABLE guests ADD COLUMN deleted INTEGER DEFAULT 0',
             );
-            ErrorLogger.success('  ✅ guests.deleted hinzugefügt');
           }
           if (!await columnExists('guests', 'deleted_at')) {
             await db.execute('ALTER TABLE guests ADD COLUMN deleted_at TEXT');
-            ErrorLogger.success('  ✅ guests.deleted_at hinzugefügt');
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ guests Migration: $e');
         }
 
-        // BUDGET_ITEMS
         try {
           if (!await columnExists('budget_items', 'updated_at')) {
             await db.execute(
               'ALTER TABLE budget_items ADD COLUMN updated_at TEXT',
             );
-            ErrorLogger.success('  ✅ budget_items.updated_at hinzugefügt');
           }
           if (!await columnExists('budget_items', 'deleted')) {
             await db.execute(
               'ALTER TABLE budget_items ADD COLUMN deleted INTEGER DEFAULT 0',
             );
-            ErrorLogger.success('  ✅ budget_items.deleted hinzugefügt');
           }
           if (!await columnExists('budget_items', 'deleted_at')) {
             await db.execute(
               'ALTER TABLE budget_items ADD COLUMN deleted_at TEXT',
             );
-            ErrorLogger.success('  ✅ budget_items.deleted_at hinzugefügt');
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ budget_items Migration: $e');
         }
 
-        // TABLES
         try {
           if (!await columnExists('tables', 'updated_at')) {
             await db.execute('ALTER TABLE tables ADD COLUMN updated_at TEXT');
-            ErrorLogger.success('  ✅ tables.updated_at hinzugefügt');
           }
           if (!await columnExists('tables', 'deleted')) {
             await db.execute(
               'ALTER TABLE tables ADD COLUMN deleted INTEGER DEFAULT 0',
             );
-            ErrorLogger.success('  ✅ tables.deleted hinzugefügt');
           }
           if (!await columnExists('tables', 'deleted_at')) {
             await db.execute('ALTER TABLE tables ADD COLUMN deleted_at TEXT');
-            ErrorLogger.success('  ✅ tables.deleted_at hinzugefügt');
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ tables Migration: $e');
@@ -269,53 +282,25 @@ class DatabaseHelper {
       }
 
       // ═══════════════════════════════════════════════════════════
-      // Migration zu v10: Kinder + KI-Scoring Spalten in guests
+      // Migration zu v10: Kinder + KI-Scoring
       // ═══════════════════════════════════════════════════════════
       if (oldVersion < 10) {
         ErrorLogger.info('🔧 v10: Füge Kinder + Scoring Spalten hinzu...');
-
         try {
-          if (!await columnExists('guests', 'children_count')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN children_count INTEGER DEFAULT 0',
-            );
-            ErrorLogger.success('  ✅ guests.children_count hinzugefügt');
-          }
-          if (!await columnExists('guests', 'children_names')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN children_names TEXT',
-            );
-            ErrorLogger.success('  ✅ guests.children_names hinzugefügt');
-          }
-          if (!await columnExists('guests', 'relationship_type')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN relationship_type TEXT',
-            );
-            ErrorLogger.success('  ✅ guests.relationship_type hinzugefügt');
-          }
-          if (!await columnExists('guests', 'is_vip')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN is_vip INTEGER DEFAULT 0',
-            );
-            ErrorLogger.success('  ✅ guests.is_vip hinzugefügt');
-          }
-          if (!await columnExists('guests', 'distance_km')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN distance_km INTEGER DEFAULT 0',
-            );
-            ErrorLogger.success('  ✅ guests.distance_km hinzugefügt');
-          }
-          if (!await columnExists('guests', 'priority_score')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN priority_score REAL DEFAULT 0.0',
-            );
-            ErrorLogger.success('  ✅ guests.priority_score hinzugefügt');
-          }
-          if (!await columnExists('guests', 'score_updated_at')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN score_updated_at TEXT',
-            );
-            ErrorLogger.success('  ✅ guests.score_updated_at hinzugefügt');
+          for (final col in [
+            ['children_count', 'INTEGER DEFAULT 0'],
+            ['children_names', 'TEXT'],
+            ['relationship_type', 'TEXT'],
+            ['is_vip', 'INTEGER DEFAULT 0'],
+            ['distance_km', 'INTEGER DEFAULT 0'],
+            ['priority_score', 'REAL DEFAULT 0.0'],
+            ['score_updated_at', 'TEXT'],
+          ]) {
+            if (!await columnExists('guests', col[0])) {
+              await db.execute(
+                'ALTER TABLE guests ADD COLUMN ${col[0]} ${col[1]}',
+              );
+            }
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ guests v10 Migration: $e');
@@ -328,23 +313,15 @@ class DatabaseHelper {
       if (oldVersion < 11) {
         ErrorLogger.info('🔧 v11: Füge Tischplanungs-Spalten hinzu...');
         try {
-          if (!await columnExists('guests', 'conflicts_json')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN conflicts_json TEXT',
-            );
-            ErrorLogger.success('  ✅ guests.conflicts_json hinzugefügt');
-          }
-          if (!await columnExists('guests', 'knows_json')) {
-            await db.execute('ALTER TABLE guests ADD COLUMN knows_json TEXT');
-            ErrorLogger.success('  ✅ guests.knows_json hinzugefügt');
-          }
-          if (!await columnExists('guests', 'age_group')) {
-            await db.execute('ALTER TABLE guests ADD COLUMN age_group TEXT');
-            ErrorLogger.success('  ✅ guests.age_group hinzugefügt');
-          }
-          if (!await columnExists('guests', 'hobbies')) {
-            await db.execute('ALTER TABLE guests ADD COLUMN hobbies TEXT');
-            ErrorLogger.success('  ✅ guests.hobbies hinzugefügt');
+          for (final col in [
+            'conflicts_json',
+            'knows_json',
+            'age_group',
+            'hobbies',
+          ]) {
+            if (!await columnExists('guests', col)) {
+              await db.execute('ALTER TABLE guests ADD COLUMN $col TEXT');
+            }
           }
         } catch (e) {
           ErrorLogger.info('  ℹ️ guests v11 Migration: $e');
@@ -352,16 +329,13 @@ class DatabaseHelper {
       }
 
       // ═══════════════════════════════════════════════════════════
-      // Migration zu v12: tables.categories Spalte
+      // Migration zu v12: tables.categories
       // ═══════════════════════════════════════════════════════════
       if (oldVersion < 12) {
         ErrorLogger.info('🔧 v12: Füge categories Spalte zu tables hinzu...');
         try {
           if (!await columnExists('tables', 'categories')) {
             await db.execute('ALTER TABLE tables ADD COLUMN categories TEXT');
-            ErrorLogger.success('  ✅ tables.categories hinzugefügt');
-          } else {
-            ErrorLogger.info('  ℹ️ tables.categories existiert bereits');
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ tables.categories Migration: $e');
@@ -378,13 +352,7 @@ class DatabaseHelper {
             await db.execute(
               'ALTER TABLE wedding_data ADD COLUMN total_budget REAL DEFAULT 0.0',
             );
-            ErrorLogger.success('  ✅ wedding_data.total_budget hinzugefügt');
-          } else {
-            ErrorLogger.info(
-              '  ℹ️ wedding_data.total_budget existiert bereits',
-            );
           }
-          // Bestehende total_budget BudgetItems in die neue Spalte migrieren
           final existing = await db.query(
             'budget_items',
             where: "category = ? AND deleted = 0",
@@ -402,9 +370,6 @@ class DatabaseHelper {
                 where: 'id = ?',
                 whereArgs: [wd.first['id']],
               );
-              ErrorLogger.success(
-                '  ✅ Bestehendes Gesamtbudget ($val) migriert',
-              );
             }
             await db.update(
               'budget_items',
@@ -412,7 +377,6 @@ class DatabaseHelper {
               where: "category = ?",
               whereArgs: ['total_budget'],
             );
-            ErrorLogger.success('  ✅ Alten total_budget BudgetItem entfernt');
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ v13 Migration: $e');
@@ -420,7 +384,7 @@ class DatabaseHelper {
       }
 
       // ═══════════════════════════════════════════════════════════
-      // Migration zu v14: wedding_data.updated_at für Sync
+      // Migration zu v14: wedding_data.updated_at
       // ═══════════════════════════════════════════════════════════
       if (oldVersion < 14) {
         ErrorLogger.info('🔧 v14: Füge updated_at zu wedding_data hinzu...');
@@ -429,9 +393,6 @@ class DatabaseHelper {
             await db.execute(
               'ALTER TABLE wedding_data ADD COLUMN updated_at TEXT',
             );
-            ErrorLogger.success('  ✅ wedding_data.updated_at hinzugefügt');
-          } else {
-            ErrorLogger.info('  ℹ️ wedding_data.updated_at existiert bereits');
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ v14 Migration: $e');
@@ -439,17 +400,57 @@ class DatabaseHelper {
       }
 
       // ═══════════════════════════════════════════════════════════
-      // Migration zu v15: dienstleister.updated_at + is_deleted
+      // Migration zu v15: dienstleister Sync-Spalten
       // ═══════════════════════════════════════════════════════════
       if (oldVersion < 15) {
         ErrorLogger.info('🔧 v15: Füge Sync-Spalten zu dienstleister hinzu...');
         try {
           await DienstleisterDatabase.migrateAddSyncColumns(db);
-          ErrorLogger.success(
-            '  ✅ dienstleister.updated_at + is_deleted hinzugefügt',
-          );
         } catch (e) {
           ErrorLogger.info('  ⚠️ v15 Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v16: app_settings Tabelle
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 16) {
+        ErrorLogger.info('🔧 v16: Erstelle app_settings Tabelle...');
+        try {
+          if (!await tableExists('app_settings')) {
+            await db.execute('''
+              CREATE TABLE app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT
+              )
+            ''');
+            ErrorLogger.success('  ✅ app_settings Tabelle erstellt');
+          }
+
+          // Standardwerte nur eintragen wenn noch nicht vorhanden
+          final now = DateTime.now().toIso8601String();
+          final existing = await db.query('app_settings');
+          final keys = existing.map((r) => r['key'] as String).toSet();
+
+          if (!keys.contains('adult_menu_price')) {
+            await db.insert('app_settings', {
+              'key': 'adult_menu_price',
+              'value': '65',
+              'updated_at': now,
+            });
+            ErrorLogger.success('  ✅ adult_menu_price Default eingetragen');
+          }
+          if (!keys.contains('child_menu_price')) {
+            await db.insert('app_settings', {
+              'key': 'child_menu_price',
+              'value': '28',
+              'updated_at': now,
+            });
+            ErrorLogger.success('  ✅ child_menu_price Default eingetragen');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v16 Migration: $e');
         }
       }
 
@@ -457,6 +458,59 @@ class DatabaseHelper {
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim DB-Upgrade', e, stack);
       rethrow;
+    }
+  }
+
+  // ================================================================
+  // APP SETTINGS  (neu in v16)
+  // ================================================================
+
+  /// Liest einen Setting-Wert anhand des Keys.
+  /// Gibt null zurück wenn der Key nicht existiert.
+  Future<String?> getSetting(String key) async {
+    try {
+      final db = await database;
+      final result = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: [key],
+        limit: 1,
+      );
+      if (result.isEmpty) return null;
+      return result.first['value'] as String?;
+    } catch (e) {
+      ErrorLogger.info('getSetting Fehler für key "$key": $e');
+      return null;
+    }
+  }
+
+  /// Speichert einen Setting-Wert (INSERT OR REPLACE).
+  Future<void> setSetting(String key, String value) async {
+    try {
+      final db = await database;
+      await db.insert('app_settings', {
+        'key': key,
+        'value': value,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      ErrorLogger.success('✅ Setting gespeichert: $key = $value');
+    } catch (e, stack) {
+      ErrorLogger.error('❌ setSetting Fehler für key "$key"', e, stack);
+      rethrow;
+    }
+  }
+
+  /// Liest alle Settings als Map zurück.
+  Future<Map<String, String>> getAllSettings() async {
+    try {
+      final db = await database;
+      final result = await db.query('app_settings');
+      return {
+        for (final row in result) row['key'] as String: row['value'] as String,
+      };
+    } catch (e) {
+      ErrorLogger.info('getAllSettings Fehler: $e');
+      return {};
     }
   }
 
@@ -475,8 +529,6 @@ class DatabaseHelper {
       );
 
       final guestMap = guestWithTimestamp.toMap();
-      ErrorLogger.info('Gast-Daten: $guestMap');
-
       final id = await db.insert('guests', guestMap);
 
       ErrorLogger.success('✅ Gast erstellt mit ID: $id');
@@ -580,10 +632,7 @@ class DatabaseHelper {
         deleted: 0,
       );
 
-      final taskMap = taskWithTimestamp.toMap();
-      ErrorLogger.info('Task-Daten: $taskMap');
-
-      final id = await db.insert('tasks', taskMap);
+      final id = await db.insert('tasks', taskWithTimestamp.toMap());
 
       ErrorLogger.success('✅ Task erstellt mit ID: $id');
       return taskWithTimestamp.copyWith(id: id);
@@ -896,11 +945,6 @@ class DatabaseHelper {
     try {
       final db = await database;
       final List<Map<String, dynamic>> maps = await db.query('wedding_data');
-      if (maps.isNotEmpty) {
-        ErrorLogger.info('Hochzeitsdaten geladen');
-      } else {
-        ErrorLogger.info('Keine Hochzeitsdaten vorhanden');
-      }
       return maps.isNotEmpty ? maps.first : null;
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Hochzeitsdaten', e, stack);
@@ -908,7 +952,6 @@ class DatabaseHelper {
     }
   }
 
-  /// Liest nur das Gesamtbudget aus wedding_data.
   Future<double> getTotalBudget() async {
     try {
       final data = await getWeddingData();
@@ -918,7 +961,6 @@ class DatabaseHelper {
     }
   }
 
-  /// Speichert nur das Gesamtbudget in wedding_data.
   Future<void> setTotalBudget(double amount) async {
     try {
       final db = await database;
