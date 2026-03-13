@@ -8,9 +8,11 @@ import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
 import 'payment_plan_screen.dart';
+import 'auto_budget_allocation_sheet.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../sync/services/sync_service.dart';
 import '../services/budget_ai_service.dart';
+import '../services/budget_report_pdf_service.dart';
 
 class EnhancedBudgetPage extends StatefulWidget {
   const EnhancedBudgetPage({super.key});
@@ -306,12 +308,28 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           children: [
             ListTile(
               leading: const Icon(
+                Icons.summarize_outlined,
+                color: Colors.purple,
+                size: 32,
+              ),
+              title: const Text('Budget-Bericht (PDF)'),
+              subtitle: const Text(
+                'Vollständig: Ampeln, Catering, Zahlungsplan',
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                _exportBudgetReport();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(
                 Icons.picture_as_pdf,
                 color: Colors.red,
                 size: 32,
               ),
               title: const Text('Als PDF exportieren'),
-              subtitle: const Text('Übersichtliche Zusammenfassung'),
+              subtitle: const Text('Einfache Zusammenfassung'),
               onTap: () {
                 Navigator.pop(context);
                 _exportAsPdf();
@@ -341,6 +359,46 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _exportBudgetReport() async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      final paymentPlans = await DatabaseHelper.instance.getAllPaymentPlans();
+      if (!mounted) return;
+      await BudgetReportPdfService.exportBudgetReport(
+        budgetItems: _budgetItems,
+        paymentPlans: paymentPlans,
+        totalBudget: _totalBudget,
+        guestCount: _guestCount,
+        childCount: _childCount,
+        adultMenuPrice: _adultMenuPrice,
+        childMenuPrice: _childMenuPrice,
+        categoryLabels: _categoryLabels,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Fehler: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _exportAsPdf() async {
@@ -615,6 +673,12 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           _buildAiAnalysisButton(),
           const SizedBox(height: 12),
 
+          // ── Auto-Budget Button (nur wenn noch keine Posten) ────────────
+          if (_budgetItems.isEmpty && _totalBudget > 0) ...[
+            _buildAutoBudgetButton(),
+            const SizedBox(height: 12),
+          ],
+
           // ── Quick-Chips: Pro Kopf / Kinder / Überzogen ───────────────────
           _buildQuickChips(),
           const SizedBox(height: 16),
@@ -761,6 +825,77 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   double get _cateringPerAdult {
     if (_guestCount == 0) return _adultMenuPrice;
     return _adultMenuPrice;
+  }
+
+  Widget _buildAutoBudgetButton() {
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => AutoBudgetAllocationSheet(
+            totalBudget: _totalBudget,
+            onApplied: () {
+              _loadBudgetItems();
+              _syncNow();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Row(
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text('Budget-Aufteilung übernommen!'),
+                    ],
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: scheme.primary.withOpacity(0.06),
+          border: Border.all(color: scheme.primary.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.pie_chart_outline_rounded,
+              color: scheme.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Budget automatisch aufteilen',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: scheme.primary,
+                    ),
+                  ),
+                  Text(
+                    'Richtwerte für alle Kategorien als Startpunkt',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, size: 14, color: scheme.primary),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildPaymentPlanButton() {
@@ -1778,6 +1913,13 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
   // Szenario-Slider
   int _scenarioRemove = 0;
 
+  // Getränke-Rechner
+  bool _openBar = true;
+  double _drinksPerPersonPerHour = 2.0;
+  double _hoursOfEvent = 6.0;
+  double _pricePerDrink = 4.5;
+  double _openBarPricePerPerson = 35.0;
+
   @override
   void initState() {
     super.initState();
@@ -2071,10 +2213,39 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
         ),
         const SizedBox(height: 16),
 
-        // Richtwert-Vergleich
-        const Text(
-          'Richtwerte vs. dein Budget',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+        // Richtwert-Vergleich mit visuellen Balken
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Richtwerte vs. dein Budget',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+            Row(
+              children: [
+                _legendDot(Colors.green.shade400),
+                const SizedBox(width: 3),
+                Text(
+                  'OK',
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                ),
+                const SizedBox(width: 8),
+                _legendDot(Colors.orange.shade400),
+                const SizedBox(width: 3),
+                Text(
+                  'Achtung',
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                ),
+                const SizedBox(width: 8),
+                _legendDot(Colors.red.shade400),
+                const SizedBox(width: 3),
+                Text(
+                  'Überzogen',
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         ...a.benchmarks.map((b) => _benchmarkRow(b)),
@@ -2145,6 +2316,12 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
       ),
     );
   }
+
+  Widget _legendDot(Color color) => Container(
+    width: 8,
+    height: 8,
+    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+  );
 
   Widget _benchmarkRow(CategoryBenchmarkResult b) {
     final color = _ampelColor(b.status);
@@ -2524,7 +2701,239 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
             ],
           ),
         ),
+        const SizedBox(height: 20),
+
+        // ── Getränke-Rechner ─────────────────────────────────────────────
+        const Text(
+          'Getränke-Rechner',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+
+        // Open Bar vs. nach Verbrauch Toggle
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _openBar = true),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _openBar
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Open Bar',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: _openBar ? Colors.white : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _openBar = false),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: !_openBar
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      'Nach Verbrauch',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: !_openBar ? Colors.white : Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        if (_openBar) ...[
+          // Open Bar: Pauschale pro Person
+          _drinkSliderRow(
+            label: 'Pauschale pro Person',
+            value: _openBarPricePerPerson,
+            min: 15,
+            max: 80,
+            divisions: 65,
+            unit: '€/Person',
+            onChanged: (v) => setState(() => _openBarPricePerPerson = v),
+          ),
+          const SizedBox(height: 8),
+          _drinkResultCard(
+            label: 'Geschätzte Getränkekosten',
+            amount:
+                _openBarPricePerPerson *
+                (widget.guestCount + widget.childCount),
+            subtitle:
+                '${widget.guestCount + widget.childCount} Pers. × ${_openBarPricePerPerson.toStringAsFixed(0)} €',
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tipp: Open Bar Pauschalen liegen typisch bei 25–45 € pro Person für 4–6 Stunden.',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade500,
+              height: 1.4,
+            ),
+          ),
+        ] else ...[
+          // Nach Verbrauch
+          _drinkSliderRow(
+            label: 'Getränke pro Person/Stunde',
+            value: _drinksPerPersonPerHour,
+            min: 1,
+            max: 5,
+            divisions: 8,
+            unit: 'Getränke',
+            onChanged: (v) => setState(() => _drinksPerPersonPerHour = v),
+          ),
+          const SizedBox(height: 8),
+          _drinkSliderRow(
+            label: 'Stunden (Event-Dauer)',
+            value: _hoursOfEvent,
+            min: 2,
+            max: 12,
+            divisions: 10,
+            unit: 'Std.',
+            onChanged: (v) => setState(() => _hoursOfEvent = v),
+          ),
+          const SizedBox(height: 8),
+          _drinkSliderRow(
+            label: 'Ø Preis pro Getränk',
+            value: _pricePerDrink,
+            min: 2,
+            max: 10,
+            divisions: 16,
+            unit: '€',
+            onChanged: (v) => setState(() => _pricePerDrink = v),
+          ),
+          const SizedBox(height: 8),
+          _drinkResultCard(
+            label: 'Geschätzte Getränkekosten',
+            amount:
+                _drinksPerPersonPerHour *
+                _hoursOfEvent *
+                _pricePerDrink *
+                (widget.guestCount + widget.childCount),
+            subtitle:
+                '${widget.guestCount + widget.childCount} Pers. × '
+                '${_drinksPerPersonPerHour.toStringAsFixed(1)} × '
+                '${_hoursOfEvent.toStringAsFixed(0)} Std. × '
+                '${_pricePerDrink.toStringAsFixed(1)} €',
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tipp: Rechne mit ca. 2–3 Getränken/Stunde. Alkoholfreie Alternativen senken den Schnittpreis.',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade500,
+              height: 1.4,
+            ),
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _drinkSliderRow({
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required String unit,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            Text(
+              '${value % 1 == 0 ? value.toInt() : value.toStringAsFixed(1)} $unit',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        Slider(
+          value: value,
+          min: min,
+          max: max,
+          divisions: divisions,
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  Widget _drinkResultCard({
+    required String label,
+    required double amount,
+    required String subtitle,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.primary.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: scheme.primary.withOpacity(0.2)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+          Text(
+            '${_fmt(amount)} €',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: scheme.primary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

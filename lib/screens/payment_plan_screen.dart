@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/database_helper.dart';
+import '../services/budget_report_pdf_service.dart';
 import '../models/wedding_models.dart';
 
 // ============================================================================
@@ -355,6 +356,11 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
         centerTitle: false,
         actions: [
           IconButton(
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: _exportReport,
+            tooltip: 'Als PDF exportieren',
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
             onPressed: _showAddEditDialog,
             tooltip: 'Zahlung hinzufügen',
@@ -373,6 +379,55 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
             )
           : null,
     );
+  }
+
+  Future<void> _exportReport() async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+      final budgetItems = await DatabaseHelper.instance.getAllBudgetItems();
+      final totalBudget = await DatabaseHelper.instance.getTotalBudget();
+      final adultPrice =
+          await DatabaseHelper.instance.getSetting('adult_menu_price') ?? '65';
+      final childPrice =
+          await DatabaseHelper.instance.getSetting('child_menu_price') ?? '28';
+      final guests = await DatabaseHelper.instance.getAllGuests();
+      final guestCount = guests.length;
+      final childCount = guests.fold(0, (s, g) => s + g.childrenCount);
+      if (!mounted) return;
+      await BudgetReportPdfService.exportBudgetReport(
+        budgetItems: budgetItems,
+        paymentPlans: _plans,
+        totalBudget: totalBudget,
+        guestCount: guestCount,
+        childCount: childCount,
+        adultMenuPrice: double.tryParse(adultPrice) ?? 65.0,
+        childMenuPrice: double.tryParse(childPrice) ?? 28.0,
+        categoryLabels: const {
+          'location': 'Location & Catering',
+          'catering': 'Verpflegung',
+          'clothing': 'Kleidung & Styling',
+          'decoration': 'Dekoration & Blumen',
+          'music': 'Musik & Unterhaltung',
+          'photography': 'Fotografie & Video',
+          'flowers': 'Blumen & Floristik',
+          'transport': 'Transport',
+          'rings': 'Ringe & Schmuck',
+          'other': 'Sonstiges',
+        },
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   Widget _buildEmpty() {
