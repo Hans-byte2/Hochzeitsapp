@@ -25,12 +25,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 16, // VERSION 16: app_settings Tabelle für Menüpreise etc.
+        version: 17, // VERSION 17: payment_plans Tabelle für Zahlungsplan
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v16 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v17 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -451,6 +451,34 @@ class DatabaseHelper {
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ v16 Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // Migration zu v17: payment_plans Tabelle
+      // ═══════════════════════════════════════════════════════════
+      if (oldVersion < 17) {
+        ErrorLogger.info('🔧 v17: Erstelle payment_plans Tabelle...');
+        try {
+          if (!await tableExists('payment_plans')) {
+            await db.execute('''
+              CREATE TABLE payment_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                vendor_name TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0.0,
+                due_date TEXT NOT NULL,
+                payment_type TEXT NOT NULL DEFAULT 'pauschale',
+                paid INTEGER NOT NULL DEFAULT 0,
+                notes TEXT DEFAULT '',
+                updated_at TEXT,
+                deleted INTEGER DEFAULT 0,
+                deleted_at TEXT
+              )
+            ''');
+            ErrorLogger.success('  ✅ payment_plans Tabelle erstellt');
+          }
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v17 Migration: \$e');
         }
       }
 
@@ -1024,5 +1052,53 @@ class DatabaseHelper {
       ErrorLogger.error('❌ Fehler beim Speichern der Hochzeitsdaten', e, stack);
       rethrow;
     }
+  }
+  // ================================================================
+  // PAYMENT PLANS  (neu in v17)
+  // ================================================================
+
+  Future<List<PaymentPlan>> getAllPaymentPlans() async {
+    final db = await database;
+    final maps = await db.query(
+      'payment_plans',
+      where: 'deleted = 0',
+      orderBy: 'due_date ASC',
+    );
+    return maps.map(PaymentPlan.fromMap).toList();
+  }
+
+  Future<int> insertPaymentPlan(PaymentPlan plan) async {
+    final db = await database;
+    return db.insert('payment_plans', plan.toMap());
+  }
+
+  Future<void> updatePaymentPlan(PaymentPlan plan) async {
+    final db = await database;
+    await db.update(
+      'payment_plans',
+      plan.toMap(),
+      where: 'id = ?',
+      whereArgs: [plan.id],
+    );
+  }
+
+  Future<void> deletePaymentPlan(int id) async {
+    final db = await database;
+    await db.update(
+      'payment_plans',
+      {'deleted': 1, 'deleted_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> togglePaymentPlanPaid(int id, bool paid) async {
+    final db = await database;
+    await db.update(
+      'payment_plans',
+      {'paid': paid ? 1 : 0, 'updated_at': DateTime.now().toIso8601String()},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

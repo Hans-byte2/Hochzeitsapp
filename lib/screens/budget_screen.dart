@@ -7,6 +7,7 @@ import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import 'budget_detail_screen.dart';
+import 'payment_plan_screen.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../sync/services/sync_service.dart';
 import '../services/budget_ai_service.dart';
@@ -31,6 +32,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   double _childMenuPrice = 0.0;
   double _adultMenuPrice = 0.0;
   bool _bannerDismissed = false;
+
+  // ── Bezahlt-Filter ───────────────────────────────────────────────────────
+  String _paidFilter = 'all'; // 'all' | 'open' | 'paid'
 
   final Map<String, String> _categoryLabels = {
     'location': 'Location & Catering',
@@ -753,64 +757,269 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   }
 
   // ── Quick-Chips ────────────────────────────────────────────────────────────
+  // Catering-Preis pro Erwachsenem (nur Catering-Kategorie / Erwachsene)
+  double get _cateringPerAdult {
+    if (_guestCount == 0) return _adultMenuPrice;
+    return _adultMenuPrice;
+  }
+
+  Widget _buildPaymentPlanButton() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const PaymentPlanScreen()),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.payment_outlined, size: 18, color: Colors.grey.shade700),
+            const SizedBox(width: 6),
+            Text(
+              'Zahlungsplan',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Menüpreis-Settings Dialog ───────────────────────────────────────────
+  Future<void> _showMenuPriceSettings() async {
+    final adultCtrl = TextEditingController(
+      text: _adultMenuPrice.toStringAsFixed(0),
+    );
+    final childCtrl = TextEditingController(
+      text: _childMenuPrice.toStringAsFixed(0),
+    );
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Menüpreise anpassen',
+          style: TextStyle(fontSize: 16),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: adultCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Erwachsenen-Menü (€)',
+                prefixText: '€ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: childCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Kinderteller (€)',
+                prefixText: '€ ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final adult = double.tryParse(adultCtrl.text) ?? _adultMenuPrice;
+              final child = double.tryParse(childCtrl.text) ?? _childMenuPrice;
+              await DatabaseHelper.instance.setSetting(
+                'adult_menu_price',
+                adult.toString(),
+              );
+              await DatabaseHelper.instance.setSetting(
+                'child_menu_price',
+                child.toString(),
+              );
+              if (mounted) {
+                setState(() {
+                  _adultMenuPrice = adult;
+                  _childMenuPrice = child;
+                });
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Speichern'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildQuickChips() {
     final chips = [
       (
         '👥',
-        'Pro Person',
+        'Gesamt/Kopf',
         _totalGuests > 0 ? '€${_formatCurrency(_perPersonActual)}' : '–',
         false,
       ),
       (
+        '🍽️',
+        'Catering/Kopf',
+        _guestCount > 0 ? '€${_formatCurrency(_adultMenuPrice)}' : '–',
+        false,
+      ),
+      (
         '👶',
-        'Kinder-Menü',
-        _childCount > 0 ? '€${_formatCurrency(_childMenuPrice)}/Kind' : '–',
+        'Kind-Menü',
+        _childCount > 0 ? '€${_formatCurrency(_childMenuPrice)}' : '–',
         false,
       ),
       (
         '🚨',
         'Überzogen',
-        '$_overBudgetCategoryCount ${_overBudgetCategoryCount == 1 ? 'Kat.' : 'Kat.'}',
+        '$_overBudgetCategoryCount Kat.',
         _overBudgetCategoryCount > 0,
       ),
     ];
 
     return Row(
-      children: chips.map((chip) {
-        final (icon, label, value, isWarn) = chip;
-        return Expanded(
-          child: Container(
-            margin: EdgeInsets.only(right: chip == chips.last ? 0 : 8),
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            decoration: BoxDecoration(
-              color: isWarn ? Colors.red.shade50 : Colors.white,
-              border: Border.all(
-                color: isWarn ? Colors.red.shade200 : Colors.grey.shade200,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                Text(icon, style: const TextStyle(fontSize: 16)),
-                const SizedBox(height: 3),
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: isWarn ? Colors.red.shade700 : Colors.black87,
+      children: [
+        Expanded(
+          child: Row(
+            children: List.generate(chips.length, (index) {
+              final (icon, label, value, isWarn) = chips[index];
+              return Expanded(
+                child: Container(
+                  margin: EdgeInsets.only(
+                    right: index < chips.length - 1 ? 6 : 0,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isWarn ? Colors.red.shade50 : Colors.white,
+                    border: Border.all(
+                      color: isWarn
+                          ? Colors.red.shade200
+                          : Colors.grey.shade200,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(icon, style: const TextStyle(fontSize: 15)),
+                      const SizedBox(height: 2),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: Colors.grey.shade600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        value,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isWarn ? Colors.red.shade700 : Colors.black87,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              );
+            }),
+          ),
+        ),
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: _showMenuPriceSettings,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: Colors.grey.shade200),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.tune_rounded,
+              size: 18,
+              color: Colors.grey.shade600,
             ),
           ),
-        );
-      }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterChip(String label, String value) {
+    final isActive = _paidFilter == value;
+    final scheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: () => setState(() => _paidFilter = value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: isActive ? scheme.primary : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isActive ? scheme.primary : Colors.grey.shade300,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isActive ? Colors.white : Colors.grey.shade700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _paidSummaryBadge(String label, String amount, Color color) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.25)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: TextStyle(fontSize: 11, color: color)),
+            Text(
+              amount,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1300,26 +1509,81 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   Widget _buildBudgetItemsList() {
     final dividerColor = Theme.of(context).dividerColor;
 
+    // Filter anwenden
+    final filteredItems = _budgetItems.where((item) {
+      if (_paidFilter == 'paid') return item.paid;
+      if (_paidFilter == 'open') return !item.paid;
+      return true;
+    }).toList();
+
+    final totalOpen = _budgetItems
+        .where((i) => !i.paid)
+        .fold(0.0, (s, i) => s + i.actual);
+    final totalPaid = _budgetItems
+        .where((i) => i.paid)
+        .fold(0.0, (s, i) => s + i.actual);
+    final openCount = _budgetItems.where((i) => !i.paid).length;
+    final paidCount = _budgetItems.where((i) => i.paid).length;
+
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.all(12.0),
-            child: Text(
-              'Alle Budgetposten',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          // Header mit Filter-Chips
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Budgetposten',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                // Zusammenfassung offen/bezahlt
+                Row(
+                  children: [
+                    _paidSummaryBadge(
+                      '${openCount} offen',
+                      '€${_formatCurrency(totalOpen)}',
+                      Colors.orange,
+                    ),
+                    const SizedBox(width: 8),
+                    _paidSummaryBadge(
+                      '${paidCount} bezahlt',
+                      '€${_formatCurrency(totalPaid)}',
+                      Colors.green,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Filter-Toggle
+                Row(
+                  children: [
+                    _filterChip('Alle', 'all'),
+                    const SizedBox(width: 6),
+                    _filterChip('Offen', 'open'),
+                    const SizedBox(width: 6),
+                    _filterChip('Bezahlt', 'paid'),
+                  ],
+                ),
+              ],
             ),
           ),
-          _budgetItems.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(20.0),
+          filteredItems.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(20.0),
                   child: Center(
                     child: Text(
-                      'Noch keine Budgetposten hinzugefügt.',
-                      style: TextStyle(color: Colors.grey),
+                      _paidFilter == 'all'
+                          ? 'Noch keine Budgetposten hinzugefügt.'
+                          : _paidFilter == 'open'
+                          ? 'Alle Posten sind bereits bezahlt ✅'
+                          : 'Noch keine Posten als bezahlt markiert.',
+                      style: const TextStyle(color: Colors.grey),
+                      textAlign: TextAlign.center,
                     ),
                   ),
                 )
@@ -1327,9 +1591,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: _budgetItems.length,
+                  itemCount: filteredItems.length,
                   itemBuilder: (context, index) {
-                    final item = _budgetItems[index];
+                    final item = filteredItems[index];
                     final category = item.category;
                     final isPaid = item.paid;
                     final isItemOver =
@@ -1477,7 +1741,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 }
 
 // ============================================================================
-// KI BUDGET ANALYSE BOTTOM SHEET
+// KI BUDGET ANALYSE BOTTOM SHEET  (4 Tabs: Übersicht / Pro Gast / Catering / Tipps)
 // ============================================================================
 
 class _AiBudgetAnalysisSheet extends StatefulWidget {
@@ -1505,89 +1769,224 @@ class _AiBudgetAnalysisSheet extends StatefulWidget {
   State<_AiBudgetAnalysisSheet> createState() => _AiBudgetAnalysisSheetState();
 }
 
-class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
-  int _tab = 0; // 0=Übersicht, 1=Pro Kopf, 2=Tipps
+class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
+    with SingleTickerProviderStateMixin {
+  int _tab = 0; // 0=Übersicht, 1=Pro Gast, 2=Catering, 3=Tipps
   BudgetAiAnalysis? _analysis;
-  bool _isLoading = true;
-  String? _error;
+  late TabController _tabController;
+
+  // Szenario-Slider
+  int _scenarioRemove = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadAnalysis();
+    _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() => _tab = _tabController.index);
+      }
+    });
+    // Analyse sofort synchron berechnen
+    _analysis = BudgetAiService.analyze(
+      budgetItems: widget.budgetItems,
+      totalBudget: widget.totalBudget,
+      guestCount: widget.guestCount,
+      childCount: widget.childCount,
+      childMenuPrice: widget.childMenuPrice,
+      adultMenuPrice: widget.adultMenuPrice,
+      categoryLabels: widget.categoryLabels,
+    );
   }
 
-  Future<void> _loadAnalysis() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _error = null;
-      });
-      final result = await BudgetAiService.analyze(
-        budgetItems: widget.budgetItems,
-        totalBudget: widget.totalBudget,
-        guestCount: widget.guestCount,
-        childCount: widget.childCount,
-        childMenuPrice: widget.childMenuPrice,
-        adultMenuPrice: widget.adultMenuPrice,
-        categoryLabels: widget.categoryLabels,
-      );
-      if (mounted) setState(() => _analysis = result);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  String _fmt(double v) => widget.formatCurrency(v);
+
+  // Ampelfarbe
+  Color _ampelColor(BenchmarkStatus s) {
+    switch (s) {
+      case BenchmarkStatus.ok:
+        return Colors.green.shade600;
+      case BenchmarkStatus.warning:
+        return Colors.orange.shade600;
+      case BenchmarkStatus.over:
+        return Colors.red.shade600;
+    }
+  }
+
+  Color _ampelBg(BenchmarkStatus s) {
+    switch (s) {
+      case BenchmarkStatus.ok:
+        return Colors.green.shade50;
+      case BenchmarkStatus.warning:
+        return Colors.orange.shade50;
+      case BenchmarkStatus.over:
+        return Colors.red.shade50;
+    }
+  }
+
+  String _ampelLabel(BenchmarkStatus s) {
+    switch (s) {
+      case BenchmarkStatus.ok:
+        return 'OK';
+      case BenchmarkStatus.warning:
+        return '+';
+      case BenchmarkStatus.over:
+        return '!!';
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final a = _analysis!;
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      height: MediaQuery.of(context).size.height * 0.88,
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           // Handle
-          const SizedBox(height: 12),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(99),
+          Center(
+            child: Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-          const SizedBox(height: 4),
 
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  _buildHeader(),
-                  const SizedBox(height: 16),
+          // Header
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: scheme.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.auto_graph_rounded,
+                    color: scheme.primary,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Budget-Analyse',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        a.statusLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Score-Kreis
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: a.score >= 75
+                        ? Colors.green.shade50
+                        : a.score >= 50
+                        ? Colors.orange.shade50
+                        : Colors.red.shade50,
+                    border: Border.all(
+                      color: a.score >= 75
+                          ? Colors.green.shade300
+                          : a.score >= 50
+                          ? Colors.orange.shade300
+                          : Colors.red.shade300,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${a.score}',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: a.score >= 75
+                            ? Colors.green.shade700
+                            : a.score >= 50
+                            ? Colors.orange.shade700
+                            : Colors.red.shade700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-                  // Tabs
-                  _buildTabs(),
-                  const SizedBox(height: 16),
-
-                  // Content
-                  if (_isLoading)
-                    _buildLoadingState()
-                  else if (_error != null)
-                    _buildErrorState()
-                  else if (_analysis != null)
-                    _buildContent(),
-                ],
+          // Tab Bar
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: TabBar(
+              controller: _tabController,
+              indicator: BoxDecoration(
+                color: scheme.primary,
+                borderRadius: BorderRadius.circular(8),
               ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.grey.shade600,
+              labelStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelStyle: const TextStyle(fontSize: 11),
+              dividerColor: Colors.transparent,
+              padding: const EdgeInsets.all(3),
+              tabs: const [
+                Tab(text: 'Übersicht'),
+                Tab(text: 'Pro Gast'),
+                Tab(text: 'Catering'),
+                Tab(text: 'Tipps'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Tab Content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildOverviewTab(a),
+                _buildPerGuestTab(a),
+                _buildCateringTab(a),
+                _buildTipsTab(a),
+              ],
             ),
           ),
         ],
@@ -1595,371 +1994,532 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
     );
   }
 
-  Widget _buildHeader() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF6d3050), Color(0xFFa05070)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+  // ══════════════════════════════════════════════════════════════════════════
+  // TAB 0: ÜBERSICHT  (Zahlen + Richtwert-Ampeln)
+  // ══════════════════════════════════════════════════════════════════════════
+  Widget _buildOverviewTab(BudgetAiAnalysis a) {
+    final totalActual = widget.budgetItems.fold(0.0, (s, i) => s + i.actual);
+    final totalPlanned = widget.budgetItems.fold(0.0, (s, i) => s + i.planned);
+    final diff = totalActual - widget.totalBudget;
+    final isOver = diff > 0;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        // Zahlen-Übersicht
+        Row(
+          children: [
+            Expanded(
+              child: _metricCard(
+                'Gesamtbudget',
+                '${_fmt(widget.totalBudget)} €',
+                null,
+                false,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _metricCard(
+                'Ausgegeben',
+                '${_fmt(totalActual)} €',
+                null,
+                isOver,
+              ),
+            ),
+          ],
         ),
-        borderRadius: BorderRadius.circular(16),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _metricCard(
+                'Verplant',
+                '${_fmt(totalPlanned)} €',
+                null,
+                false,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _metricCard(
+                isOver ? 'Überzogen' : 'Verfügbar',
+                '${isOver ? '+' : ''}${_fmt(diff.abs())} €',
+                null,
+                isOver,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Ampel-Banner
+        _ampelBanner(totalActual),
+        const SizedBox(height: 16),
+
+        // KI-Zusammenfassung
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Text(
+            a.summary,
+            style: const TextStyle(fontSize: 13, height: 1.5),
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Richtwert-Vergleich
+        const Text(
+          'Richtwerte vs. dein Budget',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        ...a.benchmarks.map((b) => _benchmarkRow(b)),
+      ],
+    );
+  }
+
+  Widget _ampelBanner(double totalActual) {
+    final diff = totalActual - widget.totalBudget;
+    final pct = widget.totalBudget > 0
+        ? (totalActual / widget.totalBudget) * 100
+        : 0.0;
+
+    Color bgColor;
+    Color borderColor;
+    Color textColor;
+    String label;
+    String sub;
+    if (pct <= 90) {
+      bgColor = Colors.green.shade50;
+      borderColor = Colors.green.shade200;
+      textColor = Colors.green.shade800;
+      label = '🟢 Grün – gut im Budget';
+      sub =
+          'Noch ${_fmt((widget.totalBudget - totalActual).abs())} € Spielraum';
+    } else if (pct <= 100) {
+      bgColor = Colors.orange.shade50;
+      borderColor = Colors.orange.shade200;
+      textColor = Colors.orange.shade800;
+      label = '🟡 Gelb – knapp';
+      sub =
+          'Noch ${_fmt((widget.totalBudget - totalActual).abs())} € verbleibend';
+    } else {
+      bgColor = Colors.red.shade50;
+      borderColor = Colors.red.shade200;
+      textColor = Colors.red.shade800;
+      label = '🔴 Rot – ${(pct - 100).toStringAsFixed(1)}% über Budget';
+      sub = '+${_fmt(diff.abs())} € über dem Gesamtbudget';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          const Text('🤖', style: TextStyle(fontSize: 26)),
-          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'KI Budget-Analyse',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 17,
-                  ),
-                ),
                 Text(
-                  '${widget.guestCount + widget.childCount} Gäste · ${widget.guestCount} Erw. + ${widget.childCount} Kinder',
+                  label,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: textColor,
                   ),
                 ),
+                const SizedBox(height: 2),
+                Text(sub, style: TextStyle(fontSize: 12, color: textColor)),
               ],
             ),
           ),
-          if (_analysis != null) ...[
-            Column(
-              children: [
-                Text(
-                  '${_analysis!.score}',
+        ],
+      ),
+    );
+  }
+
+  Widget _benchmarkRow(CategoryBenchmarkResult b) {
+    final color = _ampelColor(b.status);
+    final bgCol = _ampelBg(b.status);
+    final badge = _ampelLabel(b.status);
+    final pctVal = (b.benchmarkPct * 100).toStringAsFixed(0);
+    final rangeMin = (b.benchmarkMin / widget.totalBudget * 100)
+        .toStringAsFixed(0);
+    final rangeMax = (b.benchmarkMax / widget.totalBudget * 100)
+        .toStringAsFixed(0);
+    // Bar: wie viel % des Richtwert-Max wurde erreicht
+    final barFill = b.benchmarkMax > 0
+        ? (b.actualAmount / (b.benchmarkMax * 1.3)).clamp(0.0, 1.0)
+        : 0.0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  b.categoryLabel,
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                Text(
-                  '/ 100',
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: bgCol,
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: color.withOpacity(0.4)),
+                ),
+                child: Text(
+                  b.deviation > 0
+                      ? '+${_fmt(b.deviation.abs())} €'
+                      : badge == 'OK'
+                      ? 'OK'
+                      : '-${_fmt(b.deviation.abs())} €',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
                     fontSize: 11,
+                    color: color,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: barFill,
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation(color),
+                    minHeight: 5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$pctVal% | Richtwert $rangeMin–$rangeMax%',
+                style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TAB 1: PRO GAST  (Catering-Kosten + Szenario-Rechner)
+  // ══════════════════════════════════════════════════════════════════════════
+  Widget _buildPerGuestTab(BudgetAiAnalysis a) {
+    final totalGuests = widget.guestCount + widget.childCount;
+    final adultTotal = widget.adultMenuPrice * widget.guestCount;
+    final childTotal = widget.childMenuPrice * widget.childCount;
+    final cateringTotal = adultTotal + childTotal;
+
+    // Szenario: x Erwachsene weniger
+    final scenarioSavings = _scenarioRemove * widget.adultMenuPrice;
+    final scenarioNewTotal =
+        widget.budgetItems.fold(0.0, (s, i) => s + i.actual) - scenarioSavings;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        // Kosten-Übersicht
+        Row(
+          children: [
+            Expanded(
+              child: _metricCard(
+                'Erw.-Menü',
+                '${_fmt(widget.adultMenuPrice)} €',
+                '/Person',
+                false,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _metricCard(
+                'Kind-Menü',
+                '${_fmt(widget.childMenuPrice)} €',
+                '/Kind',
+                false,
+              ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTabs() {
-    const tabs = ['📊 Übersicht', '👥 Pro Kopf', '💡 Tipps'];
-    return Row(
-      children: List.generate(tabs.length, (i) {
-        final active = _tab == i;
-        return Expanded(
-          child: GestureDetector(
-            onTap: () => setState(() => _tab = i),
-            child: Container(
-              margin: EdgeInsets.only(right: i < tabs.length - 1 ? 8 : 0),
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: active
-                    ? const Color(0xFFa05070)
-                    : const Color(0xFFf5eaf0),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                tabs[i],
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: active ? Colors.white : const Color(0xFFa05070),
-                ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _metricCard(
+                '${widget.guestCount} Erw. gesamt',
+                '${_fmt(adultTotal)} €',
+                null,
+                false,
               ),
             ),
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _buildLoadingState() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 40),
-      child: Column(
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text(
-            'KI analysiert euer Budget …',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        children: [
-          const Text('⚠️', style: TextStyle(fontSize: 32)),
-          const SizedBox(height: 8),
-          Text(
-            'Analyse konnte nicht geladen werden.',
-            style: TextStyle(color: Colors.grey.shade700),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed: _loadAnalysis,
-            child: const Text('Erneut versuchen'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContent() {
-    final a = _analysis!;
-    if (_tab == 0) return _buildOverviewTab(a);
-    if (_tab == 1) return _buildPerPersonTab();
-    return _buildTipsTab(a);
-  }
-
-  Widget _buildOverviewTab(BudgetAiAnalysis a) {
-    final totalPlanned = widget.budgetItems.fold(0.0, (s, i) => s + i.planned);
-    final totalActual = widget.budgetItems.fold(0.0, (s, i) => s + i.actual);
-    final diff = totalActual - widget.totalBudget;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Status
+            const SizedBox(width: 8),
+            Expanded(
+              child: widget.childCount > 0
+                  ? _metricCard(
+                      '${widget.childCount} Kinder gesamt',
+                      '${_fmt(childTotal)} €',
+                      null,
+                      false,
+                    )
+                  : _metricCard('Kinder', '–', null, false),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: diff > 0 ? Colors.red.shade50 : Colors.green.shade50,
+            color: Colors.grey.shade50,
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Catering gesamt ($totalGuests Personen)',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              Text(
+                '${_fmt(cateringTotal)} €',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        // Szenario-Rechner
+        const Text(
+          'Was wenn wir weniger einladen?',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Erwachsene weniger: ',
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                  ),
+                  Text(
+                    '$_scenarioRemove',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Slider(
+                value: _scenarioRemove.toDouble(),
+                min: 0,
+                max: (widget.guestCount * 0.5).ceilToDouble(),
+                divisions: widget.guestCount > 0
+                    ? (widget.guestCount ~/ 2)
+                    : 10,
+                label: '$_scenarioRemove Personen',
+                onChanged: (v) => setState(() => _scenarioRemove = v.round()),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _metricCard(
+                      'Ersparnis',
+                      '${_fmt(scenarioSavings)} €',
+                      null,
+                      false,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _metricCard(
+                      'Neue Gesamtkosten',
+                      '${_fmt(scenarioNewTotal)} €',
+                      null,
+                      scenarioNewTotal > widget.totalBudget,
+                    ),
+                  ),
+                ],
+              ),
+              if (_scenarioRemove > 0) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '→ ${_scenarioRemove} Gäste weniger sparen '
+                  '${_fmt(scenarioSavings)} € (nur Catering). '
+                  'Neue Gesamtkosten: ${_fmt(scenarioNewTotal)} €.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Hinweis: Der Szenario-Rechner zeigt nur die Catering-Ersparnis. '
+          'Posten wie Location, Fotografie und Musik sind unabhängig von der Gästezahl.',
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey.shade500,
+            height: 1.5,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TAB 2: CATERING  (Pauschale + pro Kopf + Mindestumsatz)
+  // ══════════════════════════════════════════════════════════════════════════
+  Widget _buildCateringTab(BudgetAiAnalysis a) {
+    final c = a.cateringBreakdown;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        const Text(
+          'Catering Aufschlüsselung',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+
+        _cateringLine('Raummiete (Location Pauschale)', c.roomRent),
+        _cateringLine(
+          '${widget.guestCount} Erw. × ${_fmt(widget.adultMenuPrice)} €',
+          c.adultCatering,
+        ),
+        if (widget.childCount > 0)
+          _cateringLine(
+            '${widget.childCount} Kinder × ${_fmt(widget.childMenuPrice)} €',
+            c.childCatering,
+          ),
+        const Divider(height: 16),
+        _cateringLine('Catering gesamt', c.total, bold: true, highlight: true),
+
+        const SizedBox(height: 12),
+
+        // Mindestumsatz-Check
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: c.minimumRevenueReached
+                ? Colors.green.shade50
+                : Colors.orange.shade50,
             border: Border.all(
-              color: diff > 0 ? Colors.red.shade200 : Colors.green.shade200,
+              color: c.minimumRevenueReached
+                  ? Colors.green.shade200
+                  : Colors.orange.shade200,
             ),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
             children: [
+              Icon(
+                c.minimumRevenueReached
+                    ? Icons.check_circle_outline
+                    : Icons.warning_amber_outlined,
+                color: c.minimumRevenueReached
+                    ? Colors.green.shade600
+                    : Colors.orange.shade700,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  a.statusLabel,
+                  c.minimumRevenueReached
+                      ? 'Mindestumsatz (geschätzt ${_fmt(c.minimumRevenue)} €) ist erreicht.'
+                      : 'Mindestumsatz (ca. ${_fmt(c.minimumRevenue)} €) noch nicht erreicht '
+                            '– beim Caterer prüfen ob Aufpreis anfällt.',
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: diff > 0
-                        ? Colors.red.shade800
-                        : Colors.green.shade800,
+                    fontSize: 12,
+                    color: c.minimumRevenueReached
+                        ? Colors.green.shade800
+                        : Colors.orange.shade800,
+                    height: 1.4,
                   ),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
 
-        // Zahlen
-        ...[
-          (
-            'Gesamtbudget',
-            '€${widget.formatCurrency(widget.totalBudget)}',
-            false,
-          ),
-          ('Geplante Kosten', '€${widget.formatCurrency(totalPlanned)}', false),
-          ('Ausgegeben', '€${widget.formatCurrency(totalActual)}', diff > 0),
-          (
-            'Differenz',
-            '${diff > 0 ? '+' : ''}€${widget.formatCurrency(diff)}',
-            diff > 0,
-          ),
-        ].map(
-          (row) => Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: row.$3 ? Colors.red.shade50 : const Color(0xFFfaf5f8),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: row.$3 ? Colors.red.shade200 : const Color(0xFFf0e6ec),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  row.$1,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
-                ),
-                Text(
-                  row.$2,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: row.$3 ? Colors.red : Colors.black87,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFFfaf5f8),
+            color: Colors.grey.shade50,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Text(
-            a.summary,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF7a5060),
-              height: 1.6,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPerPersonTab() {
-    final totalGuests = widget.guestCount + widget.childCount;
-    final cateringActual =
-        widget.adultMenuPrice * widget.guestCount +
-        widget.childMenuPrice * widget.childCount;
-    final a = _analysis!;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Gästestruktur
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFFfdf0f5),
-            border: Border.all(color: const Color(0xFFf0d0dc)),
-            borderRadius: BorderRadius.circular(14),
-          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Gästestruktur & Catering',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-              ),
-              const SizedBox(height: 12),
-              _perPersonRow(
-                '👩‍👨 Erwachsene',
-                '${widget.guestCount} Pers.',
-                '× €${widget.formatCurrency(widget.adultMenuPrice)} = €${widget.formatCurrency(widget.adultMenuPrice * widget.guestCount)}',
+                'Typische Kostenstruktur',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              _perPersonRow(
-                '👶 Kinder',
-                '${widget.childCount} Kinder',
-                '× €${widget.formatCurrency(widget.childMenuPrice)} = €${widget.formatCurrency(widget.childMenuPrice * widget.childCount)}',
+              _infoLine('Location', 'Pauschale pro Event (nicht pro Kopf)'),
+              _infoLine('Catering', 'Pro Kopf Erwachsene (Menüpreis)'),
+              _infoLine(
+                'Kinder',
+                'Kinderteller-Preis (oft 40–50% des Erw.-Preises)',
               ),
-              const Divider(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Catering gesamt',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '€${widget.formatCurrency(cateringActual)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Color(0xFFa05070),
-                    ),
-                  ),
-                ],
+              _infoLine(
+                'Getränke',
+                'Oft separat: Pauschale oder nach Verbrauch',
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Gesamtkosten pro Person
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFfaf5f8),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Gesamtkosten pro Person',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Geplant', style: TextStyle(color: Colors.grey)),
-                  Text(
-                    '€${widget.formatCurrency(a.perPersonCostPlanned)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Aktuell', style: TextStyle(color: Colors.grey)),
-                  Text(
-                    '€${widget.formatCurrency(a.perPersonCostActual)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                      color: a.perPersonCostActual > a.perPersonCostPlanned
-                          ? Colors.red
-                          : Colors.green,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: a.perPersonCostPlanned > 0
-                      ? (a.perPersonCostPlanned / a.perPersonCostActual).clamp(
-                          0.0,
-                          1.0,
-                        )
-                      : 0,
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: const AlwaysStoppedAnimation(Color(0xFFa05070)),
-                  minHeight: 8,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '$totalGuests Gäste gesamt',
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              _infoLine(
+                'Hinweis',
+                'Mindestumsatz = Location+Catering zusammen mindestens X €',
               ),
             ],
           ),
@@ -1968,66 +2528,84 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
     );
   }
 
-  Widget _perPersonRow(String title, String count, String calc) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+  Widget _cateringLine(
+    String label,
+    double amount, {
+    bool bold = false,
+    bool highlight = false,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: highlight ? Colors.grey.shade100 : Colors.white,
+        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
             ),
-            Text(
-              count,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+          Text(
+            '${_fmt(amount)} €',
+            style: TextStyle(
+              fontSize: bold ? 15 : 13,
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
             ),
-          ],
-        ),
-        Text(
-          calc,
-          style: const TextStyle(color: Color(0xFF7a5060), fontSize: 12),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 
+  Widget _infoLine(String label, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // TAB 3: TIPPS
+  // ══════════════════════════════════════════════════════════════════════════
   Widget _buildTipsTab(BudgetAiAnalysis a) {
-    return Column(
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        ...a.recommendations.map(
-          (rec) => Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFfaf5f8),
-              border: Border.all(color: const Color(0xFFf0e6ec)),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('💡', style: TextStyle(fontSize: 18)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    rec,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF4a3040),
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (a.totalSavingsPotential > 0)
+        if (a.totalSavingsPotential > 0) ...[
           Container(
-            margin: const EdgeInsets.only(top: 4),
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.green.shade50,
               border: Border.all(color: Colors.green.shade200),
@@ -2035,22 +2613,127 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet> {
             ),
             child: Row(
               children: [
-                const Text('💰', style: TextStyle(fontSize: 18)),
+                Icon(
+                  Icons.savings_outlined,
+                  color: Colors.green.shade700,
+                  size: 20,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    'Gesamteinsparpotenzial: ca. €${widget.formatCurrency(a.totalSavingsPotential)}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green.shade800,
-                      fontSize: 13,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Einsparpotenzial',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Colors.green.shade800,
+                        ),
+                      ),
+                      Text(
+                        'ca. ${_fmt(a.totalSavingsPotential)} € realistisch erreichbar',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 12),
+        ],
+
+        ...a.recommendations.map((rec) {
+          final isWarning =
+              rec.startsWith('⚠️') ||
+              rec.contains('über Budget') ||
+              rec.contains('überzogen');
+          final isChild = rec.startsWith('👶');
+          final isGood = rec.startsWith('✅');
+
+          Color bgColor = Colors.grey.shade50;
+          Color borderColor = Colors.grey.shade200;
+          if (isWarning) {
+            bgColor = Colors.orange.shade50;
+            borderColor = Colors.orange.shade200;
+          }
+          if (isGood) {
+            bgColor = Colors.green.shade50;
+            borderColor = Colors.green.shade200;
+          }
+          if (isChild) {
+            bgColor = Colors.blue.shade50;
+            borderColor = Colors.blue.shade200;
+          }
+          if (rec.contains('über Budget') && rec.contains('+')) {
+            bgColor = Colors.red.shade50;
+            borderColor = Colors.red.shade200;
+          }
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: bgColor,
+              border: Border.all(color: borderColor),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(rec, style: const TextStyle(fontSize: 13, height: 1.5)),
+          );
+        }),
       ],
+    );
+  }
+
+  // ── Helper Widgets ────────────────────────────────────────────────────────
+  Widget _metricCard(String label, String value, String? unit, bool isDanger) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: isDanger ? Colors.red.shade50 : Colors.grey.shade50,
+        border: Border.all(
+          color: isDanger ? Colors.red.shade200 : Colors.grey.shade200,
+        ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: isDanger ? Colors.red.shade700 : Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: isDanger ? Colors.red.shade700 : Colors.black87,
+                ),
+              ),
+              if (unit != null) ...[
+                const SizedBox(width: 2),
+                Text(
+                  unit,
+                  style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

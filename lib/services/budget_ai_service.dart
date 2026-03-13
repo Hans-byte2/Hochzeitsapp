@@ -1,17 +1,108 @@
-import 'dart:convert';
-import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import '../models/wedding_models.dart';
+
+// ── Richtwerte pro Kategorie (% vom Gesamtbudget) ────────────────────────────
+// Quelle: deutsche Hochzeits-Durchschnittswerte
+const Map<String, _BenchmarkRange> kCategoryBenchmarks = {
+  'location': _BenchmarkRange(0.30, 0.40, 'Location & Catering'),
+  'catering': _BenchmarkRange(0.30, 0.40, 'Verpflegung'),
+  'clothing': _BenchmarkRange(0.08, 0.12, 'Kleidung & Styling'),
+  'decoration': _BenchmarkRange(0.05, 0.08, 'Dekoration & Blumen'),
+  'music': _BenchmarkRange(0.04, 0.07, 'Musik & Unterhaltung'),
+  'photography': _BenchmarkRange(0.08, 0.12, 'Fotografie & Video'),
+  'flowers': _BenchmarkRange(0.03, 0.06, 'Blumen & Floristik'),
+  'transport': _BenchmarkRange(0.02, 0.04, 'Transport'),
+  'rings': _BenchmarkRange(0.05, 0.10, 'Ringe & Schmuck'),
+  'other': _BenchmarkRange(0.03, 0.08, 'Sonstiges'),
+};
+
+class _BenchmarkRange {
+  final double min;
+  final double max;
+  final String label;
+  const _BenchmarkRange(this.min, this.max, this.label);
+}
+
+// ── Ergebnis-Klassen ─────────────────────────────────────────────────────────
+
+class CategoryBenchmarkResult {
+  final String categoryKey;
+  final String categoryLabel;
+  final double actualAmount;
+  final double plannedAmount;
+  final double benchmarkMin; // absolut in €
+  final double benchmarkMax; // absolut in €
+  final double benchmarkPct; // tatsächlicher %-Anteil
+  final BenchmarkStatus status;
+  final double deviation; // € über/unter Richtwert-Mitte
+
+  const CategoryBenchmarkResult({
+    required this.categoryKey,
+    required this.categoryLabel,
+    required this.actualAmount,
+    required this.plannedAmount,
+    required this.benchmarkMin,
+    required this.benchmarkMax,
+    required this.benchmarkPct,
+    required this.status,
+    required this.deviation,
+  });
+}
+
+enum BenchmarkStatus { ok, warning, over }
+
+class ScenarioResult {
+  final int guestsRemoved;
+  final double savings;
+  final double newTotal;
+  final double newPerPerson;
+
+  const ScenarioResult({
+    required this.guestsRemoved,
+    required this.savings,
+    required this.newTotal,
+    required this.newPerPerson,
+  });
+}
+
+class CateringBreakdown {
+  final double roomRent; // Raummiete Pauschale
+  final double adultCatering; // Erwachsene × Preis
+  final double childCatering; // Kinder × Preis
+  final double minimumRevenue; // Mindestumsatz (0 wenn nicht relevant)
+  final double total;
+  final bool minimumRevenueReached;
+
+  const CateringBreakdown({
+    required this.roomRent,
+    required this.adultCatering,
+    required this.childCatering,
+    required this.minimumRevenue,
+    required this.total,
+    required this.minimumRevenueReached,
+  });
+}
 
 class BudgetAiAnalysis {
   final int score;
   final String statusLabel;
   final String summary;
   final List<String> recommendations;
-  final double perPersonCostActual;
+  final double perPersonCostActual; // Gesamtkosten / Gäste
   final double perPersonCostPlanned;
+  final double cateringPerAdult; // nur Erwachsenen-Menüpreis
+  final double cateringPerChild; // nur Kinderteller-Preis
   final double totalSavingsPotential;
   final int overBudgetCount;
+
+  // Neu: Richtwert-Analyse
+  final List<CategoryBenchmarkResult> benchmarks;
+
+  // Neu: Catering-Aufschlüsselung
+  final CateringBreakdown cateringBreakdown;
+
+  // Neu: Szenario-Daten (Basis für den Slider)
+  final double
+  costPerGuestDependent; // € pro Gast der wegfällt (Catering + Kinder-Anteil)
 
   const BudgetAiAnalysis({
     required this.score,
@@ -20,194 +111,286 @@ class BudgetAiAnalysis {
     required this.recommendations,
     required this.perPersonCostActual,
     required this.perPersonCostPlanned,
+    required this.cateringPerAdult,
+    required this.cateringPerChild,
     required this.totalSavingsPotential,
     required this.overBudgetCount,
+    required this.benchmarks,
+    required this.cateringBreakdown,
+    required this.costPerGuestDependent,
   });
 }
 
-class BudgetAiService {
-  static const String _apiUrl = 'https://api.anthropic.com/v1/messages';
+// ── Service ───────────────────────────────────────────────────────────────────
 
-  /// Analysiert das Budget mit Claude AI.
-  /// [budgetItems] – alle Budgetposten
-  /// [totalBudget] – das eingestellte Gesamtbudget
-  /// [guestCount] – Anzahl erwachsene Gäste
-  /// [childCount] – Anzahl Kinder
-  /// [childMenuPrice] – Preis Kindersmenü in €
-  /// [adultMenuPrice] – Preis Erwachsenenmenü in €
-  static Future<BudgetAiAnalysis> analyze({
+class BudgetAiService {
+  static BudgetAiAnalysis analyze({
     required List<BudgetItem> budgetItems,
     required double totalBudget,
-    required int guestCount,
-    required int childCount,
+    required int guestCount, // Erwachsene
+    required int childCount, // Kinder
     required double childMenuPrice,
     required double adultMenuPrice,
     required Map<String, String> categoryLabels,
-  }) async {
+  }) {
+    final totalGuests = guestCount + childCount;
     final totalPlanned = budgetItems.fold(0.0, (s, i) => s + i.planned);
     final totalActual = budgetItems.fold(0.0, (s, i) => s + i.actual);
-    final totalGuests = guestCount + childCount;
 
-    // Kategorien-Zusammenfassung bauen
-    final Map<String, Map<String, double>> catStats = {};
+    // Kategorien-Aggregation
+    final Map<String, double> catPlanned = {};
+    final Map<String, double> catActual = {};
     for (final item in budgetItems) {
-      catStats.putIfAbsent(item.category, () => {'planned': 0, 'actual': 0});
-      catStats[item.category]!['planned'] =
-          (catStats[item.category]!['planned'] ?? 0) + item.planned;
-      catStats[item.category]!['actual'] =
-          (catStats[item.category]!['actual'] ?? 0) + item.actual;
+      catPlanned[item.category] =
+          (catPlanned[item.category] ?? 0) + item.planned;
+      catActual[item.category] = (catActual[item.category] ?? 0) + item.actual;
     }
 
-    final categoryLines = catStats.entries
-        .map((e) {
-          final label = categoryLabels[e.key] ?? e.key;
-          final planned = e.value['planned']!.toStringAsFixed(0);
-          final actual = e.value['actual']!.toStringAsFixed(0);
-          final diff = (e.value['actual']! - e.value['planned']!);
-          final diffStr = diff > 0
-              ? '+${diff.toStringAsFixed(0)}'
-              : diff.toStringAsFixed(0);
-          return '- $label: geplant ${planned}€, tatsächlich ${actual}€ ($diffStr€)';
-        })
-        .join('\n');
-
-    final cateringActual =
-        adultMenuPrice * guestCount + childMenuPrice * childCount;
-    final perPersonActual = totalGuests > 0 ? totalActual / totalGuests : 0.0;
-    final perPersonPlanned = totalGuests > 0 ? totalPlanned / totalGuests : 0.0;
+    final overCategories = catPlanned.keys
+        .where(
+          (k) =>
+              (catActual[k] ?? 0) > (catPlanned[k] ?? 0) &&
+              (catPlanned[k] ?? 0) > 0,
+        )
+        .toList();
     final overCount = budgetItems
         .where((i) => i.actual > i.planned && i.planned > 0)
         .length;
 
-    final prompt =
-        '''
-Du bist ein erfahrener Hochzeitsplaner und Budget-Berater. Analysiere folgendes Hochzeitsbudget und gib eine präzise, persönliche Einschätzung auf Deutsch.
+    final perPersonActual = totalGuests > 0 ? totalActual / totalGuests : 0.0;
+    final perPersonPlanned = totalGuests > 0 ? totalPlanned / totalGuests : 0.0;
 
-BUDGET-ÜBERSICHT:
-- Gesamtbudget: ${totalBudget.toStringAsFixed(0)}€
-- Geplante Gesamtkosten: ${totalPlanned.toStringAsFixed(0)}€
-- Tatsächliche Kosten bisher: ${totalActual.toStringAsFixed(0)}€
-- Differenz: ${(totalActual - totalBudget).toStringAsFixed(0)}€
+    final budgetUsagePct = totalBudget > 0
+        ? (totalActual / totalBudget) * 100
+        : 0.0;
+    final plannedUsagePct = totalBudget > 0
+        ? (totalPlanned / totalBudget) * 100
+        : 0.0;
 
-GÄSTE:
-- Erwachsene: $guestCount (à ${adultMenuPrice.toStringAsFixed(0)}€/Person)
-- Kinder: $childCount (à ${childMenuPrice.toStringAsFixed(0)}€/Kind)
-- Catering-Kosten (berechnet): ${cateringActual.toStringAsFixed(0)}€
+    // ── Richtwert-Benchmarks ─────────────────────────────────────────────────
+    final List<CategoryBenchmarkResult> benchmarks = [];
+    for (final entry in kCategoryBenchmarks.entries) {
+      final key = entry.key;
+      final bench = entry.value;
+      final actual = catActual[key] ?? 0.0;
+      final planned = catPlanned[key] ?? 0.0;
+      if (planned == 0 && actual == 0) continue; // Kategorie nicht genutzt
 
-KATEGORIEN:
-$categoryLines
+      final benchMinAbs = totalBudget * bench.min;
+      final benchMaxAbs = totalBudget * bench.max;
+      final benchMidAbs = (benchMinAbs + benchMaxAbs) / 2;
+      final actualPct = totalBudget > 0 ? actual / totalBudget : 0.0;
+      final deviation = actual - benchMidAbs;
 
-Antworte NUR mit einem JSON-Objekt (kein Markdown, keine Erklärung drumherum):
-{
-  "score": <0-100, Gesamtbewertung der Budget-Gesundheit>,
-  "statusLabel": <kurzes Emoji+Label, z.B. "✅ Im Budget" oder "⚠️ Leicht überzogen" oder "🚨 Stark überzogen">,
-  "summary": <2-3 Sätze persönliche Einschätzung, direkt und konkret>,
-  "recommendations": [
-    "<konkreter Tipp 1 mit Einsparpotenzial in €>",
-    "<konkreter Tipp 2>",
-    "<konkreter Tipp 3>",
-    "<konkreter Tipp 4 falls sinnvoll, sonst weglassen>"
-  ],
-  "savingsPotential": <realistisches Einsparpotenzial in €, als Zahl>
-}
-''';
-
-    try {
-      final response = await http.post(
-        Uri.parse(_apiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'model': 'claude-sonnet-4-20250514',
-          'max_tokens': 1000,
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final text =
-            (data['content'] as List).firstWhere(
-                  (b) => b['type'] == 'text',
-                )['text']
-                as String;
-
-        // JSON sauber extrahieren
-        final cleanJson = text.replaceAll(RegExp(r'```json|```'), '').trim();
-        final parsed = jsonDecode(cleanJson) as Map<String, dynamic>;
-
-        return BudgetAiAnalysis(
-          score: (parsed['score'] as num).toInt(),
-          statusLabel: parsed['statusLabel'] as String,
-          summary: parsed['summary'] as String,
-          recommendations: List<String>.from(parsed['recommendations'] as List),
-          perPersonCostActual: perPersonActual,
-          perPersonCostPlanned: perPersonPlanned,
-          totalSavingsPotential: (parsed['savingsPotential'] as num).toDouble(),
-          overBudgetCount: overCount,
-        );
+      BenchmarkStatus status;
+      if (actual <= benchMaxAbs * 1.05) {
+        status = BenchmarkStatus.ok;
+      } else if (actual <= benchMaxAbs * 1.20) {
+        status = BenchmarkStatus.warning;
       } else {
-        throw Exception('API Fehler: ${response.statusCode}');
+        status = BenchmarkStatus.over;
       }
-    } catch (e) {
-      debugPrint('BudgetAiService Fehler: $e');
-      // Fallback ohne KI
-      return _fallbackAnalysis(
-        totalBudget: totalBudget,
-        totalPlanned: totalPlanned,
-        totalActual: totalActual,
-        totalGuests: totalGuests,
-        overCount: overCount,
-        perPersonActual: perPersonActual,
-        perPersonPlanned: perPersonPlanned,
+
+      benchmarks.add(
+        CategoryBenchmarkResult(
+          categoryKey: key,
+          categoryLabel: categoryLabels[key] ?? bench.label,
+          actualAmount: actual,
+          plannedAmount: planned,
+          benchmarkMin: benchMinAbs,
+          benchmarkMax: benchMaxAbs,
+          benchmarkPct: actualPct,
+          status: status,
+          deviation: deviation,
+        ),
       );
     }
-  }
 
-  static BudgetAiAnalysis _fallbackAnalysis({
-    required double totalBudget,
-    required double totalPlanned,
-    required double totalActual,
-    required int totalGuests,
-    required int overCount,
-    required double perPersonActual,
-    required double perPersonPlanned,
-  }) {
+    // ── Catering-Aufschlüsselung ─────────────────────────────────────────────
+    // Raummiete = location-Kategorie falls vorhanden, sonst 0
+    final roomRent = catActual['location'] ?? 0.0;
+    final adultCatering = adultMenuPrice * guestCount;
+    final childCatering = childMenuPrice * childCount;
+    final cateringFood = adultCatering + childCatering;
+    // Mindestumsatz: wenn location+catering zusammen gebucht, schätzen wir
+    // den Mindestumsatz als 80% von (location planned + catering planned)
+    final locationPlanned = catPlanned['location'] ?? 0.0;
+    final cateringPlanned = catPlanned['catering'] ?? 0.0;
+    final estimatedMinRevenue = (locationPlanned + cateringPlanned) * 0.80;
+    final cateringTotal = roomRent + cateringFood;
+    final minRevenueReached = cateringTotal >= estimatedMinRevenue;
+
+    final cateringBreakdown = CateringBreakdown(
+      roomRent: roomRent,
+      adultCatering: adultCatering,
+      childCatering: childCatering,
+      minimumRevenue: estimatedMinRevenue,
+      total: cateringTotal,
+      minimumRevenueReached: minRevenueReached,
+    );
+
+    // ── Kosten pro wegfallendem Gast (Szenario-Basis) ────────────────────────
+    // Gastabhängig: Catering-Menüpreis (Erwachsener). Kinder-Anteil separat.
+    final costPerGuestDependent = adultMenuPrice;
+
+    // ── Score ────────────────────────────────────────────────────────────────
+    int score = 100;
+    if (budgetUsagePct > 100)
+      score -= ((budgetUsagePct - 100) * 1.5).round().clamp(0, 40);
+    score -= (overCategories.length * 5).clamp(0, 25);
+    if (plannedUsagePct > 95 && totalActual < totalPlanned * 0.5) score -= 10;
+    // Abzug für Kategorien deutlich über Richtwert
+    final overBenchCount = benchmarks
+        .where((b) => b.status == BenchmarkStatus.over)
+        .length;
+    score -= (overBenchCount * 4).clamp(0, 16);
+    score = score.clamp(0, 100);
+
+    // ── Status-Label ─────────────────────────────────────────────────────────
+    String statusLabel;
+    if (budgetUsagePct <= 75)
+      statusLabel = '✅ Gut im Budget';
+    else if (budgetUsagePct <= 90)
+      statusLabel = '🟡 Im Budget';
+    else if (budgetUsagePct <= 100)
+      statusLabel = '🟠 Knapp';
+    else if (budgetUsagePct <= 115)
+      statusLabel = '⚠️ Leicht überzogen';
+    else
+      statusLabel = '🚨 Stark überzogen';
+
+    // ── Summary ──────────────────────────────────────────────────────────────
     final diff = totalActual - totalBudget;
-    final pct = totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0;
-
-    String status;
-    int score;
-    if (pct <= 85) {
-      status = '✅ Gut im Budget';
-      score = 90;
-    } else if (pct <= 100) {
-      status = '🟡 Knapp im Budget';
-      score = 72;
-    } else if (pct <= 115) {
-      status = '⚠️ Leicht überzogen';
-      score = 55;
+    String summary;
+    if (diff <= 0 && overCategories.isEmpty) {
+      summary =
+          'Euer Budget ist gut unter Kontrolle. '
+          'Noch ${(totalBudget - totalActual).toStringAsFixed(0)} € verfügbar. '
+          'Alle Kategorien liegen im Rahmen.';
+    } else if (diff <= 0 && overCategories.isNotEmpty) {
+      final catNames = overCategories
+          .map((k) => categoryLabels[k] ?? kCategoryBenchmarks[k]?.label ?? k)
+          .join(', ');
+      summary =
+          'Das Gesamtbudget ist noch im Rahmen, aber '
+          '${overCategories.length == 1 ? 'eine Kategorie überschreitet' : '${overCategories.length} Kategorien überschreiten'} '
+          'den geplanten Betrag: $catNames.';
     } else {
-      status = '🚨 Stark überzogen';
-      score = 30;
+      final overPct = ((diff / totalBudget) * 100).toStringAsFixed(1);
+      final catNames = overCategories
+          .take(2)
+          .map((k) => categoryLabels[k] ?? kCategoryBenchmarks[k]?.label ?? k)
+          .join(' und ');
+      summary =
+          'Das Budget ist um ${diff.toStringAsFixed(0)} € (${overPct}%) überschritten. '
+          '${catNames.isNotEmpty ? 'Haupttreiber: $catNames.' : ''} '
+          'Überprüft die größten Posten auf Einsparpotenzial.';
+    }
+
+    // ── Empfehlungen ─────────────────────────────────────────────────────────
+    final List<String> recommendations = [];
+    double savingsPotential = 0;
+
+    for (final cat in overCategories.take(3)) {
+      final planned = catPlanned[cat] ?? 0;
+      final actual = catActual[cat] ?? 0;
+      final overBy = actual - planned;
+      final label =
+          categoryLabels[cat] ?? kCategoryBenchmarks[cat]?.label ?? cat;
+      savingsPotential += overBy * 0.5;
+
+      switch (cat) {
+        case 'location':
+          recommendations.add(
+            '$label: +${overBy.toStringAsFixed(0)} € über Budget. '
+            'Nebenkosten (Bestuhlung, Technik, Reinigung) nachverhandeln.',
+          );
+          break;
+        case 'catering':
+          recommendations.add(
+            '$label: +${overBy.toStringAsFixed(0)} € über Budget. '
+            'Menü-Varianten prüfen oder Gänge beim Abendessen reduzieren.',
+          );
+          break;
+        case 'decoration':
+        case 'flowers':
+          recommendations.add(
+            '$label: +${overBy.toStringAsFixed(0)} € über Budget. '
+            'DIY-Elemente oder reduzierte Tischgestecke sparen 200–400 €.',
+          );
+          break;
+        case 'photography':
+          recommendations.add(
+            '$label: +${overBy.toStringAsFixed(0)} € über Budget. '
+            'Videografie prüfen oder Stundenzahl reduzieren.',
+          );
+          break;
+        case 'music':
+          recommendations.add(
+            '$label: +${overBy.toStringAsFixed(0)} € über Budget. '
+            'Playlist für Hintergrundmusik spart gegenüber Live-Band.',
+          );
+          break;
+        default:
+          recommendations.add(
+            '$label: +${overBy.toStringAsFixed(0)} € über Budget. '
+            'Einzelne Posten auf Streichmöglichkeiten prüfen.',
+          );
+      }
+    }
+
+    // Richtwert-Überschreitungen ergänzen (wenn nicht schon durch overCategories abgedeckt)
+    for (final b
+        in benchmarks.where((b) => b.status == BenchmarkStatus.over).take(2)) {
+      if (!overCategories.contains(b.categoryKey)) {
+        final overBy = b.actualAmount - b.benchmarkMax;
+        recommendations.add(
+          '${b.categoryLabel} liegt ${overBy.toStringAsFixed(0)} € '
+          'über dem typischen Richtwert (${(b.benchmarkPct * 100).toStringAsFixed(0)}% '
+          'vs. ${(kCategoryBenchmarks[b.categoryKey]!.max * 100).toStringAsFixed(0)}% '
+          'des Budgets).',
+        );
+        savingsPotential += overBy * 0.4;
+      }
+    }
+
+    if (childCount > 0 && childMenuPrice > 0) {
+      recommendations.add(
+        '👶 Kinder-Menüs: $childCount × ${childMenuPrice.toStringAsFixed(0)} € = '
+        '${(childCount * childMenuPrice).toStringAsFixed(0)} €. '
+        'Kinder unter 4 Jahren oft kostenlos – beim Caterer nachfragen.',
+      );
+    }
+
+    if (recommendations.isEmpty) {
+      recommendations.add(
+        '✅ Alle Kategorien liegen im Budget und im Richtwert-Bereich. '
+        'Halte einen Puffer von 5–10% für Unvorhergesehenes zurück.',
+      );
+    }
+
+    if (budgetUsagePct > 88 && diff <= 0) {
+      recommendations.add(
+        '⚠️ Das Budget ist zu ${budgetUsagePct.toStringAsFixed(0)}% verplant. '
+        'Plane einen Notfallpuffer von mind. ${(totalBudget * 0.05).toStringAsFixed(0)} € ein.',
+      );
+      savingsPotential += totalBudget * 0.03;
     }
 
     return BudgetAiAnalysis(
       score: score,
-      statusLabel: status,
-      summary: diff > 0
-          ? 'Das Budget ist um ${diff.toStringAsFixed(0)} € überschritten ($overCount Kategorien). Überprüfe die größten Posten auf Einsparpotenzial.'
-          : 'Das Budget liegt gut im Rahmen. ${(totalBudget - totalActual).toStringAsFixed(0)} € verbleiben noch.',
-      recommendations: [
-        'Vergleiche Angebote bei den teuersten Kategorien erneut.',
-        'Prüfe ob optionale Extras reduziert werden können.',
-        'Spreche mit Dienstleistern über Paketangebote.',
-      ],
+      statusLabel: statusLabel,
+      summary: summary,
+      recommendations: recommendations,
       perPersonCostActual: perPersonActual,
       perPersonCostPlanned: perPersonPlanned,
-      totalSavingsPotential: 0,
+      cateringPerAdult: adultMenuPrice,
+      cateringPerChild: childMenuPrice,
+      totalSavingsPotential: savingsPotential,
       overBudgetCount: overCount,
+      benchmarks: benchmarks,
+      cateringBreakdown: cateringBreakdown,
+      costPerGuestDependent: costPerGuestDependent,
     );
   }
 }

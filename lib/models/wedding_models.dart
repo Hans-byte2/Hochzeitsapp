@@ -2,21 +2,15 @@
 //
 // COMPLETE VERSION mit Timestamps + Soft Deletes + Location
 // v2: Guest erweitert um Kinder-Tracking + KI-Scoring
+// v3: PaymentPlan hinzugefügt
 
 // ================================
 // GUEST MODEL
 // ================================
 
-// Beziehungstyp zum Brautpaar
 enum RelationshipType { familie, freunde, kollegen, bekannte }
 
-// Prioritäts-Badge (berechnet aus Score)
-enum PriorityBadge {
-  vip, // Score >= 80
-  hoch, // Score >= 60
-  mittel, // Score >= 40
-  niedrig, // Score < 40
-}
+enum PriorityBadge { vip, hoch, mittel, niedrig }
 
 class Guest {
   final int? id;
@@ -26,28 +20,20 @@ class Guest {
   final String confirmed;
   final String dietaryRequirements;
   final int? tableNumber;
-
-  // Timestamps + Soft Delete
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
-
-  // NEU: Kinder-Tracking
   final int childrenCount;
-  final String? childrenNames; // JSON-Array als String: '["Lena","Max"]'
-
-  // NEU: KI-Scoring
-  final String? relationshipType; // 'familie'|'freunde'|'kollegen'|'bekannte'
+  final String? childrenNames;
+  final String? relationshipType;
   final bool isVip;
   final int distanceKm;
-  final double priorityScore; // 0.0 – 100.0
+  final double priorityScore;
   final String? scoreUpdatedAt;
-
-  // NEU: Tischplanung
-  final String? conflictsJson; // JSON: '[1,5,12]' - Gäste-IDs mit Konflikt
-  final String? knowsJson; // JSON: '[3,7]'    - Gäste-IDs die sich kennen
-  final String? ageGroup; // 'kind'|'jugendlich'|'erwachsen'|'senior'
-  final String? hobbies; // kommagetrennte Tags: 'Sport,Musik,Reisen'
+  final String? conflictsJson;
+  final String? knowsJson;
+  final String? ageGroup;
+  final String? hobbies;
 
   Guest({
     this.id,
@@ -60,23 +46,19 @@ class Guest {
     this.updatedAt,
     this.deleted = 0,
     this.deletedAt,
-    // Kinder
     this.childrenCount = 0,
     this.childrenNames,
-    // Scoring
     this.relationshipType,
     this.isVip = false,
     this.distanceKm = 0,
     this.priorityScore = 0.0,
     this.scoreUpdatedAt,
-    // Tischplanung
     this.conflictsJson,
     this.knowsJson,
     this.ageGroup,
     this.hobbies,
   });
 
-  // Berechnet PriorityBadge aus Score
   PriorityBadge get priorityBadge {
     if (isVip || priorityScore >= 80) return PriorityBadge.vip;
     if (priorityScore >= 60) return PriorityBadge.hoch;
@@ -84,11 +66,9 @@ class Guest {
     return PriorityBadge.niedrig;
   }
 
-  // Gibt Kinder-Namen als Liste zurück
   List<String> get childrenNamesList {
     if (childrenNames == null || childrenNames!.isEmpty) return [];
     try {
-      // Einfaches Parsing ohne dart:convert um Import zu vermeiden
       final cleaned = childrenNames!
           .replaceAll('[', '')
           .replaceAll(']', '')
@@ -104,7 +84,6 @@ class Guest {
     }
   }
 
-  // Hilfsmethoden für JSON-Listen
   List<int> get conflictIds {
     if (conflictsJson == null || conflictsJson!.isEmpty) return [];
     try {
@@ -201,72 +180,60 @@ class Guest {
     );
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'first_name': firstName,
-      'last_name': lastName,
-      'email': email,
-      'confirmed': confirmed,
-      'dietary_requirements': dietaryRequirements,
-      'table_number': tableNumber,
-      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
-      'deleted': deleted,
-      'deleted_at': deletedAt,
-      // Kinder
-      'children_count': childrenCount,
-      'children_names': childrenNames,
-      // Scoring
-      'relationship_type': relationshipType,
-      'is_vip': isVip ? 1 : 0,
-      'distance_km': distanceKm,
-      'priority_score': priorityScore,
-      'score_updated_at': scoreUpdatedAt,
-      // Tischplanung
-      'conflicts_json': conflictsJson,
-      'knows_json': knowsJson,
-      'age_group': ageGroup,
-      'hobbies': hobbies,
-    };
-  }
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'first_name': firstName,
+    'last_name': lastName,
+    'email': email,
+    'confirmed': confirmed,
+    'dietary_requirements': dietaryRequirements,
+    'table_number': tableNumber,
+    'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+    'deleted': deleted,
+    'deleted_at': deletedAt,
+    'children_count': childrenCount,
+    'children_names': childrenNames,
+    'relationship_type': relationshipType,
+    'is_vip': isVip ? 1 : 0,
+    'distance_km': distanceKm,
+    'priority_score': priorityScore,
+    'score_updated_at': scoreUpdatedAt,
+    'conflicts_json': conflictsJson,
+    'knows_json': knowsJson,
+    'age_group': ageGroup,
+    'hobbies': hobbies,
+  };
 
-  factory Guest.fromMap(Map<String, dynamic> map) {
-    return Guest(
-      id: map['id']?.toInt(),
-      firstName: map['first_name'] ?? '',
-      lastName: map['last_name'] ?? '',
-      email: map['email'] ?? '',
-      confirmed: map['confirmed'] ?? 'pending',
-      dietaryRequirements: map['dietary_requirements'] ?? '',
-      tableNumber: map['table_number']?.toInt(),
-      updatedAt: map['updated_at'],
-      deleted: map['deleted'] ?? 0,
-      deletedAt: map['deleted_at'],
-      // Kinder
-      childrenCount: map['children_count']?.toInt() ?? 0,
-      childrenNames: map['children_names'],
-      // Scoring
-      relationshipType: map['relationship_type'],
-      isVip: (map['is_vip'] ?? 0) == 1,
-      distanceKm: map['distance_km']?.toInt() ?? 0,
-      priorityScore: (map['priority_score'] ?? 0.0).toDouble(),
-      scoreUpdatedAt: map['score_updated_at'],
-      // Tischplanung
-      conflictsJson: map['conflicts_json'],
-      knowsJson: map['knows_json'],
-      ageGroup: map['age_group'],
-      hobbies: map['hobbies'],
-    );
-  }
+  factory Guest.fromMap(Map<String, dynamic> map) => Guest(
+    id: map['id']?.toInt(),
+    firstName: map['first_name'] ?? '',
+    lastName: map['last_name'] ?? '',
+    email: map['email'] ?? '',
+    confirmed: map['confirmed'] ?? 'pending',
+    dietaryRequirements: map['dietary_requirements'] ?? '',
+    tableNumber: map['table_number']?.toInt(),
+    updatedAt: map['updated_at'],
+    deleted: map['deleted'] ?? 0,
+    deletedAt: map['deleted_at'],
+    childrenCount: map['children_count']?.toInt() ?? 0,
+    childrenNames: map['children_names'],
+    relationshipType: map['relationship_type'],
+    isVip: (map['is_vip'] ?? 0) == 1,
+    distanceKm: map['distance_km']?.toInt() ?? 0,
+    priorityScore: (map['priority_score'] ?? 0.0).toDouble(),
+    scoreUpdatedAt: map['score_updated_at'],
+    conflictsJson: map['conflicts_json'],
+    knowsJson: map['knows_json'],
+    ageGroup: map['age_group'],
+    hobbies: map['hobbies'],
+  );
 
   bool get isDeleted => deleted == 1;
-
-  // Gesamt-Personenanzahl (Gast + Kinder)
   int get totalPersons => 1 + childrenCount;
 }
 
 // ================================
-// TASK MODEL (MIT LOCATION!)
+// TASK MODEL
 // ================================
 
 class Task {
@@ -278,9 +245,7 @@ class Task {
   final DateTime? deadline;
   final bool completed;
   final DateTime createdDate;
-
   final String location;
-
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
@@ -313,58 +278,50 @@ class Task {
     String? updatedAt,
     int? deleted,
     String? deletedAt,
-  }) {
-    return Task(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      description: description ?? this.description,
-      category: category ?? this.category,
-      priority: priority ?? this.priority,
-      deadline: deadline ?? this.deadline,
-      completed: completed ?? this.completed,
-      createdDate: createdDate ?? this.createdDate,
-      location: location ?? this.location,
-      updatedAt: updatedAt ?? this.updatedAt,
-      deleted: deleted ?? this.deleted,
-      deletedAt: deletedAt ?? this.deletedAt,
-    );
-  }
+  }) => Task(
+    id: id ?? this.id,
+    title: title ?? this.title,
+    description: description ?? this.description,
+    category: category ?? this.category,
+    priority: priority ?? this.priority,
+    deadline: deadline ?? this.deadline,
+    completed: completed ?? this.completed,
+    createdDate: createdDate ?? this.createdDate,
+    location: location ?? this.location,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deleted: deleted ?? this.deleted,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'title': title,
-      'description': description,
-      'category': category,
-      'priority': priority,
-      'deadline': deadline?.toIso8601String(),
-      'completed': completed ? 1 : 0,
-      'created_date': createdDate.toIso8601String(),
-      'location': location,
-      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
-      'deleted': deleted,
-      'deleted_at': deletedAt,
-    };
-  }
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'title': title,
+    'description': description,
+    'category': category,
+    'priority': priority,
+    'deadline': deadline?.toIso8601String(),
+    'completed': completed ? 1 : 0,
+    'created_date': createdDate.toIso8601String(),
+    'location': location,
+    'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+    'deleted': deleted,
+    'deleted_at': deletedAt,
+  };
 
-  factory Task.fromMap(Map<String, dynamic> map) {
-    return Task(
-      id: map['id']?.toInt(),
-      title: map['title'] ?? '',
-      description: map['description'] ?? '',
-      category: map['category'] ?? 'other',
-      priority: map['priority'] ?? 'medium',
-      deadline: map['deadline'] != null
-          ? DateTime.parse(map['deadline'])
-          : null,
-      completed: map['completed'] == 1,
-      createdDate: DateTime.parse(map['created_date']),
-      location: map['location'] ?? '',
-      updatedAt: map['updated_at'],
-      deleted: map['deleted'] ?? 0,
-      deletedAt: map['deleted_at'],
-    );
-  }
+  factory Task.fromMap(Map<String, dynamic> map) => Task(
+    id: map['id']?.toInt(),
+    title: map['title'] ?? '',
+    description: map['description'] ?? '',
+    category: map['category'] ?? 'other',
+    priority: map['priority'] ?? 'medium',
+    deadline: map['deadline'] != null ? DateTime.parse(map['deadline']) : null,
+    completed: map['completed'] == 1,
+    createdDate: DateTime.parse(map['created_date']),
+    location: map['location'] ?? '',
+    updatedAt: map['updated_at'],
+    deleted: map['deleted'] ?? 0,
+    deletedAt: map['deleted_at'],
+  );
 
   bool get isDeleted => deleted == 1;
 }
@@ -381,7 +338,6 @@ class BudgetItem {
   final String category;
   final String notes;
   final bool paid;
-
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
@@ -410,50 +366,44 @@ class BudgetItem {
     String? updatedAt,
     int? deleted,
     String? deletedAt,
-  }) {
-    return BudgetItem(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      planned: planned ?? this.planned,
-      actual: actual ?? this.actual,
-      category: category ?? this.category,
-      notes: notes ?? this.notes,
-      paid: paid ?? this.paid,
-      updatedAt: updatedAt ?? this.updatedAt,
-      deleted: deleted ?? this.deleted,
-      deletedAt: deletedAt ?? this.deletedAt,
-    );
-  }
+  }) => BudgetItem(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    planned: planned ?? this.planned,
+    actual: actual ?? this.actual,
+    category: category ?? this.category,
+    notes: notes ?? this.notes,
+    paid: paid ?? this.paid,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deleted: deleted ?? this.deleted,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'planned': planned,
-      'actual': actual,
-      'category': category,
-      'notes': notes,
-      'paid': paid ? 1 : 0,
-      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
-      'deleted': deleted,
-      'deleted_at': deletedAt,
-    };
-  }
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'name': name,
+    'planned': planned,
+    'actual': actual,
+    'category': category,
+    'notes': notes,
+    'paid': paid ? 1 : 0,
+    'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+    'deleted': deleted,
+    'deleted_at': deletedAt,
+  };
 
-  factory BudgetItem.fromMap(Map<String, dynamic> map) {
-    return BudgetItem(
-      id: map['id']?.toInt(),
-      name: map['name'] ?? '',
-      planned: (map['planned'] ?? 0.0).toDouble(),
-      actual: (map['actual'] ?? 0.0).toDouble(),
-      category: map['category'] ?? 'other',
-      notes: map['notes'] ?? '',
-      paid: map['paid'] == 1,
-      updatedAt: map['updated_at'],
-      deleted: map['deleted'] ?? 0,
-      deletedAt: map['deleted_at'],
-    );
-  }
+  factory BudgetItem.fromMap(Map<String, dynamic> map) => BudgetItem(
+    id: map['id']?.toInt(),
+    name: map['name'] ?? '',
+    planned: (map['planned'] ?? 0.0).toDouble(),
+    actual: (map['actual'] ?? 0.0).toDouble(),
+    category: map['category'] ?? 'other',
+    notes: map['notes'] ?? '',
+    paid: map['paid'] == 1,
+    updatedAt: map['updated_at'],
+    deleted: map['deleted'] ?? 0,
+    deletedAt: map['deleted_at'],
+  );
 
   bool get isDeleted => deleted == 1;
 }
@@ -467,10 +417,7 @@ class TableModel {
   final String tableName;
   final int tableNumber;
   final int seats;
-
-  /// Kommagetrennte Kategorien: 'familie', 'freunde', 'kollegen', 'bekannte', 'brautpaar'
   final String? categoriesRaw;
-
   final String? updatedAt;
   final int deleted;
   final String? deletedAt;
@@ -495,44 +442,141 @@ class TableModel {
     String? updatedAt,
     int? deleted,
     String? deletedAt,
-  }) {
-    return TableModel(
-      id: id ?? this.id,
-      tableName: tableName ?? this.tableName,
-      tableNumber: tableNumber ?? this.tableNumber,
-      seats: seats ?? this.seats,
-      categoriesRaw: categoriesRaw ?? this.categoriesRaw,
-      updatedAt: updatedAt ?? this.updatedAt,
-      deleted: deleted ?? this.deleted,
-      deletedAt: deletedAt ?? this.deletedAt,
-    );
-  }
+  }) => TableModel(
+    id: id ?? this.id,
+    tableName: tableName ?? this.tableName,
+    tableNumber: tableNumber ?? this.tableNumber,
+    seats: seats ?? this.seats,
+    categoriesRaw: categoriesRaw ?? this.categoriesRaw,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deleted: deleted ?? this.deleted,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'table_name': tableName,
-      'table_number': tableNumber,
-      'seats': seats,
-      'categories': categoriesRaw,
-      'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
-      'deleted': deleted,
-      'deleted_at': deletedAt,
-    };
-  }
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'table_name': tableName,
+    'table_number': tableNumber,
+    'seats': seats,
+    'categories': categoriesRaw,
+    'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+    'deleted': deleted,
+    'deleted_at': deletedAt,
+  };
 
-  factory TableModel.fromMap(Map<String, dynamic> map) {
-    return TableModel(
-      id: map['id']?.toInt(),
-      tableName: map['table_name'] ?? '',
-      tableNumber: map['table_number']?.toInt() ?? 0,
-      seats: map['seats']?.toInt() ?? 8,
-      categoriesRaw: map['categories'],
-      updatedAt: map['updated_at'],
-      deleted: map['deleted'] ?? 0,
-      deletedAt: map['deleted_at'],
-    );
-  }
+  factory TableModel.fromMap(Map<String, dynamic> map) => TableModel(
+    id: map['id']?.toInt(),
+    tableName: map['table_name'] ?? '',
+    tableNumber: map['table_number']?.toInt() ?? 0,
+    seats: map['seats']?.toInt() ?? 8,
+    categoriesRaw: map['categories'],
+    updatedAt: map['updated_at'],
+    deleted: map['deleted'] ?? 0,
+    deletedAt: map['deleted_at'],
+  );
 
   bool get isDeleted => deleted == 1;
+}
+
+// ================================
+// PAYMENT PLAN MODEL  (v17)
+// ================================
+
+enum PaymentType { anzahlung, restzahlung, pauschale }
+
+class PaymentPlan {
+  final int? id;
+  final String vendorName;
+  final double amount;
+  final DateTime dueDate;
+  final PaymentType paymentType;
+  final bool paid;
+  final String notes;
+  final String? updatedAt;
+  final int deleted;
+  final String? deletedAt;
+
+  PaymentPlan({
+    this.id,
+    required this.vendorName,
+    required this.amount,
+    required this.dueDate,
+    required this.paymentType,
+    this.paid = false,
+    this.notes = '',
+    this.updatedAt,
+    this.deleted = 0,
+    this.deletedAt,
+  });
+
+  String get paymentTypeLabel {
+    switch (paymentType) {
+      case PaymentType.anzahlung:
+        return 'Anzahlung';
+      case PaymentType.restzahlung:
+        return 'Restzahlung';
+      case PaymentType.pauschale:
+        return 'Pauschale';
+    }
+  }
+
+  PaymentPlan copyWith({
+    int? id,
+    String? vendorName,
+    double? amount,
+    DateTime? dueDate,
+    PaymentType? paymentType,
+    bool? paid,
+    String? notes,
+    String? updatedAt,
+    int? deleted,
+    String? deletedAt,
+  }) => PaymentPlan(
+    id: id ?? this.id,
+    vendorName: vendorName ?? this.vendorName,
+    amount: amount ?? this.amount,
+    dueDate: dueDate ?? this.dueDate,
+    paymentType: paymentType ?? this.paymentType,
+    paid: paid ?? this.paid,
+    notes: notes ?? this.notes,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deleted: deleted ?? this.deleted,
+    deletedAt: deletedAt ?? this.deletedAt,
+  );
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'vendor_name': vendorName,
+    'amount': amount,
+    'due_date': dueDate.toIso8601String(),
+    'payment_type': paymentType.name,
+    'paid': paid ? 1 : 0,
+    'notes': notes,
+    'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
+    'deleted': deleted,
+    'deleted_at': deletedAt,
+  };
+
+  factory PaymentPlan.fromMap(Map<String, dynamic> map) => PaymentPlan(
+    id: map['id']?.toInt(),
+    vendorName: map['vendor_name'] ?? '',
+    amount: (map['amount'] ?? 0.0).toDouble(),
+    dueDate: DateTime.parse(map['due_date']),
+    paymentType: PaymentType.values.firstWhere(
+      (e) => e.name == map['payment_type'],
+      orElse: () => PaymentType.pauschale,
+    ),
+    paid: (map['paid'] ?? 0) == 1,
+    notes: map['notes'] ?? '',
+    updatedAt: map['updated_at'],
+    deleted: map['deleted'] ?? 0,
+    deletedAt: map['deleted_at'],
+  );
+
+  bool get isDeleted => deleted == 1;
+  bool get isOverdue => !paid && dueDate.isBefore(DateTime.now());
+  bool get isDueSoon {
+    final diff = dueDate.difference(DateTime.now()).inDays;
+    return !paid && diff >= 0 && diff <= 14;
+  }
 }
