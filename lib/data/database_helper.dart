@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as pathJoin;
 import '../models/wedding_models.dart';
+import '../models/dienstleister_models.dart';
 import 'dienstleister_database.dart';
 import '../utils/error_logger.dart';
 
@@ -25,12 +26,13 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version: 17, // VERSION 17: payment_plans Tabelle für Zahlungsplan
+        version:
+            19, // VERSION 19: kommunikations_log + angebot_vergleiche + vergleichs_tag
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v17 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v19 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -42,7 +44,6 @@ class DatabaseHelper {
     try {
       ErrorLogger.info('Erstelle Datenbank-Tabellen (Version $version)...');
 
-      // Wedding Data - MIT updated_at für Sync
       await db.execute('''
         CREATE TABLE wedding_data (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,9 +54,7 @@ class DatabaseHelper {
           updated_at TEXT
         )
       ''');
-      ErrorLogger.info('✅ wedding_data Tabelle erstellt');
 
-      // Guests - VOLLSTÄNDIG mit allen Spalten inkl. Kinder + Scoring
       await db.execute('''
         CREATE TABLE guests (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,9 +80,7 @@ class DatabaseHelper {
           hobbies TEXT
         )
       ''');
-      ErrorLogger.info('✅ guests Tabelle erstellt');
 
-      // Tasks
       await db.execute('''
         CREATE TABLE tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,9 +97,7 @@ class DatabaseHelper {
           deleted_at TEXT
         )
       ''');
-      ErrorLogger.info('✅ tasks Tabelle erstellt');
 
-      // Budget Items
       await db.execute('''
         CREATE TABLE budget_items (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,9 +112,7 @@ class DatabaseHelper {
           deleted_at TEXT
         )
       ''');
-      ErrorLogger.info('✅ budget_items Tabelle erstellt');
 
-      // Tables
       await db.execute('''
         CREATE TABLE tables (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,9 +125,7 @@ class DatabaseHelper {
           deleted_at TEXT
         )
       ''');
-      ErrorLogger.info('✅ tables Tabelle erstellt');
 
-      // Timeline Milestones
       await db.execute('''
         CREATE TABLE timeline_milestones (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,9 +137,7 @@ class DatabaseHelper {
           created_date TEXT NOT NULL
         )
       ''');
-      ErrorLogger.info('✅ timeline_milestones Tabelle erstellt');
 
-      // ── NEU v16: App Settings ──────────────────────────────────────────
       await db.execute('''
         CREATE TABLE app_settings (
           key TEXT PRIMARY KEY,
@@ -156,12 +145,9 @@ class DatabaseHelper {
           updated_at TEXT
         )
       ''');
-      ErrorLogger.info('✅ app_settings Tabelle erstellt');
 
       await DienstleisterDatabase.createTables(db);
-      ErrorLogger.info('✅ Dienstleister Tabellen erstellt');
 
-      // Standardwerte für Menüpreise eintragen
       final now = DateTime.now().toIso8601String();
       await db.insert('app_settings', {
         'key': 'adult_menu_price',
@@ -173,7 +159,48 @@ class DatabaseHelper {
         'value': '28',
         'updated_at': now,
       });
-      ErrorLogger.info('✅ Standard-Menüpreise eingetragen');
+
+      await db.execute('''
+        CREATE TABLE payment_plans (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          vendor_name TEXT NOT NULL,
+          amount REAL NOT NULL DEFAULT 0.0,
+          due_date TEXT NOT NULL,
+          payment_type TEXT NOT NULL DEFAULT 'pauschale',
+          paid INTEGER NOT NULL DEFAULT 0,
+          notes TEXT DEFAULT '',
+          updated_at TEXT,
+          deleted INTEGER DEFAULT 0,
+          deleted_at TEXT,
+          budget_item_id INTEGER
+        )
+      ''');
+
+      // ── v19: Kommunikations-Log ──────────────────────────────────────────
+      await db.execute('''
+        CREATE TABLE kommunikations_log (
+          id TEXT PRIMARY KEY,
+          dienstleister_id TEXT NOT NULL,
+          erstellt_am TEXT NOT NULL,
+          typ TEXT NOT NULL DEFAULT 'notiz',
+          text TEXT NOT NULL DEFAULT '',
+          vorlage_key TEXT
+        )
+      ''');
+
+      // ── v19: Angebots-Vergleich ──────────────────────────────────────────
+      await db.execute('''
+        CREATE TABLE angebot_vergleiche (
+          id TEXT PRIMARY KEY,
+          dienstleister_id TEXT NOT NULL,
+          bezeichnung TEXT NOT NULL,
+          preis REAL NOT NULL DEFAULT 0.0,
+          leistungen TEXT DEFAULT '',
+          notizen TEXT DEFAULT '',
+          erstellt_am TEXT NOT NULL,
+          ist_gewaehlt INTEGER DEFAULT 0
+        )
+      ''');
 
       ErrorLogger.success('🎉 Alle Tabellen erfolgreich erstellt!');
     } catch (e, stack) {
@@ -199,93 +226,35 @@ class DatabaseHelper {
         return result.isNotEmpty;
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v9: Soft Delete + Timestamps
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 9) {
-        ErrorLogger.info(
-          '🔧 Füge fehlende Spalten zu bestehenden Tabellen hinzu...',
-        );
-
         try {
-          if (!await columnExists('tasks', 'location')) {
-            await db.execute(
-              'ALTER TABLE tasks ADD COLUMN location TEXT DEFAULT ""',
-            );
-          }
-          if (!await columnExists('tasks', 'updated_at')) {
-            await db.execute('ALTER TABLE tasks ADD COLUMN updated_at TEXT');
-          }
-          if (!await columnExists('tasks', 'deleted')) {
-            await db.execute(
-              'ALTER TABLE tasks ADD COLUMN deleted INTEGER DEFAULT 0',
-            );
-          }
-          if (!await columnExists('tasks', 'deleted_at')) {
-            await db.execute('ALTER TABLE tasks ADD COLUMN deleted_at TEXT');
+          for (final col in [
+            ['tasks', 'location', 'TEXT DEFAULT ""'],
+            ['tasks', 'updated_at', 'TEXT'],
+            ['tasks', 'deleted', 'INTEGER DEFAULT 0'],
+            ['tasks', 'deleted_at', 'TEXT'],
+            ['guests', 'updated_at', 'TEXT'],
+            ['guests', 'deleted', 'INTEGER DEFAULT 0'],
+            ['guests', 'deleted_at', 'TEXT'],
+            ['budget_items', 'updated_at', 'TEXT'],
+            ['budget_items', 'deleted', 'INTEGER DEFAULT 0'],
+            ['budget_items', 'deleted_at', 'TEXT'],
+            ['tables', 'updated_at', 'TEXT'],
+            ['tables', 'deleted', 'INTEGER DEFAULT 0'],
+            ['tables', 'deleted_at', 'TEXT'],
+          ]) {
+            if (!await columnExists(col[0], col[1])) {
+              await db.execute(
+                'ALTER TABLE ${col[0]} ADD COLUMN ${col[1]} ${col[2]}',
+              );
+            }
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ tasks Migration: $e');
-        }
-
-        try {
-          if (!await columnExists('guests', 'updated_at')) {
-            await db.execute('ALTER TABLE guests ADD COLUMN updated_at TEXT');
-          }
-          if (!await columnExists('guests', 'deleted')) {
-            await db.execute(
-              'ALTER TABLE guests ADD COLUMN deleted INTEGER DEFAULT 0',
-            );
-          }
-          if (!await columnExists('guests', 'deleted_at')) {
-            await db.execute('ALTER TABLE guests ADD COLUMN deleted_at TEXT');
-          }
-        } catch (e) {
-          ErrorLogger.info('  ℹ️ guests Migration: $e');
-        }
-
-        try {
-          if (!await columnExists('budget_items', 'updated_at')) {
-            await db.execute(
-              'ALTER TABLE budget_items ADD COLUMN updated_at TEXT',
-            );
-          }
-          if (!await columnExists('budget_items', 'deleted')) {
-            await db.execute(
-              'ALTER TABLE budget_items ADD COLUMN deleted INTEGER DEFAULT 0',
-            );
-          }
-          if (!await columnExists('budget_items', 'deleted_at')) {
-            await db.execute(
-              'ALTER TABLE budget_items ADD COLUMN deleted_at TEXT',
-            );
-          }
-        } catch (e) {
-          ErrorLogger.info('  ℹ️ budget_items Migration: $e');
-        }
-
-        try {
-          if (!await columnExists('tables', 'updated_at')) {
-            await db.execute('ALTER TABLE tables ADD COLUMN updated_at TEXT');
-          }
-          if (!await columnExists('tables', 'deleted')) {
-            await db.execute(
-              'ALTER TABLE tables ADD COLUMN deleted INTEGER DEFAULT 0',
-            );
-          }
-          if (!await columnExists('tables', 'deleted_at')) {
-            await db.execute('ALTER TABLE tables ADD COLUMN deleted_at TEXT');
-          }
-        } catch (e) {
-          ErrorLogger.info('  ℹ️ tables Migration: $e');
+          ErrorLogger.info('  ℹ️ v9 Migration: $e');
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v10: Kinder + KI-Scoring
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 10) {
-        ErrorLogger.info('🔧 v10: Füge Kinder + Scoring Spalten hinzu...');
         try {
           for (final col in [
             ['children_count', 'INTEGER DEFAULT 0'],
@@ -303,15 +272,11 @@ class DatabaseHelper {
             }
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ guests v10 Migration: $e');
+          ErrorLogger.info('  ℹ️ v10 Migration: $e');
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v11: Konflikte + Kennt + Altersgruppe + Hobbys
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 11) {
-        ErrorLogger.info('🔧 v11: Füge Tischplanungs-Spalten hinzu...');
         try {
           for (final col in [
             'conflicts_json',
@@ -324,29 +289,21 @@ class DatabaseHelper {
             }
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ guests v11 Migration: $e');
+          ErrorLogger.info('  ℹ️ v11 Migration: $e');
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v12: tables.categories
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 12) {
-        ErrorLogger.info('🔧 v12: Füge categories Spalte zu tables hinzu...');
         try {
           if (!await columnExists('tables', 'categories')) {
             await db.execute('ALTER TABLE tables ADD COLUMN categories TEXT');
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ tables.categories Migration: $e');
+          ErrorLogger.info('  ⚠️ v12 Migration: $e');
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v13: wedding_data.total_budget
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 13) {
-        ErrorLogger.info('🔧 v13: Füge total_budget zu wedding_data hinzu...');
         try {
           if (!await columnExists('wedding_data', 'total_budget')) {
             await db.execute(
@@ -383,11 +340,7 @@ class DatabaseHelper {
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v14: wedding_data.updated_at
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 14) {
-        ErrorLogger.info('🔧 v14: Füge updated_at zu wedding_data hinzu...');
         try {
           if (!await columnExists('wedding_data', 'updated_at')) {
             await db.execute(
@@ -399,11 +352,7 @@ class DatabaseHelper {
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v15: dienstleister Sync-Spalten
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 15) {
-        ErrorLogger.info('🔧 v15: Füge Sync-Spalten zu dienstleister hinzu...');
         try {
           await DienstleisterDatabase.migrateAddSyncColumns(db);
         } catch (e) {
@@ -411,11 +360,7 @@ class DatabaseHelper {
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v16: app_settings Tabelle
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 16) {
-        ErrorLogger.info('🔧 v16: Erstelle app_settings Tabelle...');
         try {
           if (!await tableExists('app_settings')) {
             await db.execute('''
@@ -425,21 +370,16 @@ class DatabaseHelper {
                 updated_at TEXT
               )
             ''');
-            ErrorLogger.success('  ✅ app_settings Tabelle erstellt');
           }
-
-          // Standardwerte nur eintragen wenn noch nicht vorhanden
           final now = DateTime.now().toIso8601String();
-          final existing = await db.query('app_settings');
-          final keys = existing.map((r) => r['key'] as String).toSet();
-
+          final existingSettings = await db.query('app_settings');
+          final keys = existingSettings.map((r) => r['key'] as String).toSet();
           if (!keys.contains('adult_menu_price')) {
             await db.insert('app_settings', {
               'key': 'adult_menu_price',
               'value': '65',
               'updated_at': now,
             });
-            ErrorLogger.success('  ✅ adult_menu_price Default eingetragen');
           }
           if (!keys.contains('child_menu_price')) {
             await db.insert('app_settings', {
@@ -447,18 +387,13 @@ class DatabaseHelper {
               'value': '28',
               'updated_at': now,
             });
-            ErrorLogger.success('  ✅ child_menu_price Default eingetragen');
           }
         } catch (e) {
           ErrorLogger.info('  ⚠️ v16 Migration: $e');
         }
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // Migration zu v17: payment_plans Tabelle
-      // ═══════════════════════════════════════════════════════════
       if (oldVersion < 17) {
-        ErrorLogger.info('🔧 v17: Erstelle payment_plans Tabelle...');
         try {
           if (!await tableExists('payment_plans')) {
             await db.execute('''
@@ -475,10 +410,74 @@ class DatabaseHelper {
                 deleted_at TEXT
               )
             ''');
-            ErrorLogger.success('  ✅ payment_plans Tabelle erstellt');
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v17 Migration: \$e');
+          ErrorLogger.info('  ⚠️ v17 Migration: $e');
+        }
+      }
+
+      if (oldVersion < 18) {
+        try {
+          if (!await columnExists('payment_plans', 'budget_item_id')) {
+            await db.execute(
+              'ALTER TABLE payment_plans ADD COLUMN budget_item_id INTEGER',
+            );
+          }
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v18 Migration: $e');
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // Migration zu v19: Kommunikations-Log + Angebots-Vergleich + VergleichsTag
+      // ═══════════════════════════════════════════════════════════════════════
+      if (oldVersion < 19) {
+        ErrorLogger.info('🔧 v19: Kommunikations-Log + Angebots-Vergleich...');
+        try {
+          // kommunikations_log Tabelle
+          if (!await tableExists('kommunikations_log')) {
+            await db.execute('''
+              CREATE TABLE kommunikations_log (
+                id TEXT PRIMARY KEY,
+                dienstleister_id TEXT NOT NULL,
+                erstellt_am TEXT NOT NULL,
+                typ TEXT NOT NULL DEFAULT 'notiz',
+                text TEXT NOT NULL DEFAULT '',
+                vorlage_key TEXT
+              )
+            ''');
+            ErrorLogger.success('  ✅ kommunikations_log Tabelle erstellt');
+          }
+
+          // angebot_vergleiche Tabelle
+          if (!await tableExists('angebot_vergleiche')) {
+            await db.execute('''
+              CREATE TABLE angebot_vergleiche (
+                id TEXT PRIMARY KEY,
+                dienstleister_id TEXT NOT NULL,
+                bezeichnung TEXT NOT NULL,
+                preis REAL NOT NULL DEFAULT 0.0,
+                leistungen TEXT DEFAULT '',
+                notizen TEXT DEFAULT '',
+                erstellt_am TEXT NOT NULL,
+                ist_gewaehlt INTEGER DEFAULT 0
+              )
+            ''');
+            ErrorLogger.success('  ✅ angebot_vergleiche Tabelle erstellt');
+          }
+
+          // vergleichs_tag Spalte in dienstleister Tabelle
+          // (DienstleisterDatabase verwaltet die Tabelle, aber wir fügen hier die Spalte hinzu)
+          if (!await columnExists('dienstleister', 'vergleichs_tag')) {
+            await db.execute(
+              'ALTER TABLE dienstleister ADD COLUMN vergleichs_tag TEXT',
+            );
+            ErrorLogger.success('  ✅ dienstleister.vergleichs_tag hinzugefügt');
+          }
+
+          ErrorLogger.success('  ✅ v19 Migration erfolgreich');
+        } catch (e) {
+          ErrorLogger.info('  ⚠️ v19 Migration: $e');
         }
       }
 
@@ -490,11 +489,9 @@ class DatabaseHelper {
   }
 
   // ================================================================
-  // APP SETTINGS  (neu in v16)
+  // APP SETTINGS
   // ================================================================
 
-  /// Liest einen Setting-Wert anhand des Keys.
-  /// Gibt null zurück wenn der Key nicht existiert.
   Future<String?> getSetting(String key) async {
     try {
       final db = await database;
@@ -512,7 +509,6 @@ class DatabaseHelper {
     }
   }
 
-  /// Speichert einen Setting-Wert (INSERT OR REPLACE).
   Future<void> setSetting(String key, String value) async {
     try {
       final db = await database;
@@ -521,14 +517,12 @@ class DatabaseHelper {
         'value': value,
         'updated_at': DateTime.now().toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-      ErrorLogger.success('✅ Setting gespeichert: $key = $value');
     } catch (e, stack) {
       ErrorLogger.error('❌ setSetting Fehler für key "$key"', e, stack);
       rethrow;
     }
   }
 
-  /// Liest alle Settings als Map zurück.
   Future<Map<String, String>> getAllSettings() async {
     try {
       final db = await database;
@@ -548,19 +542,13 @@ class DatabaseHelper {
 
   Future<Guest> createGuest(Guest guest) async {
     try {
-      ErrorLogger.info('Erstelle Gast: ${guest.firstName} ${guest.lastName}');
-
       final db = await database;
-      final guestWithTimestamp = guest.copyWith(
+      final g = guest.copyWith(
         updatedAt: DateTime.now().toIso8601String(),
         deleted: 0,
       );
-
-      final guestMap = guestWithTimestamp.toMap();
-      final id = await db.insert('guests', guestMap);
-
-      ErrorLogger.success('✅ Gast erstellt mit ID: $id');
-      return guestWithTimestamp.copyWith(id: id);
+      final id = await db.insert('guests', g.toMap());
+      return g.copyWith(id: id);
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Erstellen des Gastes', e, stack);
       rethrow;
@@ -569,21 +557,14 @@ class DatabaseHelper {
 
   Future<void> updateGuest(Guest guest) async {
     try {
-      ErrorLogger.info('Aktualisiere Gast ID: ${guest.id}');
-
       final db = await database;
-      final guestWithTimestamp = guest.copyWith(
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-
+      final g = guest.copyWith(updatedAt: DateTime.now().toIso8601String());
       await db.update(
         'guests',
-        guestWithTimestamp.toMap(),
+        g.toMap(),
         where: 'id = ?',
         whereArgs: [guest.id],
       );
-
-      ErrorLogger.success('✅ Gast aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Aktualisieren des Gastes', e, stack);
       rethrow;
@@ -592,8 +573,6 @@ class DatabaseHelper {
 
   Future<void> deleteGuest(int id) async {
     try {
-      ErrorLogger.info('Lösche Gast ID: $id');
-
       final db = await database;
       await db.update(
         'guests',
@@ -605,8 +584,6 @@ class DatabaseHelper {
         where: 'id = ?',
         whereArgs: [id],
       );
-
-      ErrorLogger.success('✅ Gast gelöscht (soft delete)');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Löschen des Gastes', e, stack);
       rethrow;
@@ -616,16 +593,13 @@ class DatabaseHelper {
   Future<List<Guest>> getAllGuests() async {
     try {
       final db = await database;
-      final List<Map<String, dynamic>> maps = await db.query(
+      final maps = await db.query(
         'guests',
         where: 'deleted = ?',
         whereArgs: [0],
         orderBy: 'last_name ASC, first_name ASC',
       );
-
-      final guests = List.generate(maps.length, (i) => Guest.fromMap(maps[i]));
-      ErrorLogger.info('${guests.length} Gäste geladen');
-      return guests;
+      return maps.map(Guest.fromMap).toList();
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Gäste', e, stack);
       return [];
@@ -634,11 +608,11 @@ class DatabaseHelper {
 
   Future<List<Guest>> getAllGuestsIncludingDeleted() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
+    final maps = await db.query(
       'guests',
       orderBy: 'last_name ASC, first_name ASC',
     );
-    return List.generate(maps.length, (i) => Guest.fromMap(maps[i]));
+    return maps.map(Guest.fromMap).toList();
   }
 
   Future<void> insertGuest(Map<String, dynamic> guestMap) async {
@@ -652,18 +626,13 @@ class DatabaseHelper {
 
   Future<Task> createTask(Task task) async {
     try {
-      ErrorLogger.info('Erstelle Task: ${task.title}');
-
       final db = await database;
-      final taskWithTimestamp = task.copyWith(
+      final t = task.copyWith(
         updatedAt: DateTime.now().toIso8601String(),
         deleted: 0,
       );
-
-      final id = await db.insert('tasks', taskWithTimestamp.toMap());
-
-      ErrorLogger.success('✅ Task erstellt mit ID: $id');
-      return taskWithTimestamp.copyWith(id: id);
+      final id = await db.insert('tasks', t.toMap());
+      return t.copyWith(id: id);
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Erstellen des Tasks', e, stack);
       rethrow;
@@ -672,21 +641,14 @@ class DatabaseHelper {
 
   Future<void> updateTask(Task task) async {
     try {
-      ErrorLogger.info('Aktualisiere Task ID: ${task.id}');
-
       final db = await database;
-      final taskWithTimestamp = task.copyWith(
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-
+      final t = task.copyWith(updatedAt: DateTime.now().toIso8601String());
       await db.update(
         'tasks',
-        taskWithTimestamp.toMap(),
+        t.toMap(),
         where: 'id = ?',
         whereArgs: [task.id],
       );
-
-      ErrorLogger.success('✅ Task aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Aktualisieren des Tasks', e, stack);
       rethrow;
@@ -695,8 +657,6 @@ class DatabaseHelper {
 
   Future<void> deleteTask(int id) async {
     try {
-      ErrorLogger.info('Lösche Task ID: $id');
-
       final db = await database;
       await db.update(
         'tasks',
@@ -708,8 +668,6 @@ class DatabaseHelper {
         where: 'id = ?',
         whereArgs: [id],
       );
-
-      ErrorLogger.success('✅ Task gelöscht (soft delete)');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Löschen des Tasks', e, stack);
       rethrow;
@@ -719,16 +677,13 @@ class DatabaseHelper {
   Future<List<Task>> getAllTasks() async {
     try {
       final db = await database;
-      final List<Map<String, dynamic>> maps = await db.query(
+      final maps = await db.query(
         'tasks',
         where: 'deleted = ?',
         whereArgs: [0],
         orderBy: 'deadline ASC',
       );
-
-      final tasks = List.generate(maps.length, (i) => Task.fromMap(maps[i]));
-      ErrorLogger.info('${tasks.length} Tasks geladen');
-      return tasks;
+      return maps.map(Task.fromMap).toList();
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Tasks', e, stack);
       return [];
@@ -737,11 +692,8 @@ class DatabaseHelper {
 
   Future<List<Task>> getAllTasksIncludingDeleted() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'tasks',
-      orderBy: 'deadline ASC',
-    );
-    return List.generate(maps.length, (i) => Task.fromMap(maps[i]));
+    final maps = await db.query('tasks', orderBy: 'deadline ASC');
+    return maps.map(Task.fromMap).toList();
   }
 
   Future<void> insertTask(Map<String, dynamic> taskMap) async {
@@ -755,18 +707,13 @@ class DatabaseHelper {
 
   Future<BudgetItem> createBudgetItem(BudgetItem item) async {
     try {
-      ErrorLogger.info('Erstelle Budget-Item: ${item.name}');
-
       final db = await database;
-      final itemWithTimestamp = item.copyWith(
+      final i = item.copyWith(
         updatedAt: DateTime.now().toIso8601String(),
         deleted: 0,
       );
-
-      final id = await db.insert('budget_items', itemWithTimestamp.toMap());
-
-      ErrorLogger.success('✅ Budget-Item erstellt mit ID: $id');
-      return itemWithTimestamp.copyWith(id: id);
+      final id = await db.insert('budget_items', i.toMap());
+      return i.copyWith(id: id);
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Erstellen des Budget-Items', e, stack);
       rethrow;
@@ -775,21 +722,14 @@ class DatabaseHelper {
 
   Future<void> updateBudgetItem(BudgetItem item) async {
     try {
-      ErrorLogger.info('Aktualisiere Budget-Item ID: ${item.id}');
-
       final db = await database;
-      final itemWithTimestamp = item.copyWith(
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-
+      final i = item.copyWith(updatedAt: DateTime.now().toIso8601String());
       await db.update(
         'budget_items',
-        itemWithTimestamp.toMap(),
+        i.toMap(),
         where: 'id = ?',
         whereArgs: [item.id],
       );
-
-      ErrorLogger.success('✅ Budget-Item aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error(
         '❌ Fehler beim Aktualisieren des Budget-Items',
@@ -802,8 +742,6 @@ class DatabaseHelper {
 
   Future<void> deleteBudgetItem(int id) async {
     try {
-      ErrorLogger.info('Lösche Budget-Item ID: $id');
-
       final db = await database;
       await db.update(
         'budget_items',
@@ -815,8 +753,6 @@ class DatabaseHelper {
         where: 'id = ?',
         whereArgs: [id],
       );
-
-      ErrorLogger.success('✅ Budget-Item gelöscht (soft delete)');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Löschen des Budget-Items', e, stack);
       rethrow;
@@ -826,19 +762,13 @@ class DatabaseHelper {
   Future<List<BudgetItem>> getAllBudgetItems() async {
     try {
       final db = await database;
-      final List<Map<String, dynamic>> maps = await db.query(
+      final maps = await db.query(
         'budget_items',
         where: 'deleted = ?',
         whereArgs: [0],
         orderBy: 'name ASC',
       );
-
-      final items = List.generate(
-        maps.length,
-        (i) => BudgetItem.fromMap(maps[i]),
-      );
-      ErrorLogger.info('${items.length} Budget-Items geladen');
-      return items;
+      return maps.map(BudgetItem.fromMap).toList();
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Budget-Items', e, stack);
       return [];
@@ -847,11 +777,8 @@ class DatabaseHelper {
 
   Future<List<BudgetItem>> getAllBudgetItemsIncludingDeleted() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'budget_items',
-      orderBy: 'name ASC',
-    );
-    return List.generate(maps.length, (i) => BudgetItem.fromMap(maps[i]));
+    final maps = await db.query('budget_items', orderBy: 'name ASC');
+    return maps.map(BudgetItem.fromMap).toList();
   }
 
   Future<void> insertBudgetItem(Map<String, dynamic> itemMap) async {
@@ -860,23 +787,58 @@ class DatabaseHelper {
   }
 
   // ================================================================
+  // BUDGET ITEM ↔ PAYMENT PLAN VERKNÜPFUNG
+  // ================================================================
+
+  Future<List<PaymentPlan>> getPaymentPlansForBudgetItem(
+    int budgetItemId,
+  ) async {
+    final db = await database;
+    final maps = await db.query(
+      'payment_plans',
+      where: 'budget_item_id = ? AND deleted = 0',
+      whereArgs: [budgetItemId],
+      orderBy: 'due_date ASC',
+    );
+    return maps.map(PaymentPlan.fromMap).toList();
+  }
+
+  Future<void> recalculateBudgetActual(int budgetItemId) async {
+    try {
+      final db = await database;
+      final result = await db.rawQuery(
+        'SELECT COALESCE(SUM(amount), 0.0) as total FROM payment_plans WHERE budget_item_id = ? AND paid = 1 AND deleted = 0',
+        [budgetItemId],
+      );
+      final total = (result.first['total'] as num?)?.toDouble() ?? 0.0;
+      await db.update(
+        'budget_items',
+        {'actual': total, 'updated_at': DateTime.now().toIso8601String()},
+        where: 'id = ? AND deleted = 0',
+        whereArgs: [budgetItemId],
+      );
+    } catch (e, stack) {
+      ErrorLogger.error(
+        '❌ Fehler bei recalculateBudgetActual($budgetItemId)',
+        e,
+        stack,
+      );
+    }
+  }
+
+  // ================================================================
   // TABLES
   // ================================================================
 
   Future<TableModel> createTable(TableModel table) async {
     try {
-      ErrorLogger.info('Erstelle Tisch: ${table.tableName}');
-
       final db = await database;
-      final tableWithTimestamp = table.copyWith(
+      final t = table.copyWith(
         updatedAt: DateTime.now().toIso8601String(),
         deleted: 0,
       );
-
-      final id = await db.insert('tables', tableWithTimestamp.toMap());
-
-      ErrorLogger.success('✅ Tisch erstellt mit ID: $id');
-      return tableWithTimestamp.copyWith(id: id);
+      final id = await db.insert('tables', t.toMap());
+      return t.copyWith(id: id);
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Erstellen des Tisches', e, stack);
       rethrow;
@@ -885,21 +847,14 @@ class DatabaseHelper {
 
   Future<void> updateTable(TableModel table) async {
     try {
-      ErrorLogger.info('Aktualisiere Tisch ID: ${table.id}');
-
       final db = await database;
-      final tableWithTimestamp = table.copyWith(
-        updatedAt: DateTime.now().toIso8601String(),
-      );
-
+      final t = table.copyWith(updatedAt: DateTime.now().toIso8601String());
       await db.update(
         'tables',
-        tableWithTimestamp.toMap(),
+        t.toMap(),
         where: 'id = ?',
         whereArgs: [table.id],
       );
-
-      ErrorLogger.success('✅ Tisch aktualisiert');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Aktualisieren des Tisches', e, stack);
       rethrow;
@@ -908,8 +863,6 @@ class DatabaseHelper {
 
   Future<void> deleteTable(int id) async {
     try {
-      ErrorLogger.info('Lösche Tisch ID: $id');
-
       final db = await database;
       await db.update(
         'tables',
@@ -921,8 +874,6 @@ class DatabaseHelper {
         where: 'id = ?',
         whereArgs: [id],
       );
-
-      ErrorLogger.success('✅ Tisch gelöscht (soft delete)');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Löschen des Tisches', e, stack);
       rethrow;
@@ -932,19 +883,13 @@ class DatabaseHelper {
   Future<List<TableModel>> getAllTables() async {
     try {
       final db = await database;
-      final List<Map<String, dynamic>> maps = await db.query(
+      final maps = await db.query(
         'tables',
         where: 'deleted = ?',
         whereArgs: [0],
         orderBy: 'table_number ASC',
       );
-
-      final tables = List.generate(
-        maps.length,
-        (i) => TableModel.fromMap(maps[i]),
-      );
-      ErrorLogger.info('${tables.length} Tische geladen');
-      return tables;
+      return maps.map(TableModel.fromMap).toList();
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Tische', e, stack);
       return [];
@@ -953,11 +898,8 @@ class DatabaseHelper {
 
   Future<List<TableModel>> getAllTablesIncludingDeleted() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'tables',
-      orderBy: 'table_number ASC',
-    );
-    return List.generate(maps.length, (i) => TableModel.fromMap(maps[i]));
+    final maps = await db.query('tables', orderBy: 'table_number ASC');
+    return maps.map(TableModel.fromMap).toList();
   }
 
   Future<void> insertTable(Map<String, dynamic> tableMap) async {
@@ -972,7 +914,7 @@ class DatabaseHelper {
   Future<Map<String, dynamic>?> getWeddingData() async {
     try {
       final db = await database;
-      final List<Map<String, dynamic>> maps = await db.query('wedding_data');
+      final maps = await db.query('wedding_data');
       return maps.isNotEmpty ? maps.first : null;
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Laden der Hochzeitsdaten', e, stack);
@@ -1007,7 +949,6 @@ class DatabaseHelper {
           whereArgs: [existing['id']],
         );
       }
-      ErrorLogger.success('✅ Gesamtbudget gespeichert: $amount');
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Speichern des Gesamtbudgets', e, stack);
       rethrow;
@@ -1020,20 +961,16 @@ class DatabaseHelper {
     String groomName,
   ) async {
     try {
-      ErrorLogger.info('Speichere Hochzeitsdaten: $brideName & $groomName');
-
       final db = await database;
       final existing = await getWeddingData();
       final now = DateTime.now().toIso8601String();
-
       if (existing == null) {
-        final id = await db.insert('wedding_data', {
+        await db.insert('wedding_data', {
           'wedding_date': date.toIso8601String(),
           'bride_name': brideName,
           'groom_name': groomName,
           'updated_at': now,
         });
-        ErrorLogger.success('✅ Hochzeitsdaten erstellt mit ID: $id');
       } else {
         await db.update(
           'wedding_data',
@@ -1046,15 +983,15 @@ class DatabaseHelper {
           where: 'id = ?',
           whereArgs: [existing['id']],
         );
-        ErrorLogger.success('✅ Hochzeitsdaten aktualisiert');
       }
     } catch (e, stack) {
       ErrorLogger.error('❌ Fehler beim Speichern der Hochzeitsdaten', e, stack);
       rethrow;
     }
   }
+
   // ================================================================
-  // PAYMENT PLANS  (neu in v17)
+  // PAYMENT PLANS
   // ================================================================
 
   Future<List<PaymentPlan>> getAllPaymentPlans() async {
@@ -1067,16 +1004,24 @@ class DatabaseHelper {
     return maps.map(PaymentPlan.fromMap).toList();
   }
 
+  Future<List<PaymentPlan>> getAllPaymentPlansIncludingDeleted() async {
+    final db = await database;
+    final maps = await db.query('payment_plans', orderBy: 'due_date ASC');
+    return maps.map(PaymentPlan.fromMap).toList();
+  }
+
   Future<int> insertPaymentPlan(PaymentPlan plan) async {
     final db = await database;
-    return db.insert('payment_plans', plan.toMap());
+    final p = plan.copyWith(updatedAt: DateTime.now().toIso8601String());
+    return db.insert('payment_plans', p.toMap());
   }
 
   Future<void> updatePaymentPlan(PaymentPlan plan) async {
     final db = await database;
+    final p = plan.copyWith(updatedAt: DateTime.now().toIso8601String());
     await db.update(
       'payment_plans',
-      plan.toMap(),
+      p.toMap(),
       where: 'id = ?',
       whereArgs: [plan.id],
     );
@@ -1086,7 +1031,11 @@ class DatabaseHelper {
     final db = await database;
     await db.update(
       'payment_plans',
-      {'deleted': 1, 'deleted_at': DateTime.now().toIso8601String()},
+      {
+        'deleted': 1,
+        'deleted_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );
@@ -1099,6 +1048,114 @@ class DatabaseHelper {
       {'paid': paid ? 1 : 0, 'updated_at': DateTime.now().toIso8601String()},
       where: 'id = ?',
       whereArgs: [id],
+    );
+    final result = await db.query(
+      'payment_plans',
+      columns: ['budget_item_id'],
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (result.isNotEmpty) {
+      final budgetItemId = result.first['budget_item_id'] as int?;
+      if (budgetItemId != null) await recalculateBudgetActual(budgetItemId);
+    }
+  }
+
+  Future<void> insertPaymentPlanMap(Map<String, dynamic> planMap) async {
+    final db = await database;
+    await db.insert('payment_plans', planMap);
+  }
+
+  // ================================================================
+  // KOMMUNIKATIONS-LOG  (NEU v19)
+  // ================================================================
+
+  Future<List<KommunikationsLogEintrag>> getKommunikationsLogFuer(
+    String dienstleisterId,
+  ) async {
+    try {
+      final db = await database;
+      final maps = await db.query(
+        'kommunikations_log',
+        where: 'dienstleister_id = ?',
+        whereArgs: [dienstleisterId],
+        orderBy: 'erstellt_am DESC',
+      );
+      return maps.map(KommunikationsLogEintrag.fromMap).toList();
+    } catch (e) {
+      ErrorLogger.info('getKommunikationsLogFuer Fehler: $e');
+      return [];
+    }
+  }
+
+  Future<void> createKommunikationsLogEintrag(
+    KommunikationsLogEintrag eintrag,
+  ) async {
+    final db = await database;
+    await db.insert('kommunikations_log', eintrag.toMap());
+  }
+
+  Future<void> deleteKommunikationsLogEintrag(String id) async {
+    final db = await database;
+    await db.delete('kommunikations_log', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ================================================================
+  // ANGEBOT VERGLEICH  (NEU v19)
+  // ================================================================
+
+  Future<List<AngebotVergleich>> getAngeboteVergleichFuer(
+    String dienstleisterId,
+  ) async {
+    try {
+      final db = await database;
+      final maps = await db.query(
+        'angebot_vergleiche',
+        where: 'dienstleister_id = ?',
+        whereArgs: [dienstleisterId],
+        orderBy: 'ist_gewaehlt DESC, preis ASC',
+      );
+      return maps.map(AngebotVergleich.fromMap).toList();
+    } catch (e) {
+      ErrorLogger.info('getAngeboteVergleichFuer Fehler: $e');
+      return [];
+    }
+  }
+
+  Future<void> createAngebotVergleich(AngebotVergleich angebot) async {
+    final db = await database;
+    await db.insert('angebot_vergleiche', angebot.toMap());
+  }
+
+  Future<void> updateAngebotVergleich(AngebotVergleich angebot) async {
+    final db = await database;
+    await db.update(
+      'angebot_vergleiche',
+      angebot.toMap(),
+      where: 'id = ?',
+      whereArgs: [angebot.id],
+    );
+  }
+
+  Future<void> deleteAngebotVergleich(String id) async {
+    final db = await database;
+    await db.delete('angebot_vergleiche', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Setzt ein Angebot als gewählt und alle anderen als nicht-gewählt
+  Future<void> waehleAngebot(String dienstleisterId, String angebotId) async {
+    final db = await database;
+    await db.update(
+      'angebot_vergleiche',
+      {'ist_gewaehlt': 0},
+      where: 'dienstleister_id = ?',
+      whereArgs: [dienstleisterId],
+    );
+    await db.update(
+      'angebot_vergleiche',
+      {'ist_gewaehlt': 1},
+      where: 'id = ?',
+      whereArgs: [angebotId],
     );
   }
 }

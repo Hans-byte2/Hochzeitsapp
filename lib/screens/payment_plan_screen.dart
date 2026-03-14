@@ -4,10 +4,12 @@ import 'package:intl/intl.dart';
 import '../data/database_helper.dart';
 import '../services/budget_report_pdf_service.dart';
 import '../models/wedding_models.dart';
+import '../sync/services/sync_service.dart';
 
 // ============================================================================
 // ZAHLUNGSPLAN SCREEN
 // Zeitstrahl-Ansicht nach Monaten gruppiert
+// v2: Budget-Verknüpfung (budget_item_id) + auto actual-Update
 // ============================================================================
 
 class PaymentPlanScreen extends StatefulWidget {
@@ -27,6 +29,12 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
 
   String _fmt(double v) => _currencyFormat.format(v);
 
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      debugPrint('Sync-Fehler: $e');
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -36,11 +44,12 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
   Future<void> _loadPlans() async {
     setState(() => _isLoading = true);
     final plans = await DatabaseHelper.instance.getAllPaymentPlans();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _plans = plans;
         _isLoading = false;
       });
+    }
   }
 
   // ── Berechnungen ──────────────────────────────────────────────────────────
@@ -53,7 +62,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
   int get _overdueCount => _plans.where((p) => p.isOverdue).length;
   int get _dueSoonCount => _plans.where((p) => p.isDueSoon).length;
 
-  // Pläne nach Monat gruppieren
   Map<String, List<PaymentPlan>> get _groupedByMonth {
     final Map<String, List<PaymentPlan>> result = {};
     final sorted = [..._plans]..sort((a, b) => a.dueDate.compareTo(b.dueDate));
@@ -75,6 +83,16 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
     DateTime selectedDate =
         existing?.dueDate ?? DateTime.now().add(const Duration(days: 30));
     PaymentType selectedType = existing?.paymentType ?? PaymentType.pauschale;
+
+    // Budget-Verknüpfung
+    List<BudgetItem> budgetItems = [];
+    int? selectedBudgetItemId = existing?.budgetItemId;
+
+    try {
+      budgetItems = await DatabaseHelper.instance.getAllBudgetItems();
+    } catch (e) {
+      debugPrint('Budget-Items laden fehlgeschlagen: $e');
+    }
 
     await showModalBottomSheet(
       context: context,
@@ -140,7 +158,7 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Typ
+                  // Zahlungstyp
                   const Text(
                     'Zahlungstyp',
                     style: TextStyle(fontSize: 13, color: Colors.grey),
@@ -202,8 +220,9 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                         lastDate: DateTime(2030),
                         locale: const Locale('de'),
                       );
-                      if (picked != null)
+                      if (picked != null) {
                         setModalState(() => selectedDate = picked);
+                      }
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -230,6 +249,90 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+
+                  // ── Budget-Verknüpfung ──────────────────────────────────
+                  const Text(
+                    'Budget-Posten verknüpfen (optional)',
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Wenn bezahlt → Betrag wird automatisch im Budget eingetragen',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  ),
+                  const SizedBox(height: 8),
+                  if (budgetItems.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Noch keine Budget-Posten vorhanden',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<int?>(
+                      value: selectedBudgetItemId,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        suffixIcon: selectedBudgetItemId != null
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () => setModalState(
+                                  () => selectedBudgetItemId = null,
+                                ),
+                              )
+                            : null,
+                      ),
+                      hint: const Text('Kein Budget-Posten'),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Kein Budget-Posten'),
+                        ),
+                        ...budgetItems.map(
+                          (item) => DropdownMenuItem<int?>(
+                            value: item.id,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item.name,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '€${_fmt(item.planned)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) =>
+                          setModalState(() => selectedBudgetItemId = val),
+                    ),
                   const SizedBox(height: 12),
 
                   // Notiz
@@ -271,12 +374,27 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                           paymentType: selectedType,
                           paid: existing?.paid ?? false,
                           notes: notesCtrl.text.trim(),
+                          budgetItemId: selectedBudgetItemId,
                         );
                         if (existing == null) {
                           await DatabaseHelper.instance.insertPaymentPlan(plan);
                         } else {
                           await DatabaseHelper.instance.updatePaymentPlan(plan);
+                          // Wenn Budget-Verknüpfung geändert: neu berechnen
+                          if (plan.budgetItemId != null) {
+                            await DatabaseHelper.instance
+                                .recalculateBudgetActual(plan.budgetItemId!);
+                          }
+                          // Wenn alte Verknüpfung entfernt: alten Budget-Eintrag neu berechnen
+                          if (existing.budgetItemId != null &&
+                              existing.budgetItemId != plan.budgetItemId) {
+                            await DatabaseHelper.instance
+                                .recalculateBudgetActual(
+                                  existing.budgetItemId!,
+                                );
+                          }
                         }
+                        _syncNow();
                         if (mounted) {
                           Navigator.pop(ctx);
                           _loadPlans();
@@ -318,8 +436,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
     }
   }
 
-  // ── Löschen ───────────────────────────────────────────────────────────────
-
   Future<void> _deletePlan(PaymentPlan plan) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -340,6 +456,13 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
     );
     if (confirm == true) {
       await DatabaseHelper.instance.deletePaymentPlan(plan.id!);
+      // Budget-Actual neu berechnen wenn verknüpft
+      if (plan.budgetItemId != null) {
+        await DatabaseHelper.instance.recalculateBudgetActual(
+          plan.budgetItemId!,
+        );
+      }
+      _syncNow();
       _loadPlans();
     }
   }
@@ -462,13 +585,11 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
 
     return CustomScrollView(
       slivers: [
-        // ── Zusammenfassung ────────────────────────────────────────────────
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: Column(
               children: [
-                // Warnungen
                 if (_overdueCount > 0)
                   _warningBanner(
                     icon: Icons.warning_amber_rounded,
@@ -485,8 +606,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                   ),
                 if (_overdueCount > 0 || _dueSoonCount > 0)
                   const SizedBox(height: 8),
-
-                // Übersichts-Cards
                 Row(
                   children: [
                     Expanded(
@@ -521,8 +640,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
             ),
           ),
         ),
-
-        // ── Zeitstrahl ────────────────────────────────────────────────────
         SliverList(
           delegate: SliverChildBuilderDelegate((context, sectionIndex) {
             final month = grouped.keys.elementAt(sectionIndex);
@@ -539,10 +656,8 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Monats-Header
                   Row(
                     children: [
-                      // Zeitstrahl-Linie + Kreis
                       Column(
                         children: [
                           Container(
@@ -609,12 +724,9 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                     ],
                   ),
                   const SizedBox(height: 6),
-
-                  // Zeitstrahl-Verbindungslinie + Karten
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Vertikale Linie
                       if (sectionIndex < grouped.length - 1)
                         Padding(
                           padding: const EdgeInsets.only(left: 6),
@@ -627,8 +739,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                       else
                         const SizedBox(width: 8),
                       const SizedBox(width: 18),
-
-                      // Zahlungs-Karten
                       Expanded(
                         child: Column(
                           children: monthPlans
@@ -644,7 +754,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
             );
           }, childCount: grouped.length),
         ),
-
         const SliverPadding(padding: EdgeInsets.only(bottom: 80)),
       ],
     );
@@ -713,6 +822,7 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
     final isOverdue = plan.isOverdue;
     final isDueSoon = plan.isDueSoon;
     final typeColor = _typeColor(plan.paymentType);
+    final hasBudgetLink = plan.budgetItemId != null;
 
     Color borderColor = Colors.grey.shade200;
     Color bgColor = Colors.white;
@@ -741,7 +851,7 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
       ),
       confirmDismiss: (_) async {
         await _deletePlan(plan);
-        return false; // wir machen das manuell
+        return false;
       },
       child: GestureDetector(
         onTap: () => _showAddEditDialog(plan),
@@ -762,6 +872,7 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                     plan.id!,
                     !plan.paid,
                   );
+                  _syncNow();
                   _loadPlans();
                 },
                 child: Icon(
@@ -772,7 +883,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
               ),
               const SizedBox(width: 10),
 
-              // Inhalt
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -792,6 +902,39 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
                             ),
                           ),
                         ),
+                        // Budget-Link Badge
+                        if (hasBudgetLink)
+                          Container(
+                            margin: const EdgeInsets.only(right: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.indigo.shade50,
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.indigo.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.link,
+                                  size: 9,
+                                  color: Colors.indigo.shade500,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  'Budget',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.indigo.shade600,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         // Typ-Badge
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -878,7 +1021,6 @@ class _PaymentPlanScreenState extends State<PaymentPlanScreen> {
               ),
               const SizedBox(width: 8),
 
-              // Betrag
               Text(
                 '€${_fmt(plan.amount)}',
                 style: TextStyle(

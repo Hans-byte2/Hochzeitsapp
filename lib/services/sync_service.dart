@@ -3,28 +3,28 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:sqflite/sqflite.dart';
 import '../data/database_helper.dart';
 import '../data/dienstleister_database.dart';
 import '../models/sync_models.dart';
 import '../models/wedding_models.dart';
-import '../models/dienstleister_models.dart';
 
 class SyncService {
   final DatabaseHelper _db = DatabaseHelper.instance;
+  final DienstleisterDatabase _dlDb = DienstleisterDatabase.instance;
 
-  /// Exportiert alle Daten als .heartpebble Datei
+  // ================================================================
+  // EXPORT
+  // ================================================================
+
   Future<File?> exportAllData() async {
     try {
       debugPrint('🔄 Starting data export...');
 
-      // 1. Alle Daten aus der Datenbank holen
       final syncData = await _collectAllData();
-
-      // 2. In JSON konvertieren
       final jsonString = jsonEncode(syncData.toJson());
       debugPrint('📦 JSON size: ${jsonString.length} bytes');
 
-      // 3. Komprimieren (gzip)
       final bytes = utf8.encode(jsonString);
       final compressed = gzip.encode(bytes);
       debugPrint(
@@ -32,11 +32,8 @@ class SyncService {
         '(${(compressed.length / bytes.length * 100).toStringAsFixed(1)}% of original)',
       );
 
-      // 4. Datei erstellen im öffentlichen Download-Verzeichnis
-      // Versuche zuerst externes Storage (öffentlich zugänglich)
       File? file;
       try {
-        // Für Android: /sdcard/Download/
         final downloadsDir = Directory('/storage/emulated/0/Download');
         if (await downloadsDir.exists()) {
           final timestamp = DateTime.now()
@@ -53,7 +50,6 @@ class SyncService {
         debugPrint('⚠️  Public storage not accessible: $e');
       }
 
-      // Fallback: Privates App-Verzeichnis (wie vorher)
       if (file == null) {
         final directory = await getApplicationDocumentsDirectory();
         final timestamp = DateTime.now()
@@ -75,7 +71,6 @@ class SyncService {
     }
   }
 
-  /// Teilt die exportierte Datei
   Future<bool> shareExportedData() async {
     try {
       final file = await exportAllData();
@@ -95,7 +90,10 @@ class SyncService {
     }
   }
 
-  /// Importiert Daten aus einer .heartpebble Datei
+  // ================================================================
+  // IMPORT
+  // ================================================================
+
   Future<ImportResult> importData(
     String filePath, {
     bool mergeData = true,
@@ -103,7 +101,6 @@ class SyncService {
     try {
       debugPrint('🔄 Starting data import from: $filePath');
 
-      // 1. Datei lesen
       final file = File(filePath);
       if (!await file.exists()) {
         return ImportResult(
@@ -114,38 +111,30 @@ class SyncService {
       }
 
       final compressed = await file.readAsBytes();
-      debugPrint('📦 Compressed file size: ${compressed.length} bytes');
-
-      // 2. Dekomprimieren
       final decompressed = gzip.decode(compressed);
       final jsonString = utf8.decode(decompressed);
       debugPrint('📦 Decompressed size: ${jsonString.length} bytes');
 
-      // 3. JSON parsen
       final Map<String, dynamic> json = jsonDecode(jsonString);
       final syncData = SyncData.fromJson(json);
 
-      // 4. Validierung
       if (!_validateSyncData(syncData)) {
         return ImportResult(
           success: false,
           message: 'Ungültige Datenstruktur',
           statistics: ImportStatistics(),
         );
-      } // ← Diese } war das Problem!
+      }
 
-      // 5. Daten importieren
       final stats = await _importAllData(syncData, mergeData: mergeData);
 
-      debugPrint('✅ Import successful: $stats');
       return ImportResult(
         success: true,
         message: 'Daten erfolgreich importiert',
         statistics: stats,
       );
     } catch (e, stackTrace) {
-      debugPrint('❌ Import error: $e');
-      debugPrint('Stack trace: $stackTrace');
+      debugPrint('❌ Import error: $e\n$stackTrace');
       return ImportResult(
         success: false,
         message: 'Fehler beim Import: $e',
@@ -154,68 +143,69 @@ class SyncService {
     }
   }
 
-  /// Sammelt alle Daten aus der Datenbank
+  // ================================================================
+  // DATEN SAMMELN (Export)
+  // ================================================================
+
   Future<SyncData> _collectAllData() async {
-    // Konvertiere Model-Objekte zu Maps
+    // Gäste
     final guests = await _db.getAllGuestsIncludingDeleted();
-    final guestMaps = guests.map((g) => _sanitizeMap(_guestToMap(g))).toList();
+    final guestMaps = guests.map((g) => _sanitizeMap(g.toMap())).toList();
 
+    // Budget
     final budgetItems = await _db.getAllBudgetItemsIncludingDeleted();
-    final sanitizedBudget = budgetItems
-        .map((b) => _sanitizeMap(b.toMap()))
-        .toList();
+    final budgetMaps = budgetItems.map((b) => _sanitizeMap(b.toMap())).toList();
 
+    // Tasks
     final tasks = await _db.getAllTasksIncludingDeleted();
-    final taskMaps = tasks.map((t) => _sanitizeMap(_taskToMap(t))).toList();
+    final taskMaps = tasks.map((t) => _sanitizeMap(t.toMap())).toList();
 
+    // Tische
     final tables = await _db.getAllTablesIncludingDeleted();
-    final sanitizedTables = tables.map((t) => _sanitizeMap(t.toMap())).toList();
+    final tableMaps = tables.map((t) => _sanitizeMap(t.toMap())).toList();
 
-    // Dienstleister (mit allen Unter-Tabellen: Zahlungen, Notizen, Aufgaben)
+    // Payment Plans
+    List<Map<String, dynamic>> paymentPlanMaps = [];
+    try {
+      final plans = await _db.getAllPaymentPlansIncludingDeleted();
+      paymentPlanMaps = plans.map((p) => _sanitizeMap(p.toMap())).toList();
+      debugPrint('📦 Exporting ${paymentPlanMaps.length} PaymentPlans');
+    } catch (e) {
+      debugPrint('ℹ️  PaymentPlans export error (skipping): $e');
+    }
+
+    // Dienstleister inkl. soft-deleted + Sub-Tabellen
     List<Map<String, dynamic>> dienstleister = [];
     try {
-      final dienstleisterDb = DienstleisterDatabase.instance;
-      final alleDienstleister = await dienstleisterDb.getAlleDienstleister();
+      final db = await DatabaseHelper.instance.database;
+      // Alle inkl. is_deleted=1 exportieren damit Partner-Löschungen ankommen
+      final allRows = await db.query('dienstleister');
+      debugPrint('📦 Exporting ${allRows.length} Dienstleister...');
 
-      debugPrint(
-        '📦 Exporting ${alleDienstleister.length} Dienstleister with sub-tables...',
-      );
+      for (final row in allRows) {
+        final dlMap = _sanitizeMap(Map<String, dynamic>.from(row));
+        final dlId = row['id'] as String;
 
-      // Für jeden Dienstleister auch Zahlungen, Notizen, Aufgaben exportieren
-      for (final dl in alleDienstleister) {
-        final dlMap = _sanitizeMap(dl.toMap());
-
-        // Zahlungen hinzufügen
-        final zahlungen = await dienstleisterDb.getZahlungenFuer(dl.id);
+        final zahlungen = await _dlDb.getZahlungenFuer(dlId);
         dlMap['zahlungen'] = zahlungen
             .map((z) => _sanitizeMap(z.toMap()))
             .toList();
-        debugPrint('   └─ ${dl.name}: ${zahlungen.length} Zahlungen');
 
-        // Notizen hinzufügen
-        final notizen = await dienstleisterDb.getNotizenFuer(dl.id);
+        final notizen = await _dlDb.getNotizenFuer(dlId);
         dlMap['notizen'] = notizen.map((n) => _sanitizeMap(n.toMap())).toList();
-        debugPrint('   └─ ${dl.name}: ${notizen.length} Notizen');
 
-        // Aufgaben hinzufügen
-        final aufgaben = await dienstleisterDb.getAufgabenFuer(dl.id);
+        final aufgaben = await _dlDb.getAufgabenFuer(dlId);
         dlMap['aufgaben'] = aufgaben
             .map((a) => _sanitizeMap(a.toMap()))
             .toList();
-        debugPrint('   └─ ${dl.name}: ${aufgaben.length} Aufgaben');
 
         dienstleister.add(dlMap);
       }
-
-      debugPrint(
-        '✅ Exported ${dienstleister.length} Dienstleister (complete with sub-tables)',
-      );
+      debugPrint('✅ Exported ${dienstleister.length} Dienstleister');
     } catch (e) {
       debugPrint('ℹ️  Dienstleister export error (skipping): $e');
-      dienstleister = [];
     }
 
-    // Wedding Info
     var weddingInfo = await _db.getWeddingData();
     if (weddingInfo != null) {
       weddingInfo = _sanitizeMap(weddingInfo);
@@ -226,476 +216,564 @@ class SyncService {
       exportedAt: DateTime.now(),
       weddingInfo: weddingInfo,
       guests: guestMaps,
-      budgetItems: sanitizedBudget,
+      budgetItems: budgetMaps,
       tasks: taskMaps,
-      tables: sanitizedTables,
+      tables: tableMaps,
       serviceProviders: dienstleister,
+      paymentPlans: paymentPlanMaps,
     );
   }
 
-  /// Konvertiert alle DateTime-Objekte in einem Map zu Strings
+  // ================================================================
+  // DATEN IMPORTIEREN
+  // ================================================================
+
+  Future<ImportStatistics> _importAllData(
+    SyncData data, {
+    bool mergeData = true,
+  }) async {
+    int guestsAdded = 0,
+        guestsUpdated = 0,
+        guestsDeleted = 0,
+        guestsSkipped = 0;
+    int budgetAdded = 0,
+        budgetUpdated = 0,
+        budgetDeleted = 0,
+        budgetSkipped = 0;
+    int tasksAdded = 0, tasksUpdated = 0, tasksDeleted = 0, tasksSkipped = 0;
+    int tablesAdded = 0,
+        tablesUpdated = 0,
+        tablesDeleted = 0,
+        tablesSkipped = 0;
+    int providersAdded = 0,
+        providersUpdated = 0,
+        providersDeleted = 0,
+        providersSkipped = 0;
+    int plansAdded = 0, plansUpdated = 0, plansDeleted = 0, plansSkipped = 0;
+
+    // ── GÄSTE ────────────────────────────────────────────────────────────
+    debugPrint('🔄 Importing ${data.guests.length} Guests...');
+    final existingGuests = await _db.getAllGuestsIncludingDeleted();
+
+    for (final map in data.guests) {
+      try {
+        final firstName = map['first_name'] as String?;
+        final lastName = map['last_name'] as String?;
+        final isDeleted = (map['deleted'] ?? 0) == 1;
+
+        final existing = existingGuests
+            .where((g) => g.firstName == firstName && g.lastName == lastName)
+            .firstOrNull;
+
+        if (existing == null) {
+          if (isDeleted) continue;
+          final clean = Map<String, dynamic>.from(map)..remove('id');
+          await _db.createGuest(Guest.fromMap(clean));
+          guestsAdded++;
+        } else {
+          final r = _resolveConflict(
+            map['updated_at'] as String?,
+            existing.updatedAt,
+          );
+          if (r == _ConflictResult.skip) {
+            guestsSkipped++;
+            continue;
+          }
+
+          if (isDeleted) {
+            if (existing.deleted == 0) {
+              await _db.deleteGuest(existing.id!);
+              guestsDeleted++;
+            }
+          } else {
+            final updated = Map<String, dynamic>.from(map)
+              ..['id'] = existing.id;
+            await _db.updateGuest(Guest.fromMap(updated));
+            guestsUpdated++;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️  Guest import error: $e');
+      }
+    }
+    debugPrint(
+      '📊 Guests: +$guestsAdded ~$guestsUpdated 🗑$guestsDeleted ⏭$guestsSkipped',
+    );
+
+    // ── TASKS ─────────────────────────────────────────────────────────────
+    debugPrint('🔄 Importing ${data.tasks.length} Tasks...');
+    final existingTasks = await _db.getAllTasksIncludingDeleted();
+
+    for (final map in data.tasks) {
+      try {
+        final title = map['title'] as String?;
+        final isDeleted = (map['deleted'] ?? 0) == 1;
+
+        final existing = existingTasks
+            .where((t) => t.title == title)
+            .firstOrNull;
+
+        if (existing == null) {
+          if (isDeleted) continue;
+          final clean = Map<String, dynamic>.from(map)
+            ..remove('id')
+            ..putIfAbsent(
+              'created_date',
+              () => DateTime.now().toIso8601String(),
+            );
+          await _db.createTask(Task.fromMap(clean));
+          tasksAdded++;
+        } else {
+          final r = _resolveConflict(
+            map['updated_at'] as String?,
+            existing.updatedAt,
+          );
+          if (r == _ConflictResult.skip) {
+            tasksSkipped++;
+            continue;
+          }
+
+          if (isDeleted) {
+            if (existing.deleted == 0) {
+              await _db.deleteTask(existing.id!);
+              tasksDeleted++;
+            }
+          } else {
+            final updated = Map<String, dynamic>.from(map)
+              ..['id'] = existing.id;
+            await _db.updateTask(Task.fromMap(updated));
+            tasksUpdated++;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️  Task import error: $e');
+      }
+    }
+    debugPrint(
+      '📊 Tasks: +$tasksAdded ~$tasksUpdated 🗑$tasksDeleted ⏭$tasksSkipped',
+    );
+
+    // ── BUDGET ITEMS ──────────────────────────────────────────────────────
+    debugPrint('🔄 Importing ${data.budgetItems.length} BudgetItems...');
+    final existingBudget = await _db.getAllBudgetItemsIncludingDeleted();
+
+    for (final map in data.budgetItems) {
+      try {
+        final name = map['name'] as String?;
+        if (name == null || name.isEmpty) continue;
+        final isDeleted = (map['deleted'] ?? 0) == 1;
+
+        final existing = existingBudget
+            .where((b) => b.name == name)
+            .firstOrNull;
+
+        if (existing == null) {
+          if (isDeleted) continue;
+          final clean = Map<String, dynamic>.from(map)..remove('id');
+          await _db.insertBudgetItem(clean);
+          budgetAdded++;
+        } else {
+          final r = _resolveConflict(
+            map['updated_at'] as String?,
+            existing.updatedAt,
+          );
+          if (r == _ConflictResult.skip) {
+            budgetSkipped++;
+            continue;
+          }
+
+          if (isDeleted) {
+            if (existing.deleted == 0) {
+              await _db.deleteBudgetItem(existing.id!);
+              budgetDeleted++;
+            }
+          } else {
+            final updated = Map<String, dynamic>.from(map)
+              ..['id'] = existing.id;
+            await _db.updateBudgetItem(BudgetItem.fromMap(updated));
+            budgetUpdated++;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️  BudgetItem import error: $e');
+      }
+    }
+    debugPrint(
+      '📊 Budget: +$budgetAdded ~$budgetUpdated 🗑$budgetDeleted ⏭$budgetSkipped',
+    );
+
+    // ── TISCHE ────────────────────────────────────────────────────────────
+    debugPrint('🔄 Importing ${data.tables.length} Tables...');
+    final existingTables = await _db.getAllTablesIncludingDeleted();
+
+    for (final map in data.tables) {
+      try {
+        final tableName = map['table_name'] as String?;
+        final tableNumber = map['table_number'];
+        if (tableName == null) continue;
+        final isDeleted = (map['deleted'] ?? 0) == 1;
+
+        // Match: gleicher Name ODER gleiche Nummer
+        final existing = existingTables.where((t) {
+          return t.tableName == tableName || t.tableNumber == tableNumber;
+        }).firstOrNull;
+
+        if (existing == null) {
+          if (isDeleted) continue;
+          final clean = Map<String, dynamic>.from(map)..remove('id');
+          await _db.insertTable(clean);
+          tablesAdded++;
+        } else {
+          final r = _resolveConflict(
+            map['updated_at'] as String?,
+            existing.updatedAt,
+          );
+          if (r == _ConflictResult.skip) {
+            tablesSkipped++;
+            continue;
+          }
+
+          if (isDeleted) {
+            if (existing.deleted == 0) {
+              await _db.deleteTable(existing.id!);
+              tablesDeleted++;
+            }
+          } else {
+            final updated = Map<String, dynamic>.from(map)
+              ..['id'] = existing.id;
+            await _db.updateTable(TableModel.fromMap(updated));
+            tablesUpdated++;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️  Table import error: $e');
+      }
+    }
+    debugPrint(
+      '📊 Tables: +$tablesAdded ~$tablesUpdated 🗑$tablesDeleted ⏭$tablesSkipped',
+    );
+
+    // ── DIENSTLEISTER ─────────────────────────────────────────────────────
+    debugPrint('🔄 Importing ${data.serviceProviders.length} Dienstleister...');
+    final db = await DatabaseHelper.instance.database;
+
+    for (final map in data.serviceProviders) {
+      try {
+        final id = map['id'] as String?;
+        final name = map['name'] as String?;
+        if (id == null || name == null) continue;
+
+        final isDeleted = (map['is_deleted'] ?? 0) == 1;
+        final importTs = map['updated_at'] as String?;
+
+        // Sub-Tabellen extrahieren
+        final zahlungenData = List<Map<String, dynamic>>.from(
+          map['zahlungen'] ?? [],
+        );
+        final notizenData = List<Map<String, dynamic>>.from(
+          map['notizen'] ?? [],
+        );
+        final aufgabenData = List<Map<String, dynamic>>.from(
+          map['aufgaben'] ?? [],
+        );
+
+        // Haupteintrag ohne Sub-Tabellen
+        final dlMap = Map<String, dynamic>.from(map)
+          ..remove('zahlungen')
+          ..remove('notizen')
+          ..remove('aufgaben');
+
+        final existingRows = await db.query(
+          'dienstleister',
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+
+        if (existingRows.isEmpty) {
+          if (isDeleted) continue;
+          await db.insert('dienstleister', dlMap);
+          await _importDienstleisterSubtables(
+            id,
+            zahlungenData,
+            notizenData,
+            aufgabenData,
+          );
+          providersAdded++;
+          debugPrint('   ➕ $name');
+        } else {
+          final localTs = existingRows.first['updated_at'] as String?;
+          final r = _resolveConflict(importTs, localTs);
+          if (r == _ConflictResult.skip) {
+            providersSkipped++;
+            continue;
+          }
+
+          if (isDeleted) {
+            if ((existingRows.first['is_deleted'] ?? 0) == 0) {
+              await db.update(
+                'dienstleister',
+                {
+                  'is_deleted': 1,
+                  'updated_at': importTs ?? DateTime.now().toIso8601String(),
+                },
+                where: 'id = ?',
+                whereArgs: [id],
+              );
+              providersDeleted++;
+              debugPrint('   🗑️  $name');
+            }
+          } else {
+            await db.update(
+              'dienstleister',
+              dlMap,
+              where: 'id = ?',
+              whereArgs: [id],
+            );
+            // Sub-Tabellen: löschen + neu einfügen (Import gewinnt wenn neuer)
+            await db.delete(
+              'dienstleister_zahlungen',
+              where: 'dienstleister_id = ?',
+              whereArgs: [id],
+            );
+            await db.delete(
+              'dienstleister_notizen',
+              where: 'dienstleister_id = ?',
+              whereArgs: [id],
+            );
+            await db.delete(
+              'dienstleister_aufgaben',
+              where: 'dienstleister_id = ?',
+              whereArgs: [id],
+            );
+            await _importDienstleisterSubtables(
+              id,
+              zahlungenData,
+              notizenData,
+              aufgabenData,
+            );
+            providersUpdated++;
+            debugPrint('   🔄 $name');
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️  Dienstleister import error: $e');
+      }
+    }
+    debugPrint(
+      '📊 Dienstleister: +$providersAdded ~$providersUpdated '
+      '🗑$providersDeleted ⏭$providersSkipped',
+    );
+
+    // ── PAYMENT PLANS ─────────────────────────────────────────────────────
+    debugPrint('🔄 Importing ${data.paymentPlans.length} PaymentPlans...');
+    final existingPlans = await _db.getAllPaymentPlansIncludingDeleted();
+
+    for (final map in data.paymentPlans) {
+      try {
+        final vendorName = map['vendor_name'] as String?;
+        final dueDate = map['due_date'] as String?;
+        final amount = (map['amount'] as num?)?.toDouble() ?? 0.0;
+        if (vendorName == null || dueDate == null) continue;
+
+        final isDeleted = (map['deleted'] ?? 0) == 1;
+
+        // Match: vendor_name + due_date (Datum-Teil) + amount
+        final dueDateNorm = _normalizeIsoDate(dueDate);
+        final existing = existingPlans.where((p) {
+          return p.vendorName == vendorName &&
+              _normalizeIsoDate(p.dueDate.toIso8601String()) == dueDateNorm &&
+              p.amount == amount;
+        }).firstOrNull;
+
+        if (existing == null) {
+          if (isDeleted) continue;
+          final clean = Map<String, dynamic>.from(map)..remove('id');
+          await _db.insertPaymentPlanMap(clean);
+          plansAdded++;
+          debugPrint('   ➕ $vendorName ($dueDate)');
+        } else {
+          final r = _resolveConflict(
+            map['updated_at'] as String?,
+            existing.updatedAt,
+          );
+          if (r == _ConflictResult.skip) {
+            plansSkipped++;
+            continue;
+          }
+
+          if (isDeleted) {
+            if (existing.deleted == 0) {
+              await _db.deletePaymentPlan(existing.id!);
+              plansDeleted++;
+              debugPrint('   🗑️  $vendorName');
+            }
+          } else {
+            final updated = Map<String, dynamic>.from(map)
+              ..['id'] = existing.id;
+            await _db.updatePaymentPlan(PaymentPlan.fromMap(updated));
+            plansUpdated++;
+            debugPrint('   🔄 $vendorName');
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️  PaymentPlan import error: $e');
+      }
+    }
+    debugPrint(
+      '📊 PaymentPlans: +$plansAdded ~$plansUpdated 🗑$plansDeleted ⏭$plansSkipped',
+    );
+
+    return ImportStatistics(
+      guestsAdded: guestsAdded,
+      guestsUpdated: guestsUpdated,
+      guestsDeleted: guestsDeleted,
+      guestsSkipped: guestsSkipped,
+      budgetItemsAdded: budgetAdded,
+      budgetItemsUpdated: budgetUpdated,
+      budgetItemsDeleted: budgetDeleted,
+      budgetItemsSkipped: budgetSkipped,
+      tasksAdded: tasksAdded,
+      tasksUpdated: tasksUpdated,
+      tasksDeleted: tasksDeleted,
+      tasksSkipped: tasksSkipped,
+      tablesAdded: tablesAdded,
+      tablesUpdated: tablesUpdated,
+      tablesDeleted: tablesDeleted,
+      tablesSkipped: tablesSkipped,
+      serviceProvidersAdded: providersAdded,
+      serviceProvidersUpdated: providersUpdated,
+      serviceProvidersDeleted: providersDeleted,
+      serviceProvidersSkipped: providersSkipped,
+      paymentPlansAdded: plansAdded,
+      paymentPlansUpdated: plansUpdated,
+      paymentPlansDeleted: plansDeleted,
+      paymentPlansSkipped: plansSkipped,
+    );
+  }
+
+  // ================================================================
+  // DIENSTLEISTER SUB-TABELLEN EINFÜGEN
+  // ================================================================
+
+  Future<void> _importDienstleisterSubtables(
+    String dienstleisterId,
+    List<Map<String, dynamic>> zahlungen,
+    List<Map<String, dynamic>> notizen,
+    List<Map<String, dynamic>> aufgaben,
+  ) async {
+    final db = await DatabaseHelper.instance.database;
+
+    for (final z in zahlungen) {
+      try {
+        await db.insert('dienstleister_zahlungen', {
+          ...z,
+          'dienstleister_id': dienstleisterId,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      } catch (e) {
+        debugPrint('   ⚠️  Zahlung insert: $e');
+      }
+    }
+    for (final n in notizen) {
+      try {
+        await db.insert('dienstleister_notizen', {
+          ...n,
+          'dienstleister_id': dienstleisterId,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      } catch (e) {
+        debugPrint('   ⚠️  Notiz insert: $e');
+      }
+    }
+    for (final a in aufgaben) {
+      try {
+        await db.insert('dienstleister_aufgaben', {
+          ...a,
+          'dienstleister_id': dienstleisterId,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      } catch (e) {
+        debugPrint('   ⚠️  Aufgabe insert: $e');
+      }
+    }
+  }
+
+  // ================================================================
+  // HILFSMETHODEN
+  // ================================================================
+
+  /// Zentrale CRDT-Konfliktauflösung für alle Entitäten.
+  /// Gibt [_ConflictResult.useImport] zurück wenn Import neuer oder kein Timestamp.
+  /// Gibt [_ConflictResult.skip] zurück wenn lokal neuer oder gleich.
+  _ConflictResult _resolveConflict(String? importTs, String? localTs) {
+    if (importTs == null || localTs == null) return _ConflictResult.useImport;
+    try {
+      final importTime = DateTime.parse(importTs);
+      final localTime = DateTime.parse(localTs);
+      return importTime.isAfter(localTime)
+          ? _ConflictResult.useImport
+          : _ConflictResult.skip;
+    } catch (_) {
+      return _ConflictResult.useImport;
+    }
+  }
+
+  /// Normalisiert ISO8601 auf Datums-Teil "YYYY-MM-DD" für due_date Vergleiche
+  String _normalizeIsoDate(String isoDate) =>
+      isoDate.length >= 10 ? isoDate.substring(0, 10) : isoDate;
+
+  /// Konvertiert DateTime-Objekte in Maps rekursiv zu Strings
   Map<String, dynamic> _sanitizeMap(Map<String, dynamic> map) {
-    final sanitized = <String, dynamic>{};
+    final result = <String, dynamic>{};
     map.forEach((key, value) {
       if (value is DateTime) {
-        sanitized[key] = value.toIso8601String();
+        result[key] = value.toIso8601String();
       } else if (value is Map<String, dynamic>) {
-        sanitized[key] = _sanitizeMap(value);
+        result[key] = _sanitizeMap(value);
       } else if (value is List) {
-        sanitized[key] = value
+        result[key] = value
             .map(
               (item) =>
                   item is Map<String, dynamic> ? _sanitizeMap(item) : item,
             )
             .toList();
       } else {
-        sanitized[key] = value;
+        result[key] = value;
       }
     });
-    return sanitized;
+    return result;
   }
 
-  /// Validiert die Sync-Daten
   bool _validateSyncData(SyncData data) {
     if (data.version > 1) {
       debugPrint('⚠️  Warning: Newer data version (${data.version})');
       return false;
     }
-
-    if (data.exportedAt == null) {
-      debugPrint('⚠️  Warning: Missing exportedAt timestamp');
-      return false;
-    }
-
     return true;
   }
 
-  // sync_service.dart - UPDATED IMPORT LOGIC
-  //
-  // Nur die _importAllData Methode mit Timestamp-Merge
-  // Ersetze die komplette Methode in deiner sync_service.dart!
+  // ================================================================
+  // STATISTIK
+  // ================================================================
 
-  Future<ImportStatistics> _importAllData(
-    SyncData data, {
-    bool mergeData = true,
-  }) async {
-    int guestsAdded = 0;
-    int guestsUpdated = 0;
-    int guestsSkipped = 0; // NEU: Für Timestamp-Konflikte
-    int budgetAdded = 0;
-    int budgetUpdated = 0;
-    int tasksAdded = 0;
-    int tasksUpdated = 0;
-    int tasksSkipped = 0; // NEU
-    int tablesAdded = 0;
-    int tablesUpdated = 0;
-    int providersAdded = 0;
-    int providersUpdated = 0;
-
-    try {
-      // ================================================================
-      // GÄSTE IMPORTIEREN - MIT TIMESTAMP-VERGLEICH
-      // ================================================================
-
-      for (final guestMap in data.guests) {
-        try {
-          final firstName = guestMap['first_name'] as String?;
-          final lastName = guestMap['last_name'] as String?;
-          final importUpdatedAt = guestMap['updated_at'] as String?;
-          final isDeleted = (guestMap['deleted'] ?? 0) == 1;
-
-          debugPrint(
-            '🔍 Importing guest: $firstName $lastName (deleted: $isDeleted)',
-          );
-
-          // Prüfe ob ähnlicher Gast existiert (nach Namen)
-          // WICHTIG: getAllGuestsIncludingDeleted() nutzen!
-          final existingGuests = await _db.getAllGuestsIncludingDeleted();
-
-          final existingGuest = existingGuests.where((g) {
-            return g.firstName == firstName && g.lastName == lastName;
-          }).firstOrNull;
-
-          if (existingGuest == null) {
-            // NEU: Kein Match gefunden
-
-            if (isDeleted) {
-              // Import ist gelöscht → nicht erstellen
-              debugPrint('   ⏭️  Skipped (deleted in import, no local match)');
-              continue;
-            }
-
-            // Erstelle neuen Gast
-            debugPrint('   ➕ Creating new guest...');
-            final guestMapClean = Map<String, dynamic>.from(guestMap);
-            guestMapClean.remove('id'); // DB vergibt neue ID
-
-            final guest = _mapToGuest(guestMapClean);
-            final created = await _db.createGuest(guest);
-            debugPrint('   ✅ Created with ID: ${created.id}');
-            guestsAdded++;
-          } else {
-            // Match gefunden → TIMESTAMP VERGLEICH!
-
-            final localUpdatedAt = existingGuest.updatedAt;
-
-            debugPrint(
-              '   ✅ Found match: ${existingGuest.firstName} ${existingGuest.lastName} (ID: ${existingGuest.id})',
-            );
-
-            // Vergleiche Timestamps
-            if (importUpdatedAt != null && localUpdatedAt != null) {
-              try {
-                final importTime = DateTime.parse(importUpdatedAt);
-                final localTime = DateTime.parse(localUpdatedAt);
-
-                debugPrint('   📅 Comparing timestamps:');
-                debugPrint(
-                  '      Local:  $localTime (deleted: ${existingGuest.deleted})',
-                );
-                debugPrint(
-                  '      Import: $importTime (deleted: ${isDeleted ? 1 : 0})',
-                );
-
-                if (importTime.isAfter(localTime)) {
-                  // Import ist NEUER → überschreiben
-                  debugPrint('   🔄 Import is newer → updating...');
-
-                  if (isDeleted) {
-                    // Import markiert als gelöscht → auch lokal löschen
-                    if (existingGuest.deleted == 0) {
-                      await _db.deleteGuest(existingGuest.id!);
-                      debugPrint('   🗑️  Marked as deleted');
-                      guestsUpdated++;
-                    } else {
-                      debugPrint('   ⏭️  Already deleted locally');
-                    }
-                  } else {
-                    // Import ist aktiv → updaten
-                    final updatedMap = Map<String, dynamic>.from(guestMap);
-                    updatedMap['id'] = existingGuest.id; // Behalte lokale ID
-
-                    final guest = _mapToGuest(updatedMap);
-                    await _db.updateGuest(guest);
-                    debugPrint('   ✅ Updated');
-                    guestsUpdated++;
-                  }
-                } else if (importTime.isBefore(localTime)) {
-                  // Lokal ist NEUER → behalten
-                  debugPrint('   ⏭️  Local is newer → keeping local data');
-                  guestsSkipped++;
-                } else {
-                  // Gleicher Timestamp → Import bevorzugen (oder skip)
-                  debugPrint('   ⏭️  Same timestamp → skipping');
-                  guestsSkipped++;
-                }
-              } catch (e) {
-                // Fehler beim Timestamp-Parsing → Fallback
-                debugPrint('   ⚠️  Timestamp parse error: $e');
-                debugPrint('   ⚠️  Using import data as fallback');
-
-                if (mergeData) {
-                  final updatedMap = Map<String, dynamic>.from(guestMap);
-                  updatedMap['id'] = existingGuest.id;
-                  final guest = _mapToGuest(updatedMap);
-                  await _db.updateGuest(guest);
-                  guestsUpdated++;
-                }
-              }
-            } else {
-              // Kein Timestamp vorhanden → alte Logik (Import überschreibt)
-              debugPrint('   ⚠️  No timestamps available → using import data');
-
-              if (mergeData) {
-                if (isDeleted) {
-                  await _db.deleteGuest(existingGuest.id!);
-                  debugPrint('   🗑️  Marked as deleted');
-                } else {
-                  final updatedMap = Map<String, dynamic>.from(guestMap);
-                  updatedMap['id'] = existingGuest.id;
-                  final guest = _mapToGuest(updatedMap);
-                  await _db.updateGuest(guest);
-                  debugPrint('   ✅ Updated');
-                }
-                guestsUpdated++;
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('⚠️  Error importing guest: $e');
-        }
-      }
-
-      debugPrint(
-        '📊 Guests: $guestsAdded added, $guestsUpdated updated, $guestsSkipped skipped',
-      );
-
-      // ================================================================
-      // TASKS IMPORTIEREN - MIT TIMESTAMP-VERGLEICH
-      // ================================================================
-
-      for (final taskMap in data.tasks) {
-        try {
-          final title = taskMap['title'] as String?;
-          final importUpdatedAt = taskMap['updated_at'] as String?;
-          final isDeleted = (taskMap['deleted'] ?? 0) == 1;
-
-          debugPrint('🔍 Importing task: $title (deleted: $isDeleted)');
-
-          // WICHTIG: getAllTasksIncludingDeleted() nutzen!
-          final existingTasks = await _db.getAllTasksIncludingDeleted();
-
-          final existingTask = existingTasks.where((t) {
-            return t.title == title;
-          }).firstOrNull;
-
-          if (existingTask == null) {
-            // Neu erstellen
-            if (!isDeleted) {
-              debugPrint('   ➕ Creating new task...');
-              final taskMapClean = Map<String, dynamic>.from(taskMap);
-              taskMapClean.remove('id');
-
-              final task = _mapToTask(taskMapClean);
-              final created = await _db.createTask(task);
-              debugPrint('   ✅ Created with ID: ${created.id}');
-              tasksAdded++;
-            } else {
-              debugPrint('   ⏭️  Skipped (deleted in import)');
-            }
-          } else {
-            // Timestamp-Vergleich (gleiche Logik wie Gäste)
-            final localUpdatedAt = existingTask.updatedAt;
-
-            debugPrint(
-              '   ✅ Found match: ${existingTask.title} (ID: ${existingTask.id})',
-            );
-
-            if (importUpdatedAt != null && localUpdatedAt != null) {
-              try {
-                final importTime = DateTime.parse(importUpdatedAt);
-                final localTime = DateTime.parse(localUpdatedAt);
-
-                debugPrint(
-                  '   📅 Timestamps: Local=$localTime, Import=$importTime',
-                );
-
-                if (importTime.isAfter(localTime)) {
-                  debugPrint('   🔄 Import is newer → updating...');
-
-                  if (isDeleted) {
-                    if (existingTask.deleted == 0) {
-                      await _db.deleteTask(existingTask.id!);
-                      debugPrint('   🗑️  Marked as deleted');
-                      tasksUpdated++;
-                    } else {
-                      debugPrint('   ⏭️  Already deleted');
-                    }
-                  } else {
-                    final updatedMap = Map<String, dynamic>.from(taskMap);
-                    updatedMap['id'] = existingTask.id;
-                    final task = _mapToTask(updatedMap);
-                    await _db.updateTask(task);
-                    debugPrint('   ✅ Updated');
-                    tasksUpdated++;
-                  }
-                } else {
-                  debugPrint('   ⏭️  Local is newer → keeping local');
-                  tasksSkipped++;
-                }
-              } catch (e) {
-                debugPrint('   ⚠️  Timestamp error: $e');
-                if (mergeData) {
-                  final updatedMap = Map<String, dynamic>.from(taskMap);
-                  updatedMap['id'] = existingTask.id;
-                  final task = _mapToTask(updatedMap);
-                  await _db.updateTask(task);
-                  tasksUpdated++;
-                }
-              }
-            } else {
-              // Fallback ohne Timestamps
-              if (mergeData) {
-                if (isDeleted) {
-                  await _db.deleteTask(existingTask.id!);
-                } else {
-                  final updatedMap = Map<String, dynamic>.from(taskMap);
-                  updatedMap['id'] = existingTask.id;
-                  final task = _mapToTask(updatedMap);
-                  await _db.updateTask(task);
-                }
-                tasksUpdated++;
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('⚠️  Error importing task: $e');
-        }
-      }
-
-      debugPrint(
-        '📊 Tasks: $tasksAdded added, $tasksUpdated updated, $tasksSkipped skipped',
-      );
-
-      // ================================================================
-      // BUDGET, TABLES, DIENSTLEISTER - UNVERÄNDERT
-      // (Hier die bestehende Logik beibehalten!)
-      // ================================================================
-
-      // Budget Items importieren (alte Logik)
-      for (final itemMap in data.budgetItems) {
-        try {
-          final name = itemMap['name'] as String?;
-
-          if (name == null || name.isEmpty) continue;
-
-          debugPrint('🔍 Importing budget item: $name');
-
-          final existingItems = await _db.getAllBudgetItemsIncludingDeleted();
-          final existingItem = existingItems.where((item) {
-            return item.name == name;
-          }).firstOrNull;
-
-          if (existingItem == null) {
-            // Neu erstellen
-            debugPrint('   ➕ Creating new budget item...');
-            final itemMapClean = Map<String, dynamic>.from(itemMap);
-            itemMapClean.remove('id'); // DB vergibt neue ID
-
-            await _db.insertBudgetItem(itemMapClean);
-            budgetAdded++;
-            debugPrint('   ✅ Created');
-          } else {
-            // Update existierenden
-            debugPrint('   🔄 Updating existing budget item...');
-
-            // Behalte lokale ID
-            final updatedMap = Map<String, dynamic>.from(itemMap);
-            updatedMap['id'] = existingItem.id;
-
-            final budgetItem = BudgetItem.fromMap(updatedMap);
-            await _db.updateBudgetItem(budgetItem);
-            budgetUpdated++;
-            debugPrint('   ✅ Updated');
-          }
-        } catch (e) {
-          debugPrint('⚠️  Error importing budget item: $e');
-        }
-      }
-
-      debugPrint('📊 Budget: $budgetAdded added, $budgetUpdated updated');
-
-      // Tasks, Tables, Dienstleister... (bestehende Logik beibehalten)
-      // ...
-
-      return ImportStatistics(
-        guestsAdded: guestsAdded,
-        guestsUpdated: guestsUpdated,
-        guestsSkipped: guestsSkipped, // NEU
-        budgetItemsAdded: budgetAdded,
-        budgetItemsUpdated: budgetUpdated,
-        tasksAdded: tasksAdded,
-        tasksUpdated: tasksUpdated,
-        tasksSkipped: tasksSkipped, // NEU
-        tablesAdded: tablesAdded,
-        tablesUpdated: tablesUpdated,
-        serviceProvidersAdded: providersAdded,
-        serviceProvidersUpdated: providersUpdated,
-      );
-    } catch (e) {
-      debugPrint('❌ Import error: $e');
-      rethrow;
-    }
-  }
-
-  // ============================================================================
-  // HELPER METHODEN - Konvertierung zwischen Models und Maps
-  // ============================================================================
-
-  Map<String, dynamic> _guestToMap(Guest guest) {
-    return {
-      'id': guest.id,
-      'first_name': guest.firstName,
-      'last_name': guest.lastName,
-      'email': guest.email,
-      'confirmed': guest.confirmed,
-      'dietary_requirements': guest.dietaryRequirements,
-      'table_number': guest.tableNumber,
-    };
-  }
-
-  Guest _mapToGuest(Map<String, dynamic> map) {
-    return Guest(
-      id: map['id'],
-      firstName: map['first_name'] ?? '',
-      lastName: map['last_name'] ?? '',
-      email: map['email'],
-      confirmed: map['confirmed'] ?? 'pending',
-      dietaryRequirements: map['dietary_requirements'],
-      tableNumber: map['table_number'],
-    );
-  }
-
-  Map<String, dynamic> _taskToMap(Task task) {
-    return {
-      'id': task.id,
-      'title': task.title,
-      'description': task.description,
-      'category': task.category,
-      'priority': task.priority,
-      'deadline': task.deadline?.toIso8601String(),
-      'completed': task.completed ? 1 : 0,
-      'created_date': task.createdDate.toIso8601String(),
-    };
-  }
-
-  Task _mapToTask(Map<String, dynamic> map) {
-    return Task(
-      id: map['id'],
-      title: map['title'] ?? '',
-      description: map['description'] ?? '',
-      category: map['category'] ?? 'other',
-      priority: map['priority'] ?? 'medium',
-      deadline: map['deadline'] != null
-          ? DateTime.parse(map['deadline'])
-          : null,
-      completed: map['completed'] == 1,
-      createdDate: map['created_date'] != null
-          ? DateTime.parse(map['created_date'])
-          : DateTime.now(),
-    );
-  }
-
-  /// Gibt die aktuelle Datenbankgröße zurück
   Future<String> getDatabaseSize() async {
     try {
       final syncData = await _collectAllData();
       final jsonString = jsonEncode(syncData.toJson());
       final bytes = utf8.encode(jsonString);
       final compressed = gzip.encode(bytes);
-
       final kb = compressed.length / 1024;
-      if (kb < 1024) {
-        return '${kb.toStringAsFixed(1)} KB';
-      } else {
-        return '${(kb / 1024).toStringAsFixed(2)} MB';
-      }
+      return kb < 1024
+          ? '${kb.toStringAsFixed(1)} KB'
+          : '${(kb / 1024).toStringAsFixed(2)} MB';
     } catch (e) {
       return 'Unbekannt';
     }
   }
 
-  /// Zählt alle Datensätze
   Future<Map<String, int>> countAllRecords() async {
-    // Dienstleister count (eigene Tabelle/Datenbank)
     int dienstleisterCount = 0;
     try {
-      final dienstleisterDb = DienstleisterDatabase.instance;
-      dienstleisterCount =
-          (await dienstleisterDb.getAlleDienstleister()).length;
+      dienstleisterCount = (await _dlDb.getAlleDienstleister()).length;
     } catch (e) {
-      debugPrint('ℹ️  Dienstleister table error: $e');
-      dienstleisterCount = 0;
+      debugPrint('ℹ️  Dienstleister count error: $e');
     }
 
     return {
@@ -704,6 +782,10 @@ class SyncService {
       'tasks': (await _db.getAllTasks()).length,
       'tables': (await _db.getAllTables()).length,
       'serviceProviders': dienstleisterCount,
+      'paymentPlans': (await _db.getAllPaymentPlans()).length,
     };
   }
 }
+
+// Interne Enum für Timestamp-basierte Konfliktauflösung
+enum _ConflictResult { useImport, skip }

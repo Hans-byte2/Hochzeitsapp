@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/dienstleister_models.dart';
+import '../data/database_helper.dart';
 import '../data/dienstleister_database.dart';
+import '../services/dienstleister_score_service.dart';
 import 'dienstleister_detail_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import '../widgets/forms/smart_text_field.dart';
-import '../sync/services/sync_service.dart'; // ← NEU
+import '../sync/services/sync_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DienstleisterListScreen extends StatefulWidget {
-  const DienstleisterListScreen({Key? key}) : super(key: key);
+  const DienstleisterListScreen({super.key});
 
   @override
   State<DienstleisterListScreen> createState() =>
@@ -20,38 +23,33 @@ class DienstleisterListScreen extends StatefulWidget {
 class DienstleisterListScreenState extends State<DienstleisterListScreen> {
   List<Dienstleister> _alleDienstleister = [];
   List<DienstleisterZahlung> _alleZahlungen = [];
+  Map<String, DienstleisterScore> _scores = {};
+  double _gesamtBudget = 0.0;
   bool _isLoading = true;
 
-  List<DienstleisterKategorie> _selectedKategorien = [];
+  final List<DienstleisterKategorie> _selectedKategorien = [];
+  VergleichsTag? _selectedVergleichsTag;
   String _sortierung = 'name-asc';
 
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
   final ScrollController _scrollController = ScrollController();
   final Map<DienstleisterKategorie, GlobalKey> _kategorieKeys = {};
 
-  // ── Sync ─────────────────────────────────────────────────────────────────
   void _syncNow() {
-    SyncService.instance.syncNow().catchError((e) {
-      debugPrint('Sync-Fehler: $e');
-    });
+    SyncService.instance.syncNow().catchError(
+      (e) => debugPrint('Sync-Fehler: $e'),
+    );
   }
 
-  /// Wird von main.dart aufgerufen wenn der Partner Daten geschickt hat.
-  void reload() {
-    _loadData();
-  }
-  // ─────────────────────────────────────────────────────────────────────────
+  void reload() => _loadData();
 
-  String _formatCurrency(double amount) {
-    return _currencyFormat.format(amount);
-  }
+  String _formatCurrency(double amount) => _currencyFormat.format(amount);
 
   @override
   void initState() {
     super.initState();
-    for (var kategorie in DienstleisterKategorie.values) {
-      _kategorieKeys[kategorie] = GlobalKey();
-    }
+    for (var k in DienstleisterKategorie.values)
+      _kategorieKeys[k] = GlobalKey();
     _loadData();
   }
 
@@ -67,9 +65,28 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
       final dienstleister = await DienstleisterDatabase.instance
           .getAlleDienstleister();
       final zahlungen = await DienstleisterDatabase.instance.getAlleZahlungen();
+      final gesamtBudget = await DatabaseHelper.instance.getTotalBudget();
+
+      final scores = <String, DienstleisterScore>{};
+      for (final d in dienstleister) {
+        final dZahlungen = zahlungen
+            .where((z) => z.dienstleisterId == d.id)
+            .toList();
+        final kommunikationsLog = await DatabaseHelper.instance
+            .getKommunikationsLogFuer(d.id);
+        scores[d.id] = DienstleisterScoreService.berechne(
+          d: d,
+          zahlungen: dZahlungen,
+          kommunikationsLog: kommunikationsLog,
+          gesamtBudget: gesamtBudget,
+        );
+      }
+
       setState(() {
         _alleDienstleister = dienstleister;
         _alleZahlungen = zahlungen;
+        _scores = scores;
+        _gesamtBudget = gesamtBudget;
         _isLoading = false;
       });
     } catch (e) {
@@ -78,22 +95,21 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
     }
   }
 
+  Future<void> _launchUrl(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
+
   Map<DienstleisterKategorie, Map<String, dynamic>> get _kategorieStats {
     final stats = <DienstleisterKategorie, Map<String, dynamic>>{};
-    for (var kategorie in DienstleisterKategorie.values) {
-      final dienstleister = _alleDienstleister
-          .where((d) => d.kategorie == kategorie)
-          .toList();
-      final gesamtkosten = dienstleister.fold<double>(
+    for (var k in DienstleisterKategorie.values) {
+      final list = _alleDienstleister.where((d) => d.kategorie == k).toList();
+      final gesamtkosten = list.fold<double>(
         0.0,
-        (sum, d) => sum + (d.angebotsSumme?.betrag ?? 0.0),
+        (s, d) => s + (d.angebotsSumme?.betrag ?? 0.0),
       );
-      if (dienstleister.isNotEmpty) {
-        stats[kategorie] = {
-          'dienstleister': dienstleister,
-          'gesamtkosten': gesamtkosten,
-        };
-      }
+      if (list.isNotEmpty)
+        stats[k] = {'dienstleister': list, 'gesamtkosten': gesamtkosten};
     }
     return stats;
   }
@@ -101,7 +117,7 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
   Map<String, dynamic> get _gesamtStats {
     final gesamtkosten = _alleDienstleister.fold<double>(
       0.0,
-      (sum, d) => sum + (d.angebotsSumme?.betrag ?? 0.0),
+      (s, d) => s + (d.angebotsSumme?.betrag ?? 0.0),
     );
     final gebucht = _alleDienstleister
         .where(
@@ -113,7 +129,6 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
               d.status == DienstleisterStatus.bewertet,
         )
         .length;
-
     return {
       'gesamtkosten': gesamtkosten,
       'gebucht': gebucht,
@@ -124,9 +139,11 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
   List<Dienstleister> get _gefilterteDienstleister {
     var result = _alleDienstleister.where((d) {
       if (_selectedKategorien.isNotEmpty &&
-          !_selectedKategorien.contains(d.kategorie)) {
+          !_selectedKategorien.contains(d.kategorie))
         return false;
-      }
+      if (_selectedVergleichsTag != null &&
+          d.vergleichsTag != _selectedVergleichsTag)
+        return false;
       return true;
     }).toList();
 
@@ -151,45 +168,42 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
           ),
         );
         break;
+      case 'score-desc':
+        result.sort(
+          (a, b) => (_scores[b.id]?.gesamt ?? 0).compareTo(
+            _scores[a.id]?.gesamt ?? 0,
+          ),
+        );
+        break;
       default:
         result.sort((a, b) => a.name.compareTo(b.name));
     }
-
     return result;
   }
 
-  List<DienstleisterZahlung> _getZahlungenFuer(String dienstleisterId) {
-    return _alleZahlungen
-        .where((z) => z.dienstleisterId == dienstleisterId)
-        .toList();
-  }
+  List<DienstleisterZahlung> _getZahlungenFuer(String id) =>
+      _alleZahlungen.where((z) => z.dienstleisterId == id).toList();
 
   DateTime? _getNaechstesFaelligkeitsdatum(Dienstleister d) {
     final zahlungen = _getZahlungenFuer(d.id);
-    final offeneZahlungen = zahlungen
-        .where(
-          (z) =>
-              !z.bezahlt &&
-              z.faelligAm != null &&
-              z.faelligAm!.isAfter(DateTime.now()),
-        )
-        .toList();
-
     final daten = <DateTime>[];
-    if (d.optionBis != null && d.optionBis!.isAfter(DateTime.now())) {
+    if (d.optionBis != null && d.optionBis!.isAfter(DateTime.now()))
       daten.add(d.optionBis!);
-    }
-    for (var z in offeneZahlungen) {
+    for (var z in zahlungen.where(
+      (z) =>
+          !z.bezahlt &&
+          z.faelligAm != null &&
+          z.faelligAm!.isAfter(DateTime.now()),
+    )) {
       daten.add(z.faelligAm!);
     }
-
     if (daten.isEmpty) return null;
     daten.sort();
     return daten.first;
   }
 
-  void _scrollToKategorie(DienstleisterKategorie kategorie) {
-    final key = _kategorieKeys[kategorie];
+  void _scrollToKategorie(DienstleisterKategorie k) {
+    final key = _kategorieKeys[k];
     if (key?.currentContext != null) {
       Future.delayed(const Duration(milliseconds: 100), () {
         Scrollable.ensureVisible(
@@ -202,27 +216,35 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
     }
   }
 
-  void _showDienstleisterDialog([Dienstleister? dienstleister]) {
+  // FIX: Edit-Button öffnet jetzt Detail-Screen, nicht Form-Dialog
+  void _openDetailScreen(Dienstleister d) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DienstleisterDetailScreen(dienstleisterId: d.id),
+      ),
+    ).then((_) => _loadData());
+  }
+
+  void _showNeuenDienstleisterDialog() {
     showDialog(
       context: context,
       builder: (context) => _DienstleisterFormDialog(
-        dienstleister: dienstleister,
         onSave: () {
           _loadData();
-          _syncNow(); // ← NEU
+          _syncNow();
         },
       ),
     );
   }
 
-  Future<void> _deleteDienstleister(Dienstleister dienstleister) async {
+  Future<void> _deleteDienstleister(Dienstleister d) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Dienstleister löschen?'),
         content: Text(
-          'Möchten Sie "${dienstleister.name}" wirklich löschen? '
-          'Dies löscht auch alle zugehörigen Zahlungen, Notizen und Aufgaben.',
+          'Möchten Sie „${d.name}" wirklich löschen? Dies löscht auch alle zugehörigen Daten.',
         ),
         actions: [
           TextButton(
@@ -237,52 +259,314 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
         ],
       ),
     );
-
     if (confirmed == true) {
       try {
-        await DienstleisterDatabase.instance.deleteDienstleister(
-          dienstleister.id,
-        );
-        _syncNow(); // ← NEU
+        await DienstleisterDatabase.instance.deleteDienstleister(d.id);
+        _syncNow();
         await _loadData();
-        if (mounted) {
+        if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('${dienstleister.name} wurde gelöscht'),
+              content: Text('${d.name} wurde gelöscht'),
               backgroundColor: Colors.green,
             ),
           );
-        }
       } catch (e) {
-        if (mounted) {
+        if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Fehler beim Löschen: $e'),
-              backgroundColor: Colors.red,
-            ),
+            SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
           );
-        }
       }
     }
   }
 
-  Future<void> _showExportDialog() async {
-    final scheme = Theme.of(context).colorScheme;
+  // ── VERGLEICHS-MODAL für gleiche Kategorie ──────────────────────────────
+  void _showKategorieVergleich(DienstleisterKategorie kategorie) {
+    final liste =
+        _alleDienstleister.where((d) => d.kategorie == kategorie).toList()
+          ..sort(
+            (a, b) => (a.angebotsSumme?.betrag ?? 0).compareTo(
+              b.angebotsSumme?.betrag ?? 0,
+            ),
+          );
 
-    if (_alleDienstleister.isEmpty) {
+    if (liste.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Keine Dienstleister zum Exportieren vorhanden'),
-          backgroundColor: scheme.tertiary,
+        const SnackBar(
+          content: Text(
+            'Mindestens 2 Dienstleister in der Kategorie für Vergleich nötig',
+          ),
         ),
       );
       return;
     }
 
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.95,
+        minChildSize: 0.4,
+        expand: false,
+        builder: (ctx, scrollCtrl) => Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+              child: Row(
+                children: [
+                  Icon(kategorie.icon, color: kategorie.color, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '${kategorie.label} vergleichen',
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.all(14),
+                itemCount: liste.length,
+                itemBuilder: (context, index) {
+                  final d = liste[index];
+                  final score = _scores[d.id];
+                  final isCheapest =
+                      index == 0 && (d.angebotsSumme?.betrag ?? 0) > 0;
+                  final isFavorit = d.vergleichsTag == VergleichsTag.favorit;
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                        color: isFavorit
+                            ? Colors.green
+                            : isCheapest
+                            ? Colors.orange.shade300
+                            : Colors.grey.shade300,
+                        width: isFavorit ? 2 : 1,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (isFavorit) ...[
+                                const Icon(
+                                  Icons.star,
+                                  color: Colors.green,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 5),
+                              ],
+                              if (isCheapest && !isFavorit) ...[
+                                Icon(
+                                  Icons.trending_down,
+                                  color: Colors.orange.shade600,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 5),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  d.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ),
+                              if (score != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: score.color.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: score.color.withOpacity(0.4),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '⭐ ${score.gesamt}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: score.color,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          // Preis
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _vergleichsZelle(
+                                  'Preis',
+                                  d.angebotsSumme != null
+                                      ? '€${_currencyFormat.format(d.angebotsSumme!.betrag)}'
+                                      : '–',
+                                  isCheapest ? Colors.orange.shade700 : null,
+                                ),
+                              ),
+                              Expanded(
+                                child: _vergleichsZelle(
+                                  'Bewertung',
+                                  d.bewertung > 0
+                                      ? '${'⭐' * d.bewertung.toInt()} (${d.bewertung.toStringAsFixed(1)})'
+                                      : '–',
+                                  null,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _vergleichsZelle(
+                                  'Status',
+                                  d.status.label,
+                                  d.status.color,
+                                ),
+                              ),
+                              Expanded(
+                                child: _vergleichsZelle(
+                                  'Kontakt',
+                                  d.hauptkontakt.name.isNotEmpty
+                                      ? d.hauptkontakt.name
+                                      : '–',
+                                  null,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (d.notizen.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              d.notizen,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              if (d.hauptkontakt.telefon.isNotEmpty)
+                                _miniContactBtn(
+                                  Icons.phone,
+                                  Colors.green,
+                                  () => _launchUrl(
+                                    'tel:${d.hauptkontakt.telefon}',
+                                  ),
+                                ),
+                              if (d.hauptkontakt.email.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                _miniContactBtn(
+                                  Icons.email,
+                                  Colors.blue,
+                                  () => _launchUrl(
+                                    'mailto:${d.hauptkontakt.email}',
+                                  ),
+                                ),
+                              ],
+                              const Spacer(),
+                              TextButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  _openDetailScreen(d);
+                                },
+                                icon: const Icon(Icons.open_in_new, size: 14),
+                                label: const Text(
+                                  'Details',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _vergleichsZelle(String label, String value, Color? valueColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: valueColor ?? Colors.black87,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _miniContactBtn(IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Icon(icon, size: 15, color: color),
+      ),
+    );
+  }
+
+  Future<void> _showExportDialog() async {
+    if (_alleDienstleister.isEmpty) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Dienstleister exportieren'),
+        title: const Text('Exportieren'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -292,8 +576,7 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 color: Colors.red,
                 size: 32,
               ),
-              title: const Text('Als PDF exportieren'),
-              subtitle: const Text('Übersichtliche Liste'),
+              title: const Text('Als PDF'),
               onTap: () {
                 Navigator.pop(context);
                 _exportAsPdf();
@@ -306,8 +589,7 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 color: Colors.green,
                 size: 32,
               ),
-              title: const Text('Als Excel exportieren'),
-              subtitle: const Text('Detaillierte Auswertung'),
+              title: const Text('Als Excel'),
               onTap: () {
                 Navigator.pop(context);
                 _exportAsExcel();
@@ -326,146 +608,88 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
   }
 
   Future<void> _exportAsPdf() async {
-    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       await PdfExportService.exportServiceProvidersToPdf(_alleDienstleister);
-      if (mounted) Navigator.pop(context);
       if (mounted) {
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('PDF erfolgreich erstellt!'),
-              ],
-            ),
-            backgroundColor: scheme.primary,
-            duration: const Duration(seconds: 2),
+          const SnackBar(
+            content: Text('PDF erstellt!'),
+            backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
       if (mounted) {
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Erstellen: $e')),
-              ],
-            ),
-            backgroundColor: scheme.error,
-            duration: const Duration(seconds: 3),
-          ),
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
   Future<void> _exportAsExcel() async {
-    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       await ExcelExportService.exportServiceProvidersToExcel(
         _alleDienstleister,
       );
-      if (mounted) Navigator.pop(context);
       if (mounted) {
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Excel-Datei erfolgreich erstellt!'),
-              ],
-            ),
-            backgroundColor: scheme.primary,
-            duration: const Duration(seconds: 2),
+          const SnackBar(
+            content: Text('Excel erstellt!'),
+            backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
       if (mounted) {
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Erstellen: $e')),
-              ],
-            ),
-            backgroundColor: scheme.error,
-            duration: const Duration(seconds: 3),
-          ),
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
   Future<void> _importFromExcel() async {
-    final scheme = Theme.of(context).colorScheme;
     try {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const Center(child: CircularProgressIndicator()),
+        builder: (_) => const Center(child: CircularProgressIndicator()),
       );
       final result = await ExcelExportService.importServiceProvidersFromExcel();
       if (mounted) Navigator.pop(context);
-
       if (result != null) {
-        _syncNow(); // ← NEU
+        _syncNow();
         await _loadData();
-        if (mounted) {
+        if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${result['imported']} Dienstleister importiert! (${result['skipped']} übersprungen)',
-                    ),
-                  ),
-                ],
+              content: Text(
+                '${result['imported']} importiert (${result['skipped']} übersprungen)',
               ),
-              backgroundColor: scheme.primary,
-              duration: const Duration(seconds: 3),
+              backgroundColor: Colors.green,
             ),
           );
-        }
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
       if (mounted) {
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Fehler beim Importieren: $e')),
-              ],
-            ),
-            backgroundColor: scheme.error,
-            duration: const Duration(seconds: 3),
-          ),
+          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
       }
     }
@@ -473,91 +697,132 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_isLoading)
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
 
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
     final stats = _gesamtStats;
     final kategorieStats = _kategorieStats;
     final gefilterteListe = _gefilterteDienstleister;
+    final budgetInsight = DienstleisterScoreService.budgetInsight(
+      alle: _alleDienstleister,
+      gesamtBudget: _gesamtBudget,
+    );
 
     return Scaffold(
       body: SingleChildScrollView(
         controller: _scrollController,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            // Header
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Dienstleister',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: scheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Verwalten Sie Ihr Dream-Team',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Dienstleister',
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: scheme.primary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Verwalten Sie Ihr Dream-Team für den großen Tag',
-                            style: TextStyle(color: Colors.grey.shade600),
-                          ),
-                        ],
+                    IconButton(
+                      onPressed: _importFromExcel,
+                      icon: const Icon(Icons.upload_file),
+                      tooltip: 'Importieren',
+                      style: IconButton.styleFrom(
+                        backgroundColor: scheme.secondaryContainer,
+                        foregroundColor: scheme.onSecondaryContainer,
                       ),
                     ),
-                    Row(
-                      children: [
-                        IconButton(
-                          onPressed: _importFromExcel,
-                          icon: const Icon(Icons.upload_file),
-                          tooltip: 'Importieren',
-                          style: IconButton.styleFrom(
-                            backgroundColor: scheme.secondaryContainer,
-                            foregroundColor: scheme.onSecondaryContainer,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        IconButton(
-                          onPressed: _showExportDialog,
-                          icon: const Icon(Icons.share),
-                          tooltip: 'Exportieren',
-                          style: IconButton.styleFrom(
-                            backgroundColor: scheme.secondaryContainer,
-                            foregroundColor: scheme.onSecondaryContainer,
-                          ),
-                        ),
-                      ],
+                    const SizedBox(width: 4),
+                    IconButton(
+                      onPressed: _showExportDialog,
+                      icon: const Icon(Icons.share),
+                      tooltip: 'Exportieren',
+                      style: IconButton.styleFrom(
+                        backgroundColor: scheme.secondaryContainer,
+                        foregroundColor: scheme.onSecondaryContainer,
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => _showDienstleisterDialog(),
-                    icon: const Icon(Icons.add, size: 20),
-                    label: const Text('Dienstleister hinzufügen'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: scheme.primary,
-                      foregroundColor: scheme.onPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _showNeuenDienstleisterDialog,
+                icon: const Icon(Icons.add, size: 19),
+                label: const Text('Dienstleister hinzufügen'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: scheme.primary,
+                  foregroundColor: scheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Budget-Insight
+            if (budgetInsight != null) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 13,
+                  vertical: 9,
+                ),
+                decoration: BoxDecoration(
+                  color: budgetInsight.startsWith('⚠️')
+                      ? Colors.red.shade50
+                      : budgetInsight.startsWith('⚡')
+                      ? Colors.orange.shade50
+                      : Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: budgetInsight.startsWith('⚠️')
+                        ? Colors.red.shade200
+                        : budgetInsight.startsWith('⚡')
+                        ? Colors.orange.shade200
+                        : Colors.green.shade200,
+                  ),
+                ),
+                child: Text(
+                  budgetInsight,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: budgetInsight.startsWith('⚠️')
+                        ? Colors.red.shade700
+                        : budgetInsight.startsWith('⚡')
+                        ? Colors.orange.shade700
+                        : Colors.green.shade700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            // Stats
             Card(
               elevation: 2,
               child: Padding(
@@ -594,56 +859,77 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+
+            // Kostenaufteilung
             if (kategorieStats.isNotEmpty) ...[
               Card(
                 elevation: 2,
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Kostenaufteilung nach Kategorien',
+                        'Kostenaufteilung',
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 14),
                       SizedBox(
-                        height: 200,
+                        height: 170,
                         child: PieChart(
                           PieChartData(
                             sectionsSpace: 2,
-                            centerSpaceRadius: 60,
-                            sections: _buildPieChartSections(kategorieStats),
+                            centerSpaceRadius: 50,
+                            sections: kategorieStats.entries
+                                .map(
+                                  (e) => PieChartSectionData(
+                                    value: e.value['gesamtkosten'],
+                                    title:
+                                        '€${_formatCurrency(e.value['gesamtkosten'])}',
+                                    color: e.key.color,
+                                    radius: 42,
+                                    titleStyle: const TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       SizedBox(
-                        height: 250,
+                        height: 200,
                         child: ListView(
                           children: kategorieStats.entries.map((entry) {
-                            final kategorie = entry.key;
+                            final k = entry.key;
                             final data = entry.value;
                             final gesamtkosten =
                                 stats['gesamtkosten'] as double;
                             final prozent = gesamtkosten > 0
                                 ? (data['gesamtkosten'] / gesamtkosten * 100)
                                 : 0.0;
-
+                            final kannVergleichen =
+                                (data['dienstleister'] as List).length >= 2;
                             return InkWell(
                               onTap: () {
                                 setState(() {
                                   _selectedKategorien.clear();
-                                  _selectedKategorien.add(kategorie);
+                                  _selectedKategorien.add(k);
                                 });
-                                _scrollToKategorie(kategorie);
+                                _scrollToKategorie(k);
                               },
                               child: Container(
-                                margin: const EdgeInsets.only(bottom: 6),
-                                padding: const EdgeInsets.all(8),
+                                margin: const EdgeInsets.only(bottom: 5),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   border: Border.all(
                                     color: Colors.grey.shade300,
@@ -653,27 +939,27 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                                 child: Row(
                                   children: [
                                     Container(
-                                      width: 12,
-                                      height: 12,
+                                      width: 11,
+                                      height: 11,
                                       decoration: BoxDecoration(
-                                        color: kategorie.color,
+                                        color: k.color,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: 7),
                                     Icon(
-                                      kategorie.icon,
-                                      size: 16,
+                                      k.icon,
+                                      size: 15,
                                       color: Colors.grey.shade600,
                                     ),
-                                    const SizedBox(width: 6),
+                                    const SizedBox(width: 5),
                                     Expanded(
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            kategorie.label,
+                                            k.label,
                                             style: const TextStyle(
                                               fontWeight: FontWeight.w600,
                                               fontSize: 12,
@@ -709,6 +995,34 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                                         ),
                                       ],
                                     ),
+                                    if (kannVergleichen) ...[
+                                      const SizedBox(width: 6),
+                                      Tooltip(
+                                        message: 'Vergleichen',
+                                        child: InkWell(
+                                          onTap: () =>
+                                              _showKategorieVergleich(k),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(5),
+                                            decoration: BoxDecoration(
+                                              color: scheme.primary.withOpacity(
+                                                0.1,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                            ),
+                                            child: Icon(
+                                              Icons.compare_arrows,
+                                              size: 14,
+                                              color: scheme.primary,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
@@ -720,25 +1034,27 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
             ],
+
+            // Filter
             Card(
               elevation: 1,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _sortierung,
+                      initialValue: _sortierung,
                       decoration: InputDecoration(
                         labelText: 'Sortierung',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
+                          horizontal: 14,
+                          vertical: 11,
                         ),
                       ),
                       items: const [
@@ -749,6 +1065,10 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                         DropdownMenuItem(
                           value: 'name-desc',
                           child: Text('Name (Z-A)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'score-desc',
+                          child: Text('Score (Höchste) ⭐'),
                         ),
                         DropdownMenuItem(
                           value: 'bewertung-desc',
@@ -763,74 +1083,128 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                           child: Text('Preis (Teuerste)'),
                         ),
                       ],
-                      onChanged: (value) =>
-                          setState(() => _sortierung = value!),
+                      onChanged: (v) => setState(() => _sortierung = v!),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 14),
+
+                    // Vergleichs-Tag Filter
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Kategorien',
+                          'Vergleichs-Tag',
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: Colors.grey.shade800,
                           ),
                         ),
-                        if (_selectedKategorien.isNotEmpty)
+                        const Spacer(),
+                        if (_selectedVergleichsTag != null)
                           TextButton.icon(
                             onPressed: () =>
-                                setState(() => _selectedKategorien.clear()),
-                            icon: const Icon(Icons.clear, size: 14),
+                                setState(() => _selectedVergleichsTag = null),
+                            icon: const Icon(Icons.clear, size: 13),
                             label: const Text(
-                              'Zurücksetzen',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                            style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
+                              'Reset',
+                              style: TextStyle(fontSize: 11),
                             ),
                           ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 5),
                     Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: DienstleisterKategorie.values.map((kategorie) {
-                        final isSelected = _selectedKategorien.contains(
-                          kategorie,
+                      spacing: 5,
+                      runSpacing: 5,
+                      children: VergleichsTag.values.map((tag) {
+                        final isSelected = _selectedVergleichsTag == tag;
+                        return FilterChip(
+                          label: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                tag.icon,
+                                size: 11,
+                                color: isSelected
+                                    ? tag.color
+                                    : Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                tag.label,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ],
+                          ),
+                          selected: isSelected,
+                          selectedColor: tag.color.withOpacity(0.2),
+                          checkmarkColor: tag.color,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 2,
+                          ),
+                          materialTapTargetSize:
+                              MaterialTapTargetSize.shrinkWrap,
+                          onSelected: (sel) => setState(
+                            () => _selectedVergleichsTag = sel ? tag : null,
+                          ),
                         );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 14),
+
+                    Row(
+                      children: [
+                        Text(
+                          'Kategorien',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (_selectedKategorien.isNotEmpty)
+                          TextButton.icon(
+                            onPressed: () =>
+                                setState(() => _selectedKategorien.clear()),
+                            icon: const Icon(Icons.clear, size: 13),
+                            label: const Text(
+                              'Reset',
+                              style: TextStyle(fontSize: 11),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 5,
+                      children: DienstleisterKategorie.values.map((k) {
+                        final isSelected = _selectedKategorien.contains(k);
                         return FilterChip(
                           label: Text(
-                            kategorie.label,
+                            k.label,
                             style: const TextStyle(fontSize: 11),
                           ),
                           selected: isSelected,
                           selectedColor: scheme.primary.withOpacity(0.2),
                           checkmarkColor: scheme.primary,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
+                            horizontal: 5,
                             vertical: 2,
-                          ),
-                          labelPadding: const EdgeInsets.symmetric(
-                            horizontal: 4,
                           ),
                           materialTapTargetSize:
                               MaterialTapTargetSize.shrinkWrap,
-                          onSelected: (selected) {
+                          onSelected: (sel) {
                             setState(() {
-                              if (selected) {
+                              if (sel) {
                                 _selectedKategorien.clear();
-                                _selectedKategorien.add(kategorie);
+                                _selectedKategorien.add(k);
                               } else {
-                                _selectedKategorien.remove(kategorie);
+                                _selectedKategorien.remove(k);
                               }
                             });
-                            if (selected) _scrollToKategorie(kategorie);
+                            if (sel) _scrollToKategorie(k);
                           },
                         );
                       }).toList(),
@@ -839,11 +1213,13 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
+
+            // Liste
             if (gefilterteListe.isEmpty)
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(32),
+                  padding: const EdgeInsets.all(28),
                   child: Center(
                     child: Text(
                       _alleDienstleister.isEmpty
@@ -861,7 +1237,6 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                 final gefiltert = gefilterteListe
                     .where((d) => d.kategorie == kategorie)
                     .toList();
-
                 if (gefiltert.isEmpty) return const SizedBox.shrink();
 
                 return Column(
@@ -873,41 +1248,89 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Padding(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                             child: Row(
                               children: [
-                                Icon(kategorie.icon, color: scheme.primary),
-                                const SizedBox(width: 12),
+                                Icon(
+                                  kategorie.icon,
+                                  color: scheme.primary,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 10),
                                 Text(
                                   kategorie.label,
                                   style: const TextStyle(
-                                    fontSize: 18,
+                                    fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: 10),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 4,
+                                    horizontal: 9,
+                                    vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
                                     color: Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
-                                    '${gefiltert.length} Dienstleister • €${_formatCurrency(data['gesamtkosten'] as double)}',
-                                    style: const TextStyle(fontSize: 12),
+                                    '${gefiltert.length} • €${_formatCurrency(data['gesamtkosten'] as double)}',
+                                    style: const TextStyle(fontSize: 11),
                                   ),
                                 ),
+                                const Spacer(),
+                                // Vergleich-Button in Kategorie-Header (wenn >= 2)
+                                if (gefiltert.length >= 2)
+                                  Tooltip(
+                                    message: 'Vergleichen',
+                                    child: InkWell(
+                                      onTap: () =>
+                                          _showKategorieVergleich(kategorie),
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 9,
+                                          vertical: 5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: scheme.primary.withOpacity(
+                                            0.1,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              Icons.compare_arrows,
+                                              size: 15,
+                                              color: scheme.primary,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Vergleichen',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: scheme.primary,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
                           const Divider(height: 1),
                           Container(
-                            constraints: const BoxConstraints(maxHeight: 300),
+                            constraints: const BoxConstraints(maxHeight: 350),
                             child: ListView.builder(
-                              padding: const EdgeInsets.all(16),
+                              padding: const EdgeInsets.all(12),
                               itemCount: gefiltert.length,
                               itemBuilder: (context, index) =>
                                   _buildDienstleisterListItem(gefiltert[index]),
@@ -916,10 +1339,10 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                   ],
                 );
-              }).toList(),
+              }),
           ],
         ),
       ),
@@ -935,68 +1358,43 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(7),
           ),
-          child: Icon(icon, color: color, size: 20),
+          child: Icon(icon, color: color, size: 18),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 5),
         Text(
           label,
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
           textAlign: TextAlign.center,
         ),
       ],
     );
   }
 
-  List<PieChartSectionData> _buildPieChartSections(
-    Map<DienstleisterKategorie, Map<String, dynamic>> kategorieStats,
-  ) {
-    return kategorieStats.entries.map((entry) {
-      final kategorie = entry.key;
-      final kosten = entry.value['gesamtkosten'] as double;
-      return PieChartSectionData(
-        value: kosten,
-        title: '€${_formatCurrency(kosten)}',
-        color: kategorie.color,
-        radius: 50,
-        titleStyle: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      );
-    }).toList();
-  }
-
-  Widget _buildDienstleisterListItem(Dienstleister dienstleister) {
-    final zahlungen = _getZahlungenFuer(dienstleister.id);
+  Widget _buildDienstleisterListItem(Dienstleister d) {
+    final zahlungen = _getZahlungenFuer(d.id);
     final alleBezahlt =
         zahlungen.isNotEmpty && zahlungen.every((z) => z.bezahlt);
-    final naechstesFrist = _getNaechstesFaelligkeitsdatum(dienstleister);
+    final naechstesFrist = _getNaechstesFaelligkeitsdatum(d);
+    final score = _scores[d.id];
 
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) =>
-                DienstleisterDetailScreen(dienstleisterId: dienstleister.id),
-          ),
-        ).then((_) => _loadData());
-      },
+      // Tippen → Detail-Screen
+      onTap: () => _openDetailScreen(d),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
         decoration: BoxDecoration(
           border: Border.all(color: Colors.grey.shade300),
           borderRadius: BorderRadius.circular(8),
@@ -1007,130 +1405,193 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
           children: [
             Row(
               children: [
-                if (dienstleister.istFavorit) ...[
-                  const Icon(Icons.favorite, size: 16, color: Colors.red),
-                  const SizedBox(width: 8),
+                if (d.istFavorit) ...[
+                  const Icon(Icons.favorite, size: 14, color: Colors.red),
+                  const SizedBox(width: 5),
                 ],
                 Expanded(
                   child: Text(
-                    dienstleister.name,
+                    d.name,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 15,
+                      fontSize: 14,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: dienstleister.status.color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    dienstleister.status.label,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: dienstleister.status.color,
-                      fontWeight: FontWeight.w600,
+
+                // Score Badge
+                if (score != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: score.color.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(color: score.color.withOpacity(0.4)),
+                    ),
+                    child: Text(
+                      '${score.gesamt}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: score.color,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.edit, size: 18),
-                  color: Colors.blue,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 30,
-                    minHeight: 30,
-                  ),
-                  onPressed: () => _showDienstleisterDialog(dienstleister),
-                  tooltip: 'Bearbeiten',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  color: Colors.red,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 30,
-                    minHeight: 30,
-                  ),
-                  onPressed: () => _deleteDienstleister(dienstleister),
-                  tooltip: 'Löschen',
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                if (dienstleister.hauptkontakt.name.isNotEmpty)
-                  Expanded(
-                    flex: 3,
+                  const SizedBox(width: 5),
+                ],
+
+                // Vergleichs-Tag Badge
+                if (d.vergleichsTag != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: d.vergleichsTag!.color.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(7),
+                    ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.person,
-                          size: 14,
-                          color: Colors.grey.shade600,
+                          d.vergleichsTag!.icon,
+                          size: 10,
+                          color: d.vergleichsTag!.color,
                         ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            dienstleister.hauptkontakt.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade700,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                        const SizedBox(width: 2),
+                        Text(
+                          d.vergleichsTag!.label,
+                          style: TextStyle(
+                            fontSize: 9,
+                            color: d.vergleichsTag!.color,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ),
-                const SizedBox(width: 12),
+                  const SizedBox(width: 5),
+                ],
+
+                // Status
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: d.status.color.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    d.status.label,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: d.status.color,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+
+                // FIX: Edit öffnet Detail-Screen
+                IconButton(
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  color: Colors.blue,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  tooltip: 'Details öffnen',
+                  onPressed: () => _openDetailScreen(d),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 16),
+                  color: Colors.red,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  tooltip: 'Löschen',
+                  onPressed: () => _deleteDienstleister(d),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 6),
+
+            // Schnellkontakt + Info-Zeile
+            Row(
+              children: [
+                // Schnellkontakt
+                if (d.hauptkontakt.telefon.isNotEmpty) ...[
+                  _miniQuickBtn(
+                    Icons.phone,
+                    Colors.green,
+                    () => _launchUrl('tel:${d.hauptkontakt.telefon}'),
+                  ),
+                  const SizedBox(width: 5),
+                ],
+                if (d.hauptkontakt.email.isNotEmpty) ...[
+                  _miniQuickBtn(
+                    Icons.email,
+                    Colors.blue,
+                    () => _launchUrl('mailto:${d.hauptkontakt.email}'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+
+                // Preis
                 Row(
                   children: [
-                    Icon(Icons.euro, size: 14, color: Colors.grey.shade600),
-                    const SizedBox(width: 4),
+                    Icon(Icons.euro, size: 13, color: Colors.grey.shade600),
+                    const SizedBox(width: 3),
                     Text(
-                      _formatCurrency(dienstleister.angebotsSumme?.betrag ?? 0),
+                      _formatCurrency(d.angebotsSumme?.betrag ?? 0),
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(width: 12),
-                if (naechstesFrist != null)
+
+                // Fälligkeitsdatum
+                if (naechstesFrist != null) ...[
+                  const SizedBox(width: 8),
                   Row(
                     children: [
                       Icon(
                         Icons.calendar_today,
-                        size: 14,
+                        size: 13,
                         color: Colors.grey.shade600,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 3),
                       Text(
-                        '${naechstesFrist.day}.${naechstesFrist.month}.${naechstesFrist.year}',
+                        '${naechstesFrist.day}.${naechstesFrist.month}.',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ],
                   ),
-                const SizedBox(width: 12),
-                if (alleBezahlt)
+                ],
+
+                // Bezahlt Badge
+                if (alleBezahlt) ...[
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
+                      horizontal: 6,
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.green.shade300),
                     ),
                     child: Row(
@@ -1138,14 +1599,14 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                       children: [
                         Icon(
                           Icons.check_circle,
-                          size: 14,
+                          size: 11,
                           color: Colors.green.shade700,
                         ),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 3),
                         Text(
                           'Bezahlt',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 9,
                             color: Colors.green.shade700,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1153,6 +1614,7 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
                       ],
                     ),
                   ),
+                ],
               ],
             ),
           ],
@@ -1160,17 +1622,33 @@ class DienstleisterListScreenState extends State<DienstleisterListScreen> {
       ),
     );
   }
+
+  Widget _miniQuickBtn(IconData icon, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Icon(icon, size: 13, color: color),
+      ),
+    );
+  }
 }
 
 // ============================================================================
-// DIENSTLEISTER FORM DIALOG
+// NEUER DIENSTLEISTER FORM DIALOG (nur für neue Einträge)
+// Bearbeitung erfolgt über den Detail-Screen
 // ============================================================================
 
 class _DienstleisterFormDialog extends StatefulWidget {
-  final Dienstleister? dienstleister;
   final VoidCallback onSave;
 
-  const _DienstleisterFormDialog({this.dienstleister, required this.onSave});
+  const _DienstleisterFormDialog({required this.onSave});
 
   @override
   State<_DienstleisterFormDialog> createState() =>
@@ -1183,112 +1661,70 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
   late TextEditingController _emailController;
   late TextEditingController _telefonController;
   late TextEditingController _websiteController;
-  late TextEditingController _instagramController;
   late TextEditingController _angebotController;
-  late TextEditingController _notizenController;
 
-  late DienstleisterKategorie _kategorie;
-  late DienstleisterStatus _status;
-  DateTime? _optionBis;
-  bool _istFavorit = false;
+  DienstleisterKategorie _kategorie = DienstleisterKategorie.sonstiges;
+  DienstleisterStatus _status = DienstleisterStatus.recherche;
 
   final Map<String, bool> _fieldValidation = {};
 
   @override
   void initState() {
     super.initState();
-    final d = widget.dienstleister;
-    _nameController = TextEditingController(text: d?.name ?? '');
-    _kontaktNameController = TextEditingController(
-      text: d?.hauptkontakt.name ?? '',
-    );
-    _emailController = TextEditingController(text: d?.hauptkontakt.email ?? '');
-    _telefonController = TextEditingController(
-      text: d?.hauptkontakt.telefon ?? '',
-    );
-    _websiteController = TextEditingController(text: d?.website ?? '');
-    _instagramController = TextEditingController(text: d?.instagram ?? '');
-    _angebotController = TextEditingController(
-      text: d?.angebotsSumme?.betrag.toStringAsFixed(0) ?? '',
-    );
-    _notizenController = TextEditingController(text: d?.notizen ?? '');
-
-    _kategorie = d?.kategorie ?? DienstleisterKategorie.sonstiges;
-    _status = d?.status ?? DienstleisterStatus.recherche;
-    _optionBis = d?.optionBis;
-    _istFavorit = d?.istFavorit ?? false;
+    _nameController = TextEditingController();
+    _kontaktNameController = TextEditingController();
+    _emailController = TextEditingController();
+    _telefonController = TextEditingController();
+    _websiteController = TextEditingController();
+    _angebotController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _kontaktNameController.dispose();
-    _emailController.dispose();
-    _telefonController.dispose();
-    _websiteController.dispose();
-    _instagramController.dispose();
-    _angebotController.dispose();
-    _notizenController.dispose();
+    for (final c in [
+      _nameController,
+      _kontaktNameController,
+      _emailController,
+      _telefonController,
+      _websiteController,
+      _angebotController,
+    ])
+      c.dispose();
     super.dispose();
   }
 
-  void _updateFieldValidation(String fieldKey, bool isValid) {
-    if (mounted) setState(() => _fieldValidation[fieldKey] = isValid);
+  void _updateFieldValidation(String key, bool isValid) {
+    if (mounted) setState(() => _fieldValidation[key] = isValid);
   }
 
   bool get _areAllFieldsValid => _fieldValidation['name'] ?? false;
-  int get _validFieldsCount => _fieldValidation['name'] == true ? 1 : 0;
 
   Future<void> _save() async {
     if (!_areAllFieldsValid) return;
-
     final dienstleister = Dienstleister(
-      id:
-          widget.dienstleister?.id ??
-          DateTime.now().millisecondsSinceEpoch.toString(),
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: _nameController.text,
       kategorie: _kategorie,
       status: _status,
       website: _websiteController.text.isEmpty ? null : _websiteController.text,
-      instagram: _instagramController.text,
+      instagram: '',
       hauptkontakt: Kontakt(
         name: _kontaktNameController.text,
         email: _emailController.text,
         telefon: _telefonController.text,
       ),
       angebotsSumme: _angebotController.text.isNotEmpty
-          ? Geld(betrag: double.parse(_angebotController.text))
+          ? Geld(betrag: double.tryParse(_angebotController.text) ?? 0)
           : null,
-      optionBis: _optionBis,
-      logistik: widget.dienstleister?.logistik ?? Logistik(),
-      notizen: _notizenController.text,
-      istFavorit: _istFavorit,
+      logistik: Logistik(),
     );
-
-    if (widget.dienstleister != null) {
-      await DienstleisterDatabase.instance.updateDienstleister(dienstleister);
-    } else {
-      await DienstleisterDatabase.instance.createDienstleister(dienstleister);
-    }
-
-    widget.onSave(); // enthält _syncNow() vom Aufrufer
-
+    await DienstleisterDatabase.instance.createDienstleister(dienstleister);
+    widget.onSave();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Text(
-                widget.dienstleister != null
-                    ? 'Dienstleister aktualisiert! ✓'
-                    : 'Dienstleister hinzugefügt! ✓',
-              ),
-            ],
-          ),
+        const SnackBar(
+          content: Text('Dienstleister hinzugefügt! ✓'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
         ),
       );
       Navigator.pop(context);
@@ -1298,19 +1734,14 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-
     return Dialog(
       child: Container(
-        width: 600,
-        constraints: const BoxConstraints(maxHeight: 700),
+        width: 500,
+        constraints: const BoxConstraints(maxHeight: 620),
         child: Column(
           children: [
             AppBar(
-              title: Text(
-                widget.dienstleister != null
-                    ? 'Dienstleister bearbeiten'
-                    : 'Neuen Dienstleister anlegen',
-              ),
+              title: const Text('Neuen Dienstleister anlegen'),
               automaticallyImplyLeading: false,
               actions: [
                 IconButton(
@@ -1321,43 +1752,57 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
             ),
             Expanded(
               child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    LinearProgressIndicator(
-                      value: _validFieldsCount / 1.0,
-                      backgroundColor: Colors.grey[200],
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        _areAllFieldsValid ? Colors.green : scheme.primary,
+                    // Hinweis
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade100),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '$_validFieldsCount von 1 Pflichtfeld ausgefüllt',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 15,
+                            color: Colors.blue.shade600,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Alle weiteren Details (Bewertung, Logistik, Notizen...) können nach dem Erstellen im Detail-Screen bearbeitet werden.',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.blue.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
                     SmartTextField(
-                      label: 'Name',
+                      label: 'Name *',
                       fieldKey: 'name',
                       isRequired: true,
                       controller: _nameController,
                       onValidationChanged: _updateFieldValidation,
                       isDisabled: false,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty)
-                          return 'Name ist erforderlich';
-                        if (value.trim().length < 2)
-                          return 'Mindestens 2 Zeichen';
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty)
+                          return 'Erforderlich';
+                        if (v.trim().length < 2) return 'Min. 2 Zeichen';
                         return null;
                       },
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     DropdownButtonFormField<DienstleisterKategorie>(
-                      value: _kategorie,
+                      initialValue: _kategorie,
                       decoration: const InputDecoration(
                         labelText: 'Kategorie',
                         border: OutlineInputBorder(),
@@ -1372,24 +1817,7 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                           .toList(),
                       onChanged: (v) => setState(() => _kategorie = v!),
                     ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<DienstleisterStatus>(
-                      value: _status,
-                      decoration: const InputDecoration(
-                        labelText: 'Status',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: DienstleisterStatus.values
-                          .map(
-                            (s) => DropdownMenuItem(
-                              value: s,
-                              child: Text(s.label),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _status = v!),
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     SmartTextField(
                       label: 'Angebotssumme (€)',
                       fieldKey: 'angebot',
@@ -1398,17 +1826,16 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       onValidationChanged: _updateFieldValidation,
                       isDisabled: false,
                       keyboardType: TextInputType.number,
-                      validator: (value) {
-                        if (value != null && value.trim().isNotEmpty) {
-                          final parsed = double.tryParse(value.trim());
-                          if (parsed == null) return 'Ungültige Zahl';
-                          if (parsed < 0) return 'Betrag muss positiv sein';
-                        }
+                      validator: (v) {
+                        if (v != null &&
+                            v.trim().isNotEmpty &&
+                            double.tryParse(v.trim()) == null)
+                          return 'Ungültige Zahl';
                         return null;
                       },
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     SmartTextField(
                       label: 'Ansprechpartner',
                       fieldKey: 'kontakt_name',
@@ -1418,32 +1845,9 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       isDisabled: false,
                       textInputAction: TextInputAction.next,
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     Row(
                       children: [
-                        Expanded(
-                          child: SmartTextField(
-                            label: 'E-Mail',
-                            fieldKey: 'email',
-                            isRequired: false,
-                            controller: _emailController,
-                            onValidationChanged: _updateFieldValidation,
-                            isDisabled: false,
-                            keyboardType: TextInputType.emailAddress,
-                            validator: (value) {
-                              if (value != null && value.trim().isNotEmpty) {
-                                final emailRegex = RegExp(
-                                  r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$',
-                                );
-                                if (!emailRegex.hasMatch(value.trim()))
-                                  return 'Ungültige E-Mail';
-                              }
-                              return null;
-                            },
-                            textInputAction: TextInputAction.next,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
                         Expanded(
                           child: SmartTextField(
                             label: 'Telefon',
@@ -1456,86 +1860,27 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                             textInputAction: TextInputAction.next,
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
+                        const SizedBox(width: 12),
                         Expanded(
                           child: SmartTextField(
-                            label: 'Website',
-                            fieldKey: 'website',
+                            label: 'E-Mail',
+                            fieldKey: 'email',
                             isRequired: false,
-                            controller: _websiteController,
+                            controller: _emailController,
                             onValidationChanged: _updateFieldValidation,
                             isDisabled: false,
-                            keyboardType: TextInputType.url,
-                            textInputAction: TextInputAction.next,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: SmartTextField(
-                            label: 'Instagram',
-                            fieldKey: 'instagram',
-                            isRequired: false,
-                            controller: _instagramController,
-                            onValidationChanged: _updateFieldValidation,
-                            isDisabled: false,
-                            textInputAction: TextInputAction.next,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.done,
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Option gültig bis'),
-                      subtitle: Text(
-                        _optionBis != null
-                            ? '${_optionBis!.day}.${_optionBis!.month}.${_optionBis!.year}'
-                            : 'Nicht gesetzt',
-                      ),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: () async {
-                          final date = await showDatePicker(
-                            context: context,
-                            initialDate: _optionBis ?? DateTime.now(),
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(
-                              const Duration(days: 365),
-                            ),
-                          );
-                          if (date != null) setState(() => _optionBis = date);
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SmartTextField(
-                      label: 'Notizen',
-                      fieldKey: 'notizen',
-                      isRequired: false,
-                      controller: _notizenController,
-                      onValidationChanged: _updateFieldValidation,
-                      isDisabled: false,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.done,
-                    ),
-                    const SizedBox(height: 16),
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Als Favorit markieren'),
-                      value: _istFavorit,
-                      onChanged: (v) =>
-                          setState(() => _istFavorit = v ?? false),
                     ),
                   ],
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
@@ -1556,10 +1901,10 @@ class _DienstleisterFormDialogState extends State<_DienstleisterFormDialog> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          _areAllFieldsValid ? Icons.save : Icons.save_outlined,
+                          _areAllFieldsValid ? Icons.add : Icons.add_outlined,
                         ),
-                        const SizedBox(width: 8),
-                        const Text('Speichern'),
+                        const SizedBox(width: 7),
+                        const Text('Erstellen'),
                       ],
                     ),
                   ),

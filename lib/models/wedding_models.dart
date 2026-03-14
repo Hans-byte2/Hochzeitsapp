@@ -3,6 +3,7 @@
 // COMPLETE VERSION mit Timestamps + Soft Deletes + Location
 // v2: Guest erweitert um Kinder-Tracking + KI-Scoring
 // v3: PaymentPlan hinzugefügt
+// v4: PaymentPlan.budgetItemId für Dienstleister↔Budget↔Zahlungsplan Verknüpfung
 
 // ================================
 // GUEST MODEL
@@ -479,7 +480,7 @@ class TableModel {
 }
 
 // ================================
-// PAYMENT PLAN MODEL  (v17)
+// PAYMENT PLAN MODEL  (v17 + v18)
 // ================================
 
 enum PaymentType { anzahlung, restzahlung, pauschale }
@@ -496,6 +497,11 @@ class PaymentPlan {
   final int deleted;
   final String? deletedAt;
 
+  /// NEU v18: Verknüpfung mit einem BudgetItem.
+  /// Wenn gesetzt, wird beim paid=true der actual-Wert des BudgetItems
+  /// um [amount] erhöht.
+  final int? budgetItemId;
+
   PaymentPlan({
     this.id,
     required this.vendorName,
@@ -507,6 +513,7 @@ class PaymentPlan {
     this.updatedAt,
     this.deleted = 0,
     this.deletedAt,
+    this.budgetItemId,
   });
 
   String get paymentTypeLabel {
@@ -531,6 +538,8 @@ class PaymentPlan {
     String? updatedAt,
     int? deleted,
     String? deletedAt,
+    int? budgetItemId,
+    bool clearBudgetItemId = false,
   }) => PaymentPlan(
     id: id ?? this.id,
     vendorName: vendorName ?? this.vendorName,
@@ -542,6 +551,9 @@ class PaymentPlan {
     updatedAt: updatedAt ?? this.updatedAt,
     deleted: deleted ?? this.deleted,
     deletedAt: deletedAt ?? this.deletedAt,
+    budgetItemId: clearBudgetItemId
+        ? null
+        : (budgetItemId ?? this.budgetItemId),
   );
 
   Map<String, dynamic> toMap() => {
@@ -555,6 +567,7 @@ class PaymentPlan {
     'updated_at': updatedAt ?? DateTime.now().toIso8601String(),
     'deleted': deleted,
     'deleted_at': deletedAt,
+    'budget_item_id': budgetItemId,
   };
 
   factory PaymentPlan.fromMap(Map<String, dynamic> map) => PaymentPlan(
@@ -571,6 +584,7 @@ class PaymentPlan {
     updatedAt: map['updated_at'],
     deleted: map['deleted'] ?? 0,
     deletedAt: map['deleted_at'],
+    budgetItemId: map['budget_item_id']?.toInt(),
   );
 
   bool get isDeleted => deleted == 1;

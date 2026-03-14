@@ -29,6 +29,7 @@ import 'sync/services/sync_service.dart';
 
 // Debug
 import 'utils/error_logger.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +42,11 @@ Future<void> main() async {
   SyncService.instance.initialize().catchError((e) {
     print('Sync-Init fehlgeschlagen: $e');
   });
+
+  // Notifications initialisieren + prüfen
+  await NotificationService.instance.initialize();
+  NotificationService.instance.checkAndNotify();
+  NotificationService.instance.scheduleDailyCheck();
 
   runApp(
     ProviderScope(

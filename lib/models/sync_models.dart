@@ -1,6 +1,6 @@
 // lib/models/sync_models.dart
 //
-// COMPLETE VERSION für V5 mit allen neuen Statistik-Feldern
+// V6 – Payment Plans in Sync eingebunden
 
 class SyncData {
   final int version;
@@ -10,6 +10,7 @@ class SyncData {
   final List<Map<String, dynamic>> budgetItems;
   final List<Map<String, dynamic>> tables;
   final List<Map<String, dynamic>> serviceProviders;
+  final List<Map<String, dynamic>> paymentPlans; // NEU v6
   final Map<String, dynamic>? weddingInfo;
 
   SyncData({
@@ -20,6 +21,7 @@ class SyncData {
     required this.budgetItems,
     required this.tables,
     required this.serviceProviders,
+    this.paymentPlans = const [],
     this.weddingInfo,
   });
 
@@ -32,6 +34,7 @@ class SyncData {
       'budgetItems': budgetItems,
       'tables': tables,
       'serviceProviders': serviceProviders,
+      'paymentPlans': paymentPlans,
       'weddingInfo': weddingInfo,
     };
   }
@@ -47,6 +50,8 @@ class SyncData {
       serviceProviders: List<Map<String, dynamic>>.from(
         json['serviceProviders'] ?? [],
       ),
+      // Ältere .heartpebble Dateien haben paymentPlans nicht → leere Liste
+      paymentPlans: List<Map<String, dynamic>>.from(json['paymentPlans'] ?? []),
       weddingInfo: json['weddingInfo'],
     );
   }
@@ -67,28 +72,34 @@ class ImportResult {
 class ImportStatistics {
   final int guestsAdded;
   final int guestsUpdated;
-  final int guestsDeleted; // NEU
-  final int guestsSkipped; // NEU
+  final int guestsDeleted;
+  final int guestsSkipped;
 
   final int budgetItemsAdded;
   final int budgetItemsUpdated;
-  final int budgetItemsDeleted; // NEU
-  final int budgetItemsSkipped; // NEU
+  final int budgetItemsDeleted;
+  final int budgetItemsSkipped;
 
   final int tasksAdded;
   final int tasksUpdated;
-  final int tasksDeleted; // NEU
-  final int tasksSkipped; // NEU
+  final int tasksDeleted;
+  final int tasksSkipped;
 
   final int tablesAdded;
   final int tablesUpdated;
-  final int tablesDeleted; // NEU
-  final int tablesSkipped; // NEU
+  final int tablesDeleted;
+  final int tablesSkipped;
 
   final int serviceProvidersAdded;
   final int serviceProvidersUpdated;
-  final int serviceProvidersDeleted; // NEU
-  final int serviceProvidersSkipped; // NEU
+  final int serviceProvidersDeleted;
+  final int serviceProvidersSkipped;
+
+  // NEU v6: Payment Plans
+  final int paymentPlansAdded;
+  final int paymentPlansUpdated;
+  final int paymentPlansDeleted;
+  final int paymentPlansSkipped;
 
   ImportStatistics({
     this.guestsAdded = 0,
@@ -111,26 +122,34 @@ class ImportStatistics {
     this.serviceProvidersUpdated = 0,
     this.serviceProvidersDeleted = 0,
     this.serviceProvidersSkipped = 0,
+    this.paymentPlansAdded = 0,
+    this.paymentPlansUpdated = 0,
+    this.paymentPlansDeleted = 0,
+    this.paymentPlansSkipped = 0,
   });
 
-  /// Formatiert Statistik für User-Anzeige
   String toDetailedString() {
     final List<String> parts = [];
 
     if (guestsAdded > 0) parts.add('✅ $guestsAdded Gäste hinzugefügt');
     if (guestsUpdated > 0) parts.add('🔄 $guestsUpdated Gäste aktualisiert');
     if (guestsDeleted > 0) parts.add('🗑️ $guestsDeleted Gäste gelöscht');
-    if (guestsSkipped > 0)
+    if (guestsSkipped > 0) {
       parts.add('⏭️ $guestsSkipped Gäste übersprungen (lokal neuer)');
+    }
 
-    if (budgetItemsAdded > 0)
+    if (budgetItemsAdded > 0) {
       parts.add('✅ $budgetItemsAdded Budget-Einträge hinzugefügt');
-    if (budgetItemsUpdated > 0)
+    }
+    if (budgetItemsUpdated > 0) {
       parts.add('🔄 $budgetItemsUpdated Budget-Einträge aktualisiert');
-    if (budgetItemsDeleted > 0)
+    }
+    if (budgetItemsDeleted > 0) {
       parts.add('🗑️ $budgetItemsDeleted Budget-Einträge gelöscht');
-    if (budgetItemsSkipped > 0)
+    }
+    if (budgetItemsSkipped > 0) {
       parts.add('⏭️ $budgetItemsSkipped Budget übersprungen');
+    }
 
     if (tasksAdded > 0) parts.add('✅ $tasksAdded Aufgaben hinzugefügt');
     if (tasksUpdated > 0) parts.add('🔄 $tasksUpdated Aufgaben aktualisiert');
@@ -142,19 +161,37 @@ class ImportStatistics {
     if (tablesDeleted > 0) parts.add('🗑️ $tablesDeleted Tische gelöscht');
     if (tablesSkipped > 0) parts.add('⏭️ $tablesSkipped Tische übersprungen');
 
-    if (serviceProvidersAdded > 0)
+    if (serviceProvidersAdded > 0) {
       parts.add('✅ $serviceProvidersAdded Dienstleister hinzugefügt');
-    if (serviceProvidersUpdated > 0)
+    }
+    if (serviceProvidersUpdated > 0) {
       parts.add('🔄 $serviceProvidersUpdated Dienstleister aktualisiert');
-    if (serviceProvidersDeleted > 0)
+    }
+    if (serviceProvidersDeleted > 0) {
       parts.add('🗑️ $serviceProvidersDeleted Dienstleister gelöscht');
-    if (serviceProvidersSkipped > 0)
+    }
+    if (serviceProvidersSkipped > 0) {
       parts.add('⏭️ $serviceProvidersSkipped Dienstleister übersprungen');
+    }
+
+    if (paymentPlansAdded > 0) {
+      parts.add('✅ $paymentPlansAdded Zahlungspläne hinzugefügt');
+    }
+    if (paymentPlansUpdated > 0) {
+      parts.add('🔄 $paymentPlansUpdated Zahlungspläne aktualisiert');
+    }
+    if (paymentPlansDeleted > 0) {
+      parts.add('🗑️ $paymentPlansDeleted Zahlungspläne gelöscht');
+    }
+    if (paymentPlansSkipped > 0) {
+      parts.add(
+        '⏭️ $paymentPlansSkipped Zahlungspläne übersprungen (lokal neuer)',
+      );
+    }
 
     return parts.isEmpty ? 'Keine Änderungen' : parts.join('\n');
   }
 
-  /// Kurzversion für Notifications
   String toShortString() {
     final total =
         guestsAdded +
@@ -171,27 +208,30 @@ class ImportStatistics {
         tablesDeleted +
         serviceProvidersAdded +
         serviceProvidersUpdated +
-        serviceProvidersDeleted;
+        serviceProvidersDeleted +
+        paymentPlansAdded +
+        paymentPlansUpdated +
+        paymentPlansDeleted;
 
     if (total == 0) return 'Keine Änderungen';
     return '$total Änderungen synchronisiert';
   }
 
-  /// Gibt an ob es Konflikte gab (lokale Daten neuer)
   bool get hadConflicts {
     return guestsSkipped > 0 ||
         budgetItemsSkipped > 0 ||
         tasksSkipped > 0 ||
         tablesSkipped > 0 ||
-        serviceProvidersSkipped > 0;
+        serviceProvidersSkipped > 0 ||
+        paymentPlansSkipped > 0;
   }
 
-  /// Gibt an ob etwas gelöscht wurde
   bool get hadDeletions {
     return guestsDeleted > 0 ||
         budgetItemsDeleted > 0 ||
         tasksDeleted > 0 ||
         tablesDeleted > 0 ||
-        serviceProvidersDeleted > 0;
+        serviceProvidersDeleted > 0 ||
+        paymentPlansDeleted > 0;
   }
 }
