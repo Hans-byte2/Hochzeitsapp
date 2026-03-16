@@ -1,6 +1,7 @@
 // lib/screens/settings_page.dart
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,9 +10,11 @@ import 'package:file_picker/file_picker.dart';
 
 import '../services/profile_providers.dart';
 import '../services/theme_providers.dart';
-import '../services/sync_service.dart'; // NEU
+import '../services/sync_service.dart';
+import '../services/premium_service.dart'; // NEU
 import '../theme/theme_variant.dart';
 import '../widgets/theme_picker_grid.dart';
+import '../data/database_helper.dart'; // NEU – für db-Zugriff
 
 class SettingsPage extends ConsumerWidget {
   final Future<void> Function()? onDataReloaded;
@@ -32,16 +35,214 @@ class SettingsPage extends ConsumerWidget {
           _Section(
             title: 'Synchronisation',
             child: _SyncCard(onDataReloaded: onDataReloaded),
-          ), // NEU: Callback übergeben
+          ),
           const SizedBox(height: 16),
           const _Section(title: 'Allgemein', child: _GeneralCard()),
           const SizedBox(height: 16),
           const _Section(title: 'Über HeartPebble', child: _AboutCard()),
+
+          // ── NEU: Debug-Bereich – nur im Debug-Build sichtbar ──
+          if (kDebugMode) ...[
+            const SizedBox(height: 16),
+            const _Section(
+              title: '🛠 Debug – Premium',
+              child: _DebugPremiumCard(),
+            ),
+          ],
         ],
       ),
     );
   }
 }
+
+// ============================================================================
+// NEU: DEBUG PREMIUM CARD
+// ============================================================================
+
+class _DebugPremiumCard extends StatefulWidget {
+  const _DebugPremiumCard();
+
+  @override
+  State<_DebugPremiumCard> createState() => _DebugPremiumCardState();
+}
+
+class _DebugPremiumCardState extends State<_DebugPremiumCard> {
+  bool get _isPremium => PremiumService.instance.isPremium;
+
+  Future<void> _unlock() async {
+    final db = await DatabaseHelper.instance.database;
+    await PremiumService.instance.unlock(db);
+    setState(() {});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Premium aktiviert'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _revoke() async {
+    final db = await DatabaseHelper.instance.database;
+    await PremiumService.instance.revoke(db);
+    setState(() {});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔒 Premium deaktiviert'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Status-Anzeige
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: _isPremium
+                ? Colors.green.withOpacity(0.1)
+                : Colors.orange.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: _isPremium ? Colors.green : Colors.orange,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                _isPremium ? Icons.workspace_premium : Icons.lock_outline,
+                color: _isPremium ? Colors.green : Colors.orange,
+                size: 20,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _isPremium ? 'Premium aktiv' : 'Free-Version aktiv',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _isPremium ? Colors.green : Colors.orange,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Feature-Flags Übersicht
+        const Text(
+          'Feature-Flags:',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            _FlagChip(
+              'Partner-Sync',
+              PremiumService.instance.canUsePartnerSync,
+            ),
+            _FlagChip('KI-Features', PremiumService.instance.canUseAI),
+            _FlagChip(
+              'Zahlungsplan',
+              PremiumService.instance.canUsePaymentPlan,
+            ),
+            _FlagChip(
+              'Notifications',
+              PremiumService.instance.canUseNotifications,
+            ),
+            _FlagChip(
+              'Smart Budget',
+              PremiumService.instance.canUseSmartBudget,
+            ),
+            _FlagChip('Budget PDF', PremiumService.instance.canUseBudgetPdf),
+            _FlagChip('Export Budget', PremiumService.instance.canExportBudget),
+            _FlagChip(
+              'Gäste (${PremiumService.instance.guestLimit == 999999 ? '∞' : PremiumService.instance.guestLimit})',
+              _isPremium,
+            ),
+            _FlagChip(
+              'Tische (${PremiumService.instance.tableLimit == 999999 ? '∞' : PremiumService.instance.tableLimit})',
+              _isPremium,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Buttons
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _isPremium ? null : _unlock,
+                icon: const Icon(Icons.workspace_premium, size: 18),
+                label: const Text('Premium aktivieren'),
+                style: FilledButton.styleFrom(backgroundColor: Colors.green),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _isPremium ? _revoke : null,
+                icon: const Icon(Icons.lock_outline, size: 18),
+                label: const Text('Zurücksetzen'),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.orange),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Nur im Debug-Build sichtbar. Im Release-Build durch In-App-Purchase ersetzt.',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+}
+
+class _FlagChip extends StatelessWidget {
+  const _FlagChip(this.label, this.enabled);
+
+  final String label;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      label: Text(
+        '${enabled ? '✓' : '✗'} $label',
+        style: TextStyle(
+          fontSize: 11,
+          color: enabled ? Colors.green : Colors.red,
+        ),
+      ),
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      backgroundColor: enabled
+          ? Colors.green.withOpacity(0.08)
+          : Colors.red.withOpacity(0.08),
+      side: BorderSide(
+        color: enabled
+            ? Colors.green.withOpacity(0.3)
+            : Colors.red.withOpacity(0.3),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// BESTEHENDER CODE – unverändert
+// ============================================================================
 
 class _Section extends StatelessWidget {
   const _Section({required this.title, required this.child});
@@ -66,7 +267,6 @@ class _Section extends StatelessWidget {
   }
 }
 
-/// 🔹 Nur Profilbild (Namen/Datum bleiben auf der Startseite / DB)
 class _ProfileCard extends ConsumerWidget {
   const _ProfileCard();
 
@@ -221,10 +421,6 @@ class _ModeChip extends StatelessWidget {
   }
 }
 
-// ============================================================================
-// NEU: SYNC CARD - Export/Import Funktionalität
-// ============================================================================
-
 class _SyncCard extends ConsumerStatefulWidget {
   final Future<void> Function()? onDataReloaded;
 
@@ -301,7 +497,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
   }
 
   Future<void> _handleImport() async {
-    // Datei auswählen
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['heartpebble'],
@@ -314,7 +509,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
 
     final filePath = result.files.single.path!;
 
-    // Bestätigung anzeigen
     if (!mounted) return;
     final confirm = await showDialog<bool>(
       context: context,
@@ -347,7 +541,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
 
       if (mounted) {
         if (result.success) {
-          // Erfolgs-Dialog mit Details
           await showDialog(
             context: context,
             builder: (context) => AlertDialog(
@@ -362,8 +555,8 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (result.statistics != null) ...[
-                    Text(result.statistics!.toDetailedString()),
+                  ...[
+                    Text(result.statistics.toDetailedString()),
                     const SizedBox(height: 16),
                   ],
                   const Text(
@@ -376,15 +569,10 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                 FilledButton(
                   onPressed: () async {
                     Navigator.pop(context);
-
-                    // NEU: Trigger kompletten App-Reload via Callback
                     if (widget.onDataReloaded != null) {
-                      debugPrint('🔄 Triggering app data reload...');
                       await widget.onDataReloaded!();
                     } else {
-                      // Fallback: Nur lokale DB-Info refreshen
                       _loadDatabaseInfo();
-
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
@@ -433,7 +621,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Datenbank Info
         Row(
           children: [
             const Icon(Icons.info_outline, size: 20),
@@ -464,7 +651,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
         const Divider(),
         const SizedBox(height: 12),
 
-        // Export Button
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: _isExporting
@@ -485,7 +671,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
 
         const Divider(height: 1),
 
-        // Import Button
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: _isImporting
@@ -520,10 +705,6 @@ class _StatChip extends StatelessWidget {
     );
   }
 }
-
-// ============================================================================
-// NEU: ABOUT CARD - App Info & Datenschutz
-// ============================================================================
 
 class _AboutCard extends StatelessWidget {
   const _AboutCard();

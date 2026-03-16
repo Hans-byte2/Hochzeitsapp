@@ -30,6 +30,7 @@ import 'sync/services/sync_service.dart';
 // Debug
 import 'utils/error_logger.dart';
 import 'services/notification_service.dart';
+import 'services/premium_service.dart'; // NEU
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +39,13 @@ Future<void> main() async {
   final initialTheme = await resolveInitialVariant(prefs);
 
   final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
+
+  // ── NEU: PremiumService initialisieren ──────────────────────
+  // Muss nach WidgetsFlutterBinding und vor runApp passieren,
+  // damit alle Screens beim ersten Build den korrekten Status haben.
+  final db = await DatabaseHelper.instance.database;
+  await PremiumService.instance.init(db);
+  // ────────────────────────────────────────────────────────────
 
   SyncService.instance.initialize().catchError((e) {
     print('Sync-Init fehlgeschlagen: $e');
@@ -60,6 +68,8 @@ Future<void> main() async {
     ),
   );
 }
+
+// ── Ab hier alles unverändert ────────────────────────────────────────────────
 
 class WeddingApp extends ConsumerWidget {
   final bool showOnboarding;
@@ -113,14 +123,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
-  // UniqueKeys NUR noch für manuelles _reloadAllData (Einstellungen etc.)
-  // Beim Sync werden sie NICHT mehr neu gesetzt → kein Flackern.
   Key _budgetPageKey = UniqueKey();
   Key _tablePageKey = UniqueKey();
   int? _selectedTaskId;
   Key _taskPageKey = UniqueKey();
 
-  // GlobalKeys für gezieltes Reload ohne Widget-Neuaufbau
   final GlobalKey<DashboardPageState> _dashboardKey =
       GlobalKey<DashboardPageState>();
   final GlobalKey<EnhancedBudgetPageState> _budgetKey =
@@ -138,19 +145,9 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     SyncService.instance.addListener(_onSyncDataReceived);
   }
 
-  /// Wird aufgerufen wenn der Partner Daten geschickt hat.
-  ///
-  /// KEIN UniqueKey hier – das würde den Widget-Tree komplett
-  /// wegwerfen und neu aufbauen → Flackern.
-  /// Stattdessen rufen wir gezielt reload() auf den betroffenen
-  /// Screens auf, die das intern ohne Rebuild tun.
   void _onSyncDataReceived() {
     debugPrint('🔄 Sync-Event → gezieltes Reload');
-
-    // Guests + Tasks neu laden (sind State-Variablen in _HochzeitsAppState)
     _loadData();
-
-    // Budget, Tisch und Dienstleister gezielt über GlobalKey aktualisieren
     _budgetKey.currentState?.reload();
     _tableKey.currentState?.reload();
     _dashboardKey.currentState?.reload();
@@ -169,7 +166,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
       final weddingData = await DatabaseHelper.instance.getWeddingData();
       if (weddingData != null) {
-        // Einmaliges setState für alle wedding-Felder
         if (mounted) {
           setState(() {
             _weddingDate = weddingData['wedding_date'] != null
@@ -185,7 +181,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       final guests = await DatabaseHelper.instance.getAllGuests();
       final tasks = await DatabaseHelper.instance.getAllTasks();
 
-      // Einmaliges setState für guests + tasks + isLoading
       if (mounted) {
         setState(() {
           _guests = guests;
@@ -203,9 +198,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
-  /// Manueller Full-Reload (z.B. aus Einstellungen).
-  /// Hier dürfen UniqueKeys neu gesetzt werden, weil der User
-  /// das aktiv ausgelöst hat und ein kurzes Flackern erwartet.
   Future<void> _reloadAllData() async {
     setState(() => _isLoading = true);
 
@@ -234,7 +226,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   void _onTabChanged(int index) {
     if (index == 3) {
-      // Budget-Tab: gezieltes Reload statt UniqueKey
       _budgetKey.currentState?.reload();
     }
     if (index == 4) {
@@ -245,8 +236,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
     setState(() => _currentIndex = index);
   }
-
-  // ── Gäste-Callbacks ──────────────────────────────────────────
 
   Future<void> _addGuest(Guest guest) async {
     try {
@@ -289,8 +278,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
-  // ── Task-Callbacks ───────────────────────────────────────────
-
   Future<void> _addTask(Task task) async {
     try {
       final newTask = await DatabaseHelper.instance.createTask(task);
@@ -326,8 +313,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
-  // ── Wedding-Data-Callback ────────────────────────────────────
-
   Future<void> _updateWeddingData(
     DateTime date,
     String bride,
@@ -353,8 +338,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       }
     }
   }
-
-  // ── Navigation ───────────────────────────────────────────────
 
   void _navigateToPage(int pageIndex) => _onTabChanged(pageIndex);
 
@@ -419,11 +402,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onDeleteGuest: _deleteGuest,
       ),
       TischplanungPage(
-        key: _tableKey, // ← GlobalKey statt UniqueKey
+        key: _tableKey,
         guests: _guests,
         onUpdateGuest: _updateGuest,
       ),
-      EnhancedBudgetPage(key: _budgetKey), // ← GlobalKey statt UniqueKey
+      EnhancedBudgetPage(key: _budgetKey),
       TaskPage(
         key: _taskPageKey,
         tasks: _tasks,
