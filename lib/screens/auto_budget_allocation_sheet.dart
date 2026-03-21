@@ -9,7 +9,6 @@ import '../data/database_helper.dart';
 // Wird als Bottom Sheet geöffnet wenn totalBudget > 0 aber noch keine Items.
 // ============================================================================
 
-// Richtwerte: Kategorie → (Beschriftung, Standardanteil %, Icon)
 const _kBudgetPresets = [
   _CategoryPreset(
     'location',
@@ -75,6 +74,12 @@ class AutoBudgetAllocationSheet extends StatefulWidget {
 
 class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
   late List<double> _percentages;
+
+  /// Ein Controller pro Zeile – wird einmal erstellt und danach nur noch
+  /// per [_syncControllers] aktualisiert, damit der Cursor stabil bleibt.
+  late List<TextEditingController> _controllers;
+  late List<FocusNode> _focusNodes;
+
   bool _isSaving = false;
 
   final _currencyFormat = NumberFormat('#,##0', 'de_DE');
@@ -84,6 +89,65 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
   void initState() {
     super.initState();
     _percentages = _kBudgetPresets.map((p) => p.defaultPct).toList();
+    _controllers = List.generate(
+      _kBudgetPresets.length,
+      (i) => TextEditingController(text: _percentages[i].toStringAsFixed(1)),
+    );
+    _focusNodes = List.generate(_kBudgetPresets.length, (_) => FocusNode());
+
+    // Wenn ein Feld den Fokus verliert → Wert bereinigen & Controller syncen
+    for (int i = 0; i < _focusNodes.length; i++) {
+      _focusNodes[i].addListener(() {
+        if (!_focusNodes[i].hasFocus) {
+          _commitTextField(i);
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _controllers) {
+      c.dispose();
+    }
+    for (final f in _focusNodes) {
+      f.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Parst den Rohtext des TextField[i] und schreibt einen validen Wert
+  /// zurück, ohne den Controller neu zu erstellen.
+  void _commitTextField(int i) {
+    final parsed = double.tryParse(_controllers[i].text.replaceAll(',', '.'));
+    final clamped = (parsed != null && parsed >= 0 && parsed <= 100)
+        ? parsed
+        : _percentages[i];
+    setState(() => _percentages[i] = clamped);
+    // Text auf 1 Nachkommastelle normalisieren, Cursor ans Ende
+    _controllers[i].value = TextEditingValue(
+      text: clamped.toStringAsFixed(1),
+      selection: TextSelection.collapsed(
+        offset: clamped.toStringAsFixed(1).length,
+      ),
+    );
+  }
+
+  /// Synchronisiert alle Controller auf den aktuellen [_percentages]-Stand,
+  /// OHNE die Controller zu ersetzen (Cursor bleibt stabil).
+  void _syncControllers() {
+    for (int i = 0; i < _percentages.length; i++) {
+      // Nur updaten wenn das Feld gerade keinen Fokus hat
+      if (!_focusNodes[i].hasFocus) {
+        final text = _percentages[i].toStringAsFixed(1);
+        if (_controllers[i].text != text) {
+          _controllers[i].value = TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: text.length),
+          );
+        }
+      }
+    }
   }
 
   double get _totalPct => _percentages.fold(0.0, (s, v) => s + v);
@@ -105,18 +169,23 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
         _percentages[i] = _kBudgetPresets[i].defaultPct;
       }
     });
+    _syncControllers();
   }
 
   Future<void> _applyAllocation() async {
     if (!_isValid) return;
-    setState(() => _isSaving = true);
+    // Alle offenen Textfelder erst committen
+    for (int i = 0; i < _percentages.length; i++) {
+      _commitTextField(i);
+    }
+    if (!_isValid) return;
 
+    setState(() => _isSaving = true);
     try {
       for (int i = 0; i < _kBudgetPresets.length; i++) {
         final preset = _kBudgetPresets[i];
         final amount = _amountFor(i);
         if (amount <= 0) continue;
-
         await DatabaseHelper.instance.insertBudgetItem(
           _makeBudgetItem(
             name: preset.label,
@@ -171,7 +240,7 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
       ),
       child: Column(
         children: [
-          // Handle
+          // ── Handle ────────────────────────────────────────────────────────
           Center(
             child: Container(
               margin: const EdgeInsets.only(top: 12, bottom: 4),
@@ -184,7 +253,7 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
             ),
           ),
 
-          // Header
+          // ── Header ───────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
             child: Row(
@@ -234,7 +303,7 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
             ),
           ),
 
-          // Summen-Indikator
+          // ── Summen-Indikator ──────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
             child: Container(
@@ -272,7 +341,7 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
             ),
           ),
 
-          // Liste mit Slidern
+          // ── Slider-Liste ──────────────────────────────────────────────────
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
@@ -306,13 +375,13 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
                               ),
                             ),
                           ),
-                          // Prozent editierbar
+
+                          // ── Prozent-Eingabe (stabiler Controller) ────────
                           SizedBox(
-                            width: 52,
+                            width: 62,
                             child: TextField(
-                              controller: TextEditingController(
-                                text: pct.toStringAsFixed(1),
-                              ),
+                              controller: _controllers[i],
+                              focusNode: _focusNodes[i],
                               keyboardType:
                                   const TextInputType.numberWithOptions(
                                     decimal: true,
@@ -326,23 +395,32 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
                                 suffixText: '%',
                                 isDense: true,
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 4,
+                                  horizontal: 6,
+                                  vertical: 6,
                                 ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                               ),
                               onChanged: (v) {
-                                final parsed = double.tryParse(v);
+                                // Sofort den internen Wert aktualisieren
+                                // (kein Controller-Replace → Cursor bleibt)
+                                final parsed = double.tryParse(
+                                  v.replaceAll(',', '.'),
+                                );
                                 if (parsed != null &&
                                     parsed >= 0 &&
                                     parsed <= 100) {
                                   setState(() => _percentages[i] = parsed);
                                 }
                               },
+                              onEditingComplete: () {
+                                _commitTextField(i);
+                                FocusScope.of(context).unfocus();
+                              },
                             ),
                           ),
+
                           const SizedBox(width: 8),
                           SizedBox(
                             width: 72,
@@ -358,6 +436,8 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
                           ),
                         ],
                       ),
+
+                      // ── Slider ────────────────────────────────────────────
                       SliderTheme(
                         data: SliderTheme.of(context).copyWith(
                           trackHeight: 3,
@@ -373,7 +453,19 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
                           min: 0,
                           max: 60,
                           divisions: 120,
-                          onChanged: (v) => setState(() => _percentages[i] = v),
+                          onChanged: (v) {
+                            setState(() => _percentages[i] = v);
+                            // Controller aktualisieren wenn kein Fokus
+                            if (!_focusNodes[i].hasFocus) {
+                              final text = v.toStringAsFixed(1);
+                              _controllers[i].value = TextEditingValue(
+                                text: text,
+                                selection: TextSelection.collapsed(
+                                  offset: text.length,
+                                ),
+                              );
+                            }
+                          },
                           activeColor: scheme.primary,
                           inactiveColor: scheme.primary.withOpacity(0.15),
                         ),
@@ -385,7 +477,7 @@ class _AutoBudgetAllocationSheetState extends State<AutoBudgetAllocationSheet> {
             ),
           ),
 
-          // Bottom: Übernehmen-Button
+          // ── Übernehmen-Button ─────────────────────────────────────────────
           Padding(
             padding: EdgeInsets.fromLTRB(
               16,

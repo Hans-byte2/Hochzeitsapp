@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // NEU
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/profile_providers.dart';
 import '../services/theme_providers.dart';
@@ -25,6 +25,9 @@ class SettingsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // ── FIX: Scaffold mit eigenem AppBar damit das ListView
+    // die volle Höhe bekommt und korrekt scrollt, auch wenn
+    // SettingsPage als Tab-Kind eingebettet ist.
     return Scaffold(
       appBar: AppBar(title: const Text('Einstellungen')),
       body: ListView(
@@ -49,6 +52,9 @@ class SettingsPage extends ConsumerWidget {
               child: _DebugPremiumCard(),
             ),
           ],
+          // Extra-Abstand am Ende damit der letzte Eintrag nicht vom
+          // System-Navigationbereich verdeckt wird.
+          const SizedBox(height: 32),
         ],
       ),
     );
@@ -71,7 +77,7 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
 
   Future<void> _unlock() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('debug_force_free'); // Flag aufheben
+    await prefs.remove('debug_force_free');
     final db = await DatabaseHelper.instance.database;
     await PremiumService.instance.unlock(db);
     setState(() {});
@@ -101,11 +107,10 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
     }
   }
 
-  // ── NEU: Migration zurücksetzen + debug_force_free setzen ───────────────
   Future<void> _resetMigration() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('premium_migration_v1');
-    await prefs.setBool('debug_force_free', true); // verhindert Re-Migration
+    await prefs.setBool('debug_force_free', true);
     final db = await DatabaseHelper.instance.database;
     await PremiumService.instance.revoke(db);
     setState(() {});
@@ -125,7 +130,6 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Status
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -157,8 +161,6 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
           ),
         ),
         const SizedBox(height: 12),
-
-        // Feature-Flags
         const Text(
           'Feature-Flags:',
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
@@ -198,8 +200,6 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
           ],
         ),
         const SizedBox(height: 16),
-
-        // Zeile 1: Premium aktivieren / Zurücksetzen
         Row(
           children: [
             Expanded(
@@ -222,8 +222,6 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
           ],
         ),
         const SizedBox(height: 8),
-
-        // Zeile 2: Free testen
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -234,7 +232,6 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
           ),
         ),
         const SizedBox(height: 8),
-
         const Text(
           'Nur im Debug-Build sichtbar. Im Release-Build durch In-App-Purchase ersetzt.',
           style: TextStyle(fontSize: 11, color: Colors.grey),
@@ -859,8 +856,8 @@ class _GeneralCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: const [
+    return const Column(
+      children: [
         ListTile(
           contentPadding: EdgeInsets.zero,
           leading: Icon(Icons.language),

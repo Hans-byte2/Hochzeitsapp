@@ -6,8 +6,8 @@ import '../widgets/budget_donut_chart.dart';
 import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
-import '../services/premium_service.dart'; // NEU
-import '../widgets/upgrade_bottom_sheet.dart'; // NEU
+import '../services/premium_service.dart';
+import '../widgets/upgrade_bottom_sheet.dart';
 import 'budget_detail_screen.dart';
 import 'payment_plan_screen.dart';
 import 'auto_budget_allocation_sheet.dart';
@@ -294,7 +294,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     return stats;
   }
 
-  // ── NEU: Export mit Premium-Prüfung ─────────────────────────────────────
   Future<void> _showExportDialog() async {
     if (_budgetItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -793,7 +792,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // ── NEU: KI-Analyse Button mit Premium-Prüfung ───────────────────────────
   Widget _buildAiAnalysisButton() {
     final isOver = _isOverBudget;
     final isPremium = PremiumService.instance.canUseAI;
@@ -898,7 +896,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // ── NEU: Auto-Budget Button mit Premium-Prüfung ──────────────────────────
   Widget _buildAutoBudgetButton() {
     final scheme = Theme.of(context).colorScheme;
     final isPremium = PremiumService.instance.canUseSmartBudget;
@@ -993,7 +990,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // ── NEU: Zahlungsplan Button mit Premium-Prüfung ─────────────────────────
   Widget _buildPaymentPlanButton() {
     final isPremium = PremiumService.instance.canUsePaymentPlan;
 
@@ -1054,6 +1050,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
+  // ── FIX: Navigator.pop(ctx) VOR setState ─────────────────────────────────
   Future<void> _showMenuPriceSettings() async {
     final adultCtrl = TextEditingController(
       text: _adultMenuPrice.toStringAsFixed(0),
@@ -1109,12 +1106,13 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 'child_menu_price',
                 child.toString(),
               );
+              // ── FIX: erst Dialog schließen, dann setState ──────────────
+              Navigator.pop(ctx);
               if (mounted) {
                 setState(() {
                   _adultMenuPrice = adult;
                   _childMenuPrice = child;
                 });
-                Navigator.pop(ctx);
               }
             },
             child: const Text('Speichern'),
@@ -2075,7 +2073,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 }
 
 // ============================================================================
-// KI BUDGET ANALYSE BOTTOM SHEET – unverändert
+// KI BUDGET ANALYSE BOTTOM SHEET
 // ============================================================================
 
 class _AiBudgetAnalysisSheet extends StatefulWidget {
@@ -3244,7 +3242,7 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
 }
 
 // ============================================================================
-// BUDGET ITEM EDIT DIALOG – unverändert
+// BUDGET ITEM EDIT DIALOG
 // ============================================================================
 
 class _BudgetItemEditDialog extends StatefulWidget {

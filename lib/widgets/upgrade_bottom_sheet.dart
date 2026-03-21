@@ -88,7 +88,8 @@ class _UpgradeBottomSheetState extends State<UpgradeBottomSheet> {
           _product = response.productDetails.first;
         } else {
           _errorMessage =
-              'Produkt nicht gefunden. Stelle sicher dass du die App aus dem Play Store installiert hast.';
+              'Produkt nicht gefunden. '
+              'Stelle sicher dass du die App aus dem Play Store installiert hast.';
         }
       });
     }

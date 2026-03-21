@@ -3,8 +3,8 @@ import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
 import '../services/guest_scoring_service.dart';
-import '../services/premium_service.dart'; // NEU
-import '../widgets/upgrade_bottom_sheet.dart'; // NEU
+import '../services/premium_service.dart';
+import '../widgets/upgrade_bottom_sheet.dart';
 import '../mixins/smart_form_validation_mixin.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../widgets/forms/smart_dropdown.dart';
@@ -73,9 +73,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     super.dispose();
   }
 
-  // ── NEU: Prüft Gäste-Limit vor dem Dialog ────────────────────────────────
   void _onAddGuestTapped() {
-    // Beim Bearbeiten kein Limit prüfen – nur beim Hinzufügen
     final isAtLimit = !PremiumService.instance.canAddGuest(
       widget.guests.length,
     );
@@ -431,12 +429,14 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     );
     final filteredGuests = _getFilteredAndSortedGuests();
 
-    // ── NEU: Limit-Anzeige ────────────────────────────────────────────────
     final isPremium = PremiumService.instance.isPremium;
     final guestLimit = PremiumService.kFreeGuestLimit;
     final isNearLimit = !isPremium && totalGuests >= (guestLimit - 3);
     final isAtLimit = !isPremium && totalGuests >= guestLimit;
 
+    // ── FIX: Scaffold → Column mit Expanded(ListView) bleibt korrekt ─────
+    // Der Header-Bereich wird in einen nicht-Expanded Column gepackt,
+    // nur die ListView bekommt Expanded – damit scrollt die Liste.
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gästeliste'),
@@ -499,302 +499,317 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── NEU: Limit-Banner ─────────────────────────────────
-            if (isNearLimit || isAtLimit) ...[
-              GestureDetector(
-                onTap: () => UpgradeBottomSheet.show(
-                  context,
-                  featureName: 'Unbegrenzte Gäste',
-                  featureDescription:
-                      'Mit Premium planst du ohne Einschränkungen.',
-                ),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  margin: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    color: isAtLimit
-                        ? Colors.red.withOpacity(0.1)
-                        : Colors.orange.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isAtLimit ? Colors.red : Colors.orange,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        isAtLimit ? Icons.lock : Icons.warning_amber,
-                        color: isAtLimit ? Colors.red : Colors.orange,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          isAtLimit
-                              ? 'Limit erreicht: $totalGuests/$guestLimit Gäste – Upgrade für unbegrenzte Gäste'
-                              : 'Fast voll: $totalGuests/$guestLimit Gäste (Free-Limit)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isAtLimit
-                                ? Colors.red
-                                : Colors.orange.shade800,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      Text(
-                        'Premium ›',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isAtLimit ? Colors.red : Colors.orange,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
 
-            // ── Stat-Cards ────────────────────────────────────────
-            Row(
+      // ── FIX: body ist Column, Oberbereich nicht-expanded, Liste expanded ─
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Gesamter statischer Header-Bereich ────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _filterStatus = null),
-                    child: _buildStatCard(
-                      'Gesamt',
-                      '$totalGuests',
-                      scheme.primary,
-                      Icons.people,
-                      _filterStatus == null && _filterRelationship == null,
+                // Limit-Banner
+                if (isNearLimit || isAtLimit) ...[
+                  GestureDetector(
+                    onTap: () => UpgradeBottomSheet.show(
+                      context,
+                      featureName: 'Unbegrenzte Gäste',
+                      featureDescription:
+                          'Mit Premium planst du ohne Einschränkungen.',
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(
-                      () => _filterStatus = _filterStatus == 'pending'
-                          ? null
-                          : 'pending',
-                    ),
-                    child: _buildStatCard(
-                      'Offen',
-                      '$pendingGuests',
-                      Colors.orange,
-                      Icons.schedule,
-                      _filterStatus == 'pending',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(
-                      () =>
-                          _filterStatus = _filterStatus == 'yes' ? null : 'yes',
-                    ),
-                    child: _buildStatCard(
-                      'Zugesagt',
-                      '$confirmedGuests',
-                      Colors.green,
-                      Icons.check_circle,
-                      _filterStatus == 'yes',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(
-                      () => _filterStatus = _filterStatus == 'no' ? null : 'no',
-                    ),
-                    child: _buildStatCard(
-                      'Abgesagt',
-                      '$declinedGuests',
-                      Colors.red,
-                      Icons.cancel,
-                      _filterStatus == 'no',
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            if (totalChildren > 0) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.primary.withOpacity(0.07),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: scheme.primary.withOpacity(0.2)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.child_care, size: 16, color: scheme.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$totalChildren ${totalChildren == 1 ? 'Kind' : 'Kinder'} in der Gästeliste',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: scheme.primary,
-                        fontWeight: FontWeight.w500,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
                       ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${widget.guests.fold(0, (s, g) => s + g.totalPersons)} Personen gesamt',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: isAtLimit
+                            ? Colors.red.withOpacity(0.1)
+                            : Colors.orange.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isAtLimit ? Colors.red : Colors.orange,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _buildRelChip(null, 'Alle'),
-                  const SizedBox(width: 6),
-                  _buildRelChip('familie', '👨‍👩‍👧 Familie'),
-                  const SizedBox(width: 6),
-                  _buildRelChip('freunde', '👫 Freunde'),
-                  const SizedBox(width: 6),
-                  _buildRelChip('kollegen', '💼 Kollegen'),
-                  const SizedBox(width: 6),
-                  _buildRelChip('bekannte', '🤝 Bekannte'),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 10),
-            TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Gast suchen...',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
-                        onPressed: () => setState(() {
-                          _searchController.clear();
-                          _searchQuery = '';
-                        }),
-                      )
-                    : null,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                isDense: true,
-              ),
-              onChanged: (val) => setState(() => _searchQuery = val),
-            ),
-
-            const SizedBox(height: 10),
-
-            if (_filterStatus != null || _filterRelationship != null) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.shade200),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.filter_alt,
-                      size: 16,
-                      color: Colors.blue.shade700,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      [
-                        if (_filterStatus != null)
-                          _getStatusLabel(_filterStatus!),
-                        if (_filterRelationship != null)
-                          _getRelationshipLabel(_filterRelationship),
-                      ].join(' · '),
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () => setState(() {
-                        _filterStatus = null;
-                        _filterRelationship = null;
-                      }),
-                      child: const Text('Zurücksetzen'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            Expanded(
-              child: filteredGuests.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Row(
                         children: [
                           Icon(
-                            Icons.people_outline,
-                            size: 64,
-                            color: Colors.grey[400],
+                            isAtLimit ? Icons.lock : Icons.warning_amber,
+                            color: isAtLimit ? Colors.red : Colors.orange,
+                            size: 18,
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              isAtLimit
+                                  ? 'Limit erreicht: $totalGuests/$guestLimit Gäste – Upgrade für unbegrenzte Gäste'
+                                  : 'Fast voll: $totalGuests/$guestLimit Gäste (Free-Limit)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isAtLimit
+                                    ? Colors.red
+                                    : Colors.orange.shade800,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
                           Text(
-                            widget.guests.isEmpty
-                                ? 'Noch keine Gäste hinzugefügt'
-                                : 'Keine Gäste gefunden',
+                            'Premium ›',
                             style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey[600],
+                              fontSize: 12,
+                              color: isAtLimit ? Colors.red : Colors.orange,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: filteredGuests.length,
-                      itemBuilder: (context, index) =>
-                          _buildGuestCard(filteredGuests[index]),
                     ),
+                  ),
+                ],
+
+                // Stat-Cards
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _filterStatus = null),
+                        child: _buildStatCard(
+                          'Gesamt',
+                          '$totalGuests',
+                          scheme.primary,
+                          Icons.people,
+                          _filterStatus == null && _filterRelationship == null,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(
+                          () => _filterStatus = _filterStatus == 'pending'
+                              ? null
+                              : 'pending',
+                        ),
+                        child: _buildStatCard(
+                          'Offen',
+                          '$pendingGuests',
+                          Colors.orange,
+                          Icons.schedule,
+                          _filterStatus == 'pending',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(
+                          () => _filterStatus = _filterStatus == 'yes'
+                              ? null
+                              : 'yes',
+                        ),
+                        child: _buildStatCard(
+                          'Zugesagt',
+                          '$confirmedGuests',
+                          Colors.green,
+                          Icons.check_circle,
+                          _filterStatus == 'yes',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(
+                          () => _filterStatus = _filterStatus == 'no'
+                              ? null
+                              : 'no',
+                        ),
+                        child: _buildStatCard(
+                          'Abgesagt',
+                          '$declinedGuests',
+                          Colors.red,
+                          Icons.cancel,
+                          _filterStatus == 'no',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                if (totalChildren > 0) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.primary.withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: scheme.primary.withOpacity(0.2),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.child_care, size: 16, color: scheme.primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          '$totalChildren ${totalChildren == 1 ? 'Kind' : 'Kinder'} in der Gästeliste',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${widget.guests.fold(0, (s, g) => s + g.totalPersons)} Personen gesamt',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildRelChip(null, 'Alle'),
+                      const SizedBox(width: 6),
+                      _buildRelChip('familie', '👨‍👩‍👧 Familie'),
+                      const SizedBox(width: 6),
+                      _buildRelChip('freunde', '👫 Freunde'),
+                      const SizedBox(width: 6),
+                      _buildRelChip('kollegen', '💼 Kollegen'),
+                      const SizedBox(width: 6),
+                      _buildRelChip('bekannte', '🤝 Bekannte'),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Gast suchen...',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () => setState(() {
+                              _searchController.clear();
+                              _searchQuery = '';
+                            }),
+                          )
+                        : null,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    isDense: true,
+                  ),
+                  onChanged: (val) => setState(() => _searchQuery = val),
+                ),
+
+                const SizedBox(height: 10),
+
+                if (_filterStatus != null || _filterRelationship != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.filter_alt,
+                          size: 16,
+                          color: Colors.blue.shade700,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          [
+                            if (_filterStatus != null)
+                              _getStatusLabel(_filterStatus!),
+                            if (_filterRelationship != null)
+                              _getRelationshipLabel(_filterRelationship),
+                          ].join(' · '),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.blue.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _filterStatus = null;
+                            _filterRelationship = null;
+                          }),
+                          child: const Text('Zurücksetzen'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
             ),
-          ],
-        ),
+          ),
+
+          // ── FIX: Expanded ListView – scrollt korrekt ──────────────────
+          Expanded(
+            child: filteredGuests.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.people_outline,
+                          size: 64,
+                          color: Colors.grey[400],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          widget.guests.isEmpty
+                              ? 'Noch keine Gäste hinzugefügt'
+                              : 'Keine Gäste gefunden',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                    itemCount: filteredGuests.length,
+                    itemBuilder: (context, index) =>
+                        _buildGuestCard(filteredGuests[index]),
+                  ),
+          ),
+        ],
       ),
 
-      // ── NEU: FAB mit Limit-Prüfung ────────────────────────────
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _onAddGuestTapped,
         backgroundColor: isAtLimit ? Colors.grey : scheme.primary,
@@ -1112,7 +1127,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 }
 
 // ============================================================================
-// GUEST FORM DIALOG – unverändert
+// GUEST FORM DIALOG
 // ============================================================================
 
 class _GuestFormDialog extends StatefulWidget {
