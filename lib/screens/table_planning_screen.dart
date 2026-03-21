@@ -6,7 +6,8 @@ import '../data/database_helper.dart';
 import '../app_colors.dart';
 import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
-import '../services/table_suggestion_service.dart';
+import '../services/premium_service.dart'; // NEU
+import '../widgets/upgrade_bottom_sheet.dart'; // NEU
 import 'table_suggestion_screen.dart';
 import '../sync/services/sync_service.dart';
 
@@ -21,7 +22,6 @@ class TischplanungPage extends StatefulWidget {
   });
 
   @override
-  // ← Public State-Klasse damit GlobalKey<TischplanungPageState> in main.dart funktioniert
   State<TischplanungPage> createState() => TischplanungPageState();
 }
 
@@ -40,14 +40,9 @@ class TischplanungPageState extends State<TischplanungPage> {
     });
   }
 
-  // ── NEU: Gezieltes Reload für GlobalKey-Zugriff aus main.dart ────────────
-  /// Wird von main.dart über GlobalKey<TischplanungPageState> aufgerufen.
-  /// Lädt Tische aus der DB neu – OHNE den Widget-Tree zu zerstören.
-  /// Dadurch kein Flackern beim Sync-Empfang.
   void reload() {
     _loadTablesFromDb();
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -69,11 +64,12 @@ class TischplanungPageState extends State<TischplanungPage> {
             ),
           )
           .toList();
-      if (mounted)
+      if (mounted) {
         setState(() {
           tables = loaded;
           _isLoadingTables = false;
         });
+      }
     } catch (e) {
       if (mounted) setState(() => _isLoadingTables = false);
     }
@@ -84,7 +80,21 @@ class TischplanungPageState extends State<TischplanungPage> {
     super.didUpdateWidget(oldWidget);
   }
 
-  // ── Tischvorschlag ──────────────────────────────────────────────
+  // ── NEU: Limit-Prüfung vor Tisch anlegen ─────────────────────────────────
+  void _onAddTableTapped() {
+    if (!PremiumService.instance.canAddTable(tables.length)) {
+      UpgradeBottomSheet.show(
+        context,
+        featureName: 'Unbegrenzte Tische',
+        featureDescription:
+            'Du hast das Free-Limit von ${PremiumService.kFreeTableLimit} Tischen erreicht. '
+            'Mit Premium planst du ohne Einschränkungen.',
+      );
+      return;
+    }
+    _showTableForm();
+  }
+
   void _openSuggestion() {
     if (tables.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -95,7 +105,6 @@ class TischplanungPageState extends State<TischplanungPage> {
       );
       return;
     }
-
     final confirmedGuests = widget.guests
         .where((g) => g.confirmed == 'yes')
         .length;
@@ -108,7 +117,6 @@ class TischplanungPageState extends State<TischplanungPage> {
       );
       return;
     }
-
     final tableModels = tables
         .map(
           (t) => TableModel(
@@ -120,7 +128,6 @@ class TischplanungPageState extends State<TischplanungPage> {
           ),
         )
         .toList();
-
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -165,46 +172,32 @@ class TischplanungPageState extends State<TischplanungPage> {
     });
   }
 
-  List<Guest> _getRelevantGuests() {
-    return widget.guests
-        .where((g) => g.confirmed == 'yes' || g.confirmed == 'pending')
-        .toList();
-  }
-
-  List<Guest> _getGuestsForTable(int tableNumber) {
-    return _getRelevantGuests()
-        .where((g) => g.tableNumber == tableNumber)
-        .toList();
-  }
-
-  List<Guest> _getUnassignedGuests() {
-    return _getRelevantGuests()
-        .where(
-          (g) =>
-              g.tableNumber == null ||
-              g.tableNumber == 0 ||
-              !tables.any((t) => t.tableNumber == g.tableNumber),
-        )
-        .toList();
-  }
-
+  List<Guest> _getRelevantGuests() => widget.guests
+      .where((g) => g.confirmed == 'yes' || g.confirmed == 'pending')
+      .toList();
+  List<Guest> _getGuestsForTable(int tableNumber) =>
+      _getRelevantGuests().where((g) => g.tableNumber == tableNumber).toList();
+  List<Guest> _getUnassignedGuests() => _getRelevantGuests()
+      .where(
+        (g) =>
+            g.tableNumber == null ||
+            g.tableNumber == 0 ||
+            !tables.any((t) => t.tableNumber == g.tableNumber),
+      )
+      .toList();
   int get seatedGuestsCount =>
       _getRelevantGuests().length - _getUnassignedGuests().length;
 
   Future<bool> _assignGuestToTable(Guest guest, int tableNumber) async {
     final table = tables.firstWhere((t) => t.tableNumber == tableNumber);
-
     if (guest.tableNumber == tableNumber) return true;
-
     final currentGuestsAtTable = _getGuestsForTable(
       tableNumber,
     ).where((g) => g.id != guest.id).length;
-
     if (currentGuestsAtTable >= table.seats) {
       _showTableFullError();
       return false;
     }
-
     final updatedGuest = guest.copyWith(tableNumber: tableNumber);
     await widget.onUpdateGuest(updatedGuest);
     _syncNow();
@@ -212,8 +205,7 @@ class TischplanungPageState extends State<TischplanungPage> {
   }
 
   Future<void> _removeGuestFromTable(Guest guest) async {
-    final updatedGuest = guest.copyWith(tableNumber: 0);
-    await widget.onUpdateGuest(updatedGuest);
+    await widget.onUpdateGuest(guest.copyWith(tableNumber: 0));
     _syncNow();
   }
 
@@ -230,7 +222,7 @@ class TischplanungPageState extends State<TischplanungPage> {
     );
     try {
       final saved = await _db.createTable(model);
-      if (mounted)
+      if (mounted) {
         setState(() {
           tables.add(
             TableData(
@@ -245,6 +237,7 @@ class TischplanungPageState extends State<TischplanungPage> {
           newTableSeats = 8;
           newTableCategories = '';
         });
+      }
       _syncNow();
     } catch (e) {
       if (mounted)
@@ -277,10 +270,11 @@ class TischplanungPageState extends State<TischplanungPage> {
                   await _removeGuestFromTable(guest);
                 }
                 await _db.deleteTable(tableId);
-                if (mounted)
+                if (mounted) {
                   setState(() {
                     tables.removeWhere((t) => t.id == tableId);
                   });
+                }
                 _syncNow();
                 if (mounted) Navigator.pop(builderContext);
               },
@@ -353,10 +347,11 @@ class TischplanungPageState extends State<TischplanungPage> {
                         ),
                         selected: sel,
                         onSelected: (v) => setDS(() {
-                          if (v)
+                          if (v) {
                             selectedCats.add(cat);
-                          else
+                          } else {
                             selectedCats.remove(cat);
+                          }
                         }),
                         selectedColor: scheme.primaryContainer,
                         checkmarkColor: scheme.primary,
@@ -477,10 +472,11 @@ class TischplanungPageState extends State<TischplanungPage> {
                         ),
                         selected: selected,
                         onSelected: (val) => setDia(() {
-                          if (val)
+                          if (val) {
                             selectedCats.add(cat);
-                          else
+                          } else {
                             selectedCats.remove(cat);
+                          }
                         }),
                         selectedColor: AppColors.primary.withOpacity(0.2),
                         checkmarkColor: AppColors.primary,
@@ -537,9 +533,7 @@ class TischplanungPageState extends State<TischplanungPage> {
                   final newSeats =
                       int.tryParse(seatsController.text.trim()) ?? table.seats;
                   if (newName.isEmpty) return;
-
                   final newCatsRaw = TableCategories.serialize(selectedCats);
-
                   final updatedModel = TableModel(
                     id: table.id,
                     tableName: newName,
@@ -575,14 +569,13 @@ class TischplanungPageState extends State<TischplanungPage> {
                       );
                     }
                   } catch (e) {
-                    if (mounted) {
+                    if (mounted)
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Fehler: $e'),
                           backgroundColor: Colors.red,
                         ),
                       );
-                    }
                   }
                 },
               ),
@@ -595,17 +588,14 @@ class TischplanungPageState extends State<TischplanungPage> {
 
   void _showEditTableDialog(TableData table) {
     String searchQuery = '';
-
     showDialog(
       context: context,
       builder: (builderContext) => StatefulBuilder(
         builder: (context, setDialogState) {
           final theme = Theme.of(context);
           final scheme = theme.colorScheme;
-
           final tableGuests = _getGuestsForTable(table.tableNumber);
           final allFreeGuests = _getUnassignedGuests();
-
           final freeGuests = searchQuery.isEmpty
               ? allFreeGuests
               : allFreeGuests.where((guest) {
@@ -679,7 +669,6 @@ class TischplanungPageState extends State<TischplanungPage> {
                             candidateData.isNotEmpty &&
                             candidateData.first?.tableNumber ==
                                 table.tableNumber;
-
                         return Container(
                           decoration: BoxDecoration(
                             color: isHighlighted
@@ -872,7 +861,6 @@ class TischplanungPageState extends State<TischplanungPage> {
                             candidateData.isNotEmpty &&
                             candidateData.first?.tableNumber ==
                                 table.tableNumber;
-
                         return Container(
                           decoration: BoxDecoration(
                             color: isHighlighted
@@ -893,8 +881,7 @@ class TischplanungPageState extends State<TischplanungPage> {
                                   const Icon(Icons.person_add, size: 16),
                                   const SizedBox(width: 6),
                                   Text(
-                                    'Freie Gäste (${freeGuests.length}'
-                                    '${searchQuery.isNotEmpty ? ' von ${allFreeGuests.length}' : ''})',
+                                    'Freie Gäste (${freeGuests.length}${searchQuery.isNotEmpty ? ' von ${allFreeGuests.length}' : ''})',
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.bold,
@@ -997,8 +984,9 @@ class TischplanungPageState extends State<TischplanungPage> {
                                                         guest,
                                                         table.tableNumber,
                                                       );
-                                                  if (success)
+                                                  if (success) {
                                                     setDialogState(() {});
+                                                  }
                                                 },
                                               ),
                                             );
@@ -1042,7 +1030,6 @@ class TischplanungPageState extends State<TischplanungPage> {
   Widget _buildTinyGuestCard(Guest guest, Color color, VoidCallback? onAction) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
     return Card(
       margin: const EdgeInsets.only(bottom: 4),
       elevation: 1,
@@ -1182,16 +1169,14 @@ class TischplanungPageState extends State<TischplanungPage> {
 
   Future<void> _showExportDialog() async {
     if (widget.guests.isEmpty) {
-      final scheme = Theme.of(context).colorScheme;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Keine Gäste zum Exportieren vorhanden'),
-          backgroundColor: scheme.tertiary,
+          backgroundColor: Theme.of(context).colorScheme.tertiary,
         ),
       );
       return;
     }
-
     showDialog(
       context: context,
       builder: (context) {
@@ -1251,7 +1236,7 @@ class TischplanungPageState extends State<TischplanungPage> {
       );
       await PdfExportService.exportTablePlanToPdf(tables, widget.guests);
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
@@ -1265,10 +1250,9 @@ class TischplanungPageState extends State<TischplanungPage> {
             duration: const Duration(seconds: 2),
           ),
         );
-      }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -1282,7 +1266,6 @@ class TischplanungPageState extends State<TischplanungPage> {
             duration: const Duration(seconds: 3),
           ),
         );
-      }
     }
   }
 
@@ -1296,7 +1279,7 @@ class TischplanungPageState extends State<TischplanungPage> {
       );
       await ExcelExportService.exportSeatingPlanToExcel(widget.guests, tables);
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
@@ -1310,10 +1293,9 @@ class TischplanungPageState extends State<TischplanungPage> {
             duration: const Duration(seconds: 2),
           ),
         );
-      }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -1327,7 +1309,6 @@ class TischplanungPageState extends State<TischplanungPage> {
             duration: const Duration(seconds: 3),
           ),
         );
-      }
     }
   }
 
@@ -1335,6 +1316,12 @@ class TischplanungPageState extends State<TischplanungPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+
+    // ── NEU: Limit-Status ─────────────────────────────────────────────────
+    final isPremium = PremiumService.instance.isPremium;
+    final tableLimit = PremiumService.kFreeTableLimit;
+    final isAtLimit = !isPremium && tables.length >= tableLimit;
+    final isNearLimit = !isPremium && tables.length >= (tableLimit - 2);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1348,6 +1335,66 @@ class TischplanungPageState extends State<TischplanungPage> {
           padding: EdgeInsets.all(isTablet ? 16 : 8),
           child: Column(
             children: [
+              // ── NEU: Limit-Banner ───────────────────────────────────
+              if (isNearLimit || isAtLimit) ...[
+                GestureDetector(
+                  onTap: () => UpgradeBottomSheet.show(
+                    context,
+                    featureName: 'Unbegrenzte Tische',
+                    featureDescription:
+                        'Mit Premium planst du ohne Einschränkungen.',
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: isAtLimit
+                          ? Colors.red.withOpacity(0.1)
+                          : Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isAtLimit ? Colors.red : Colors.orange,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isAtLimit ? Icons.lock : Icons.warning_amber,
+                          color: isAtLimit ? Colors.red : Colors.orange,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            isAtLimit
+                                ? 'Limit erreicht: ${tables.length}/$tableLimit Tische'
+                                : 'Fast voll: ${tables.length}/$tableLimit Tische (Free-Limit)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isAtLimit
+                                  ? Colors.red
+                                  : Colors.orange.shade800,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'Premium ›',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isAtLimit ? Colors.red : Colors.orange,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
               Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -1401,12 +1448,21 @@ class TischplanungPageState extends State<TischplanungPage> {
                             ),
                           ),
                           const SizedBox(width: 4),
+                          // ── NEU: Button mit Limit-Prüfung ──
                           ElevatedButton.icon(
-                            onPressed: _showTableForm,
-                            icon: const Icon(Icons.add),
-                            label: Text(isTablet ? 'Neuer Tisch' : 'Tisch'),
+                            onPressed: _onAddTableTapped,
+                            icon: Icon(isAtLimit ? Icons.lock : Icons.add),
+                            label: Text(
+                              isTablet
+                                  ? (isAtLimit
+                                        ? 'Limit ($tableLimit)'
+                                        : 'Neuer Tisch')
+                                  : (isAtLimit ? 'Limit' : 'Tisch'),
+                            ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: scheme.primary,
+                              backgroundColor: isAtLimit
+                                  ? Colors.grey
+                                  : scheme.primary,
                               foregroundColor: scheme.onPrimary,
                             ),
                           ),
@@ -1515,7 +1571,6 @@ class TischplanungPageState extends State<TischplanungPage> {
                                 final tableGuests = _getGuestsForTable(
                                   table.tableNumber,
                                 );
-
                                 return DragTargetTableCard(
                                   table: table,
                                   guests: tableGuests,
@@ -1594,7 +1649,7 @@ class TischplanungPageState extends State<TischplanungPage> {
 }
 
 // ================================
-// DRAG & DROP WIDGETS
+// DRAG & DROP WIDGETS – unverändert
 // ================================
 
 class DraggableGuestCard extends StatelessWidget {
@@ -1612,7 +1667,6 @@ class DraggableGuestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-
     return Draggable<Guest>(
       data: guest,
       feedback: Material(
@@ -1649,7 +1703,6 @@ class DraggableGuestCard extends StatelessWidget {
   Widget _buildGuestContainer(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
       padding: EdgeInsets.all(isTablet ? 8 : 6),
@@ -1713,7 +1766,6 @@ class DragTargetTableCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
     return DragTarget<Guest>(
       onAcceptWithDetails: (details) => onGuestDropped(details.data),
       onWillAcceptWithDetails: (details) =>
@@ -1724,7 +1776,6 @@ class DragTargetTableCard extends StatelessWidget {
         final isFromThisTable =
             candidateData.isNotEmpty &&
             candidateData.first?.tableNumber == table.tableNumber;
-
         return Card(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
@@ -2019,13 +2070,11 @@ class UnassignedGuestsArea extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
     return DragTarget<Guest>(
       onAcceptWithDetails: (details) => onGuestDropped(details.data),
       onWillAcceptWithDetails: (details) => true,
       builder: (builderContext, candidateData, rejectedData) {
         final isHighlighted = candidateData.isNotEmpty;
-
         return Container(
           decoration: BoxDecoration(
             color: isHighlighted
@@ -2105,13 +2154,11 @@ class UnassignedGuestsArea extends StatelessWidget {
                         padding: EdgeInsets.all(isTablet ? 8 : 4),
                         child: ListView.builder(
                           itemCount: guests.length,
-                          itemBuilder: (context, index) {
-                            return DraggableGuestCard(
-                              guest: guests[index],
-                              onTap: () => onGuestTap(guests[index]),
-                              isTablet: isTablet,
-                            );
-                          },
+                          itemBuilder: (context, index) => DraggableGuestCard(
+                            guest: guests[index],
+                            onTap: () => onGuestTap(guests[index]),
+                            isTablet: isTablet,
+                          ),
                         ),
                       ),
               ),

@@ -6,6 +6,8 @@ import '../widgets/budget_donut_chart.dart';
 import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
+import '../services/premium_service.dart'; // NEU
+import '../widgets/upgrade_bottom_sheet.dart'; // NEU
 import 'budget_detail_screen.dart';
 import 'payment_plan_screen.dart';
 import 'auto_budget_allocation_sheet.dart';
@@ -28,17 +30,14 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   double _totalBudget = 0.0;
   final _totalBudgetController = TextEditingController();
 
-  // ── Smart Budget: Gästedaten ─────────────────────────────────────────────
   int _guestCount = 0;
   int _childCount = 0;
   double _childMenuPrice = 0.0;
   double _adultMenuPrice = 0.0;
   bool _bannerDismissed = false;
 
-  // ── Bezahlt-Filter ───────────────────────────────────────────────────────
-  String _paidFilter = 'all'; // 'all' | 'open' | 'paid'
+  String _paidFilter = 'all';
 
-  // ── NEU: Offene Zahlungen pro Budget-Item ────────────────────────────────
   Map<int, List<PaymentPlan>> _openPaymentsByBudgetItem = {};
 
   final Map<String, String> _categoryLabels = {
@@ -113,7 +112,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     super.dispose();
   }
 
-  // ── Gästezahl + Menüpreise aus DB laden ──────────────────────────────────
   Future<void> _loadGuestData() async {
     try {
       final guests = await DatabaseHelper.instance.getAllGuests();
@@ -136,7 +134,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     }
   }
 
-  // ── NEU: Offene Zahlungen pro Budget-Item laden ───────────────────────────
   Future<void> _loadPaymentPlanSummary() async {
     try {
       final plans = await DatabaseHelper.instance.getAllPaymentPlans();
@@ -160,7 +157,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       (_fieldValidation['item_name'] ?? false) &&
       (_fieldValidation['planned_amount'] ?? false);
 
-  // ── Budget-Überschreitung ─────────────────────────────────────────────────
   bool get _isOverBudget => _totalBudget > 0 && totalActual > _totalBudget;
 
   int get _overBudgetCategoryCount =>
@@ -170,7 +166,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       ? (totalActual - _totalBudget).clamp(0, double.infinity)
       : 0;
 
-  // ── Pro-Kopf ──────────────────────────────────────────────────────────────
   int get _totalGuests => _guestCount + _childCount;
 
   double get _perPersonActual =>
@@ -204,7 +199,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     final controller = TextEditingController(
       text: _totalBudget.toStringAsFixed(0),
     );
-
     final result = await showDialog<double>(
       context: context,
       builder: (context) => AlertDialog(
@@ -246,7 +240,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         ],
       ),
     );
-
     if (result != null) await _saveTotalBudget(result);
   }
 
@@ -271,12 +264,11 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     try {
       setState(() => _isLoading = true);
       final items = await DatabaseHelper.instance.getAllBudgetItems();
-      if (mounted) {
+      if (mounted)
         setState(() {
           _budgetItems = items;
           _isLoading = false;
         });
-      }
     } catch (e) {
       debugPrint('Fehler beim Laden der Budget-Items: $e');
       if (mounted) setState(() => _isLoading = false);
@@ -285,10 +277,8 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   double get totalPlanned =>
       _budgetItems.fold(0.0, (sum, item) => sum + item.planned);
-
   double get totalActual =>
       _budgetItems.fold(0.0, (sum, item) => sum + item.actual);
-
   double get remaining => totalPlanned - totalActual;
 
   Map<String, Map<String, dynamic>> get categoryStats {
@@ -304,6 +294,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     return stats;
   }
 
+  // ── NEU: Export mit Premium-Prüfung ─────────────────────────────────────
   Future<void> _showExportDialog() async {
     if (_budgetItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -315,6 +306,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       return;
     }
 
+    final canExport = PremiumService.instance.canExportBudget;
+    final canPdfReport = PremiumService.instance.canUseBudgetPdf;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -323,45 +317,117 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(
+              leading: Icon(
                 Icons.summarize_outlined,
-                color: Colors.purple,
+                color: canPdfReport ? Colors.purple : Colors.grey,
                 size: 32,
               ),
-              title: const Text('Budget-Bericht (PDF)'),
-              subtitle: const Text(
-                'Vollständig: Ampeln, Catering, Zahlungsplan',
+              title: Row(
+                children: [
+                  const Text('Budget-Bericht (PDF)'),
+                  if (!canPdfReport) ...[
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.workspace_premium,
+                      size: 14,
+                      color: Colors.amber,
+                    ),
+                  ],
+                ],
+              ),
+              subtitle: Text(
+                canPdfReport
+                    ? 'Vollständig: Ampeln, Catering, Zahlungsplan'
+                    : 'Premium-Feature',
+                style: TextStyle(color: canPdfReport ? null : Colors.grey),
               ),
               onTap: () {
                 Navigator.pop(context);
+                if (!canPdfReport) {
+                  UpgradeBottomSheet.show(
+                    context,
+                    featureName: 'Budget PDF-Bericht',
+                    featureDescription:
+                        'Exportiere einen vollständigen Budget-Bericht mit Ampeln, Catering und Zahlungsplan.',
+                  );
+                  return;
+                }
                 _exportBudgetReport();
               },
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(
+              leading: Icon(
                 Icons.picture_as_pdf,
-                color: Colors.red,
+                color: canExport ? Colors.red : Colors.grey,
                 size: 32,
               ),
-              title: const Text('Als PDF exportieren'),
-              subtitle: const Text('Einfache Zusammenfassung'),
+              title: Row(
+                children: [
+                  const Text('Als PDF exportieren'),
+                  if (!canExport) ...[
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.workspace_premium,
+                      size: 14,
+                      color: Colors.amber,
+                    ),
+                  ],
+                ],
+              ),
+              subtitle: Text(
+                canExport ? 'Einfache Zusammenfassung' : 'Premium-Feature',
+                style: TextStyle(color: canExport ? null : Colors.grey),
+              ),
               onTap: () {
                 Navigator.pop(context);
+                if (!canExport) {
+                  UpgradeBottomSheet.show(
+                    context,
+                    featureName: 'Budget-Export',
+                    featureDescription:
+                        'Exportiere dein Budget als PDF oder Excel.',
+                  );
+                  return;
+                }
                 _exportAsPdf();
               },
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(
+              leading: Icon(
                 Icons.table_chart,
-                color: Colors.green,
+                color: canExport ? Colors.green : Colors.grey,
                 size: 32,
               ),
-              title: const Text('Als Excel exportieren'),
-              subtitle: const Text('Detaillierte Auswertung'),
+              title: Row(
+                children: [
+                  const Text('Als Excel exportieren'),
+                  if (!canExport) ...[
+                    const SizedBox(width: 6),
+                    const Icon(
+                      Icons.workspace_premium,
+                      size: 14,
+                      color: Colors.amber,
+                    ),
+                  ],
+                ],
+              ),
+              subtitle: Text(
+                canExport ? 'Detaillierte Auswertung' : 'Premium-Feature',
+                style: TextStyle(color: canExport ? null : Colors.grey),
+              ),
               onTap: () {
                 Navigator.pop(context);
+                if (!canExport) {
+                  UpgradeBottomSheet.show(
+                    context,
+                    featureName: 'Budget-Export',
+                    featureDescription:
+                        'Exportiere dein Budget als PDF oder Excel.',
+                  );
+                  return;
+                }
                 _exportAsExcel();
               },
             ),
@@ -399,7 +465,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -413,7 +479,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             duration: const Duration(seconds: 3),
           ),
         );
-      }
     }
   }
 
@@ -426,7 +491,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       );
       await PdfExportService.exportBudgetToPdf(_budgetItems);
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Row(
@@ -440,10 +505,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             duration: Duration(seconds: 2),
           ),
         );
-      }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -457,7 +521,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             duration: const Duration(seconds: 3),
           ),
         );
-      }
     }
   }
 
@@ -470,7 +533,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       );
       await ExcelExportService.exportBudgetToExcel(_budgetItems);
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Row(
@@ -484,10 +547,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             duration: Duration(seconds: 2),
           ),
         );
-      }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -501,7 +563,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             duration: const Duration(seconds: 3),
           ),
         );
-      }
     }
   }
 
@@ -532,7 +593,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         'updated_at': DateTime.now().toIso8601String(),
         'deleted': 0,
       });
-
       _itemNameController.clear();
       _plannedAmountController.clear();
       _actualAmountController.clear();
@@ -545,8 +605,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       });
       await _loadBudgetItems();
       _syncNow();
-
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Row(
@@ -560,7 +619,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             duration: Duration(seconds: 2),
           ),
         );
-      }
     } catch (e) {
       debugPrint('Fehler beim Hinzufügen des Budget-Items: $e');
     }
@@ -602,14 +660,12 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-
     final scheme = Theme.of(context).colorScheme;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
-          // ── Header ──────────────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -635,19 +691,14 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 ),
               ),
               const SizedBox(width: 8),
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  IconButton(
-                    onPressed: _showExportDialog,
-                    icon: const Icon(Icons.share),
-                    tooltip: 'Exportieren',
-                    style: IconButton.styleFrom(
-                      backgroundColor: scheme.secondaryContainer,
-                      foregroundColor: scheme.onSecondaryContainer,
-                    ),
-                  ),
-                ],
+              IconButton(
+                onPressed: _showExportDialog,
+                icon: const Icon(Icons.share),
+                tooltip: 'Exportieren',
+                style: IconButton.styleFrom(
+                  backgroundColor: scheme.secondaryContainer,
+                  foregroundColor: scheme.onSecondaryContainer,
+                ),
               ),
               const SizedBox(width: 4),
               ElevatedButton.icon(
@@ -677,27 +728,18 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
             ],
           ),
           const SizedBox(height: 16),
-
-          // ── Überschreitungs-Banner ───────────────────────────────────────
           if (_isOverBudget && !_bannerDismissed) ...[
             _buildOverBudgetBanner(),
             const SizedBox(height: 12),
           ],
-
-          // ── KI-Analyse Button ────────────────────────────────────────────
           _buildAiAnalysisButton(),
           const SizedBox(height: 12),
-
-          // ── Auto-Budget Button (nur wenn noch keine Posten) ────────────
           if (_budgetItems.isEmpty && _totalBudget > 0) ...[
             _buildAutoBudgetButton(),
             const SizedBox(height: 12),
           ],
-
-          // ── Quick-Chips ───────────────────────────────────────────────────
           _buildQuickChips(),
           const SizedBox(height: 16),
-
           _buildTotalBudgetCard(),
           const SizedBox(height: 16),
           if (_showForm) ...[_buildAddItemForm(), const SizedBox(height: 16)],
@@ -709,7 +751,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // ── Überschreitungs-Banner ─────────────────────────────────────────────────
   Widget _buildOverBudgetBanner() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -752,26 +793,43 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // ── KI-Analyse Button ──────────────────────────────────────────────────────
+  // ── NEU: KI-Analyse Button mit Premium-Prüfung ───────────────────────────
   Widget _buildAiAnalysisButton() {
     final isOver = _isOverBudget;
+    final isPremium = PremiumService.instance.canUseAI;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: _showAiAnalysisDialog,
+        onTap: () {
+          if (!isPremium) {
+            UpgradeBottomSheet.show(
+              context,
+              featureName: 'KI Budget-Analyse',
+              featureDescription:
+                  'Erhalte KI-gestützte Empfehlungen, Richtwert-Ampeln und Einsparpotenziale für dein Hochzeitsbudget.',
+            );
+            return;
+          }
+          _showAiAnalysisDialog();
+        },
         borderRadius: BorderRadius.circular(14),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF2c1810), Color(0xFF6d3050)],
+            gradient: LinearGradient(
+              colors: isPremium
+                  ? [const Color(0xFF2c1810), const Color(0xFF6d3050)]
+                  : [Colors.grey.shade400, Colors.grey.shade500],
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
             ),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF2c1810).withOpacity(0.25),
+                color: const Color(
+                  0xFF2c1810,
+                ).withOpacity(isPremium ? 0.25 : 0.1),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -779,7 +837,10 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
           ),
           child: Row(
             children: [
-              const Text('🤖', style: TextStyle(fontSize: 22)),
+              Text(
+                isPremium ? '🤖' : '🔒',
+                style: const TextStyle(fontSize: 22),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -794,7 +855,9 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                       ),
                     ),
                     Text(
-                      'Pro-Kopf-Kosten · Einsparpotenzial · Empfehlungen',
+                      isPremium
+                          ? 'Pro-Kopf-Kosten · Einsparpotenzial · Empfehlungen'
+                          : 'Premium-Feature – Jetzt upgraden',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.7),
                         fontSize: 11,
@@ -803,7 +866,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   ],
                 ),
               ),
-              if (isOver)
+              if (isPremium && isOver)
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 10,
@@ -814,7 +877,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    '${_overBudgetCategoryCount} Warnung${_overBudgetCategoryCount != 1 ? 'en' : ''}',
+                    '$_overBudgetCategoryCount Warnung${_overBudgetCategoryCount != 1 ? 'en' : ''}',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -823,10 +886,10 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                   ),
                 )
               else
-                const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.white54,
-                  size: 14,
+                Icon(
+                  isPremium ? Icons.arrow_forward_ios : Icons.workspace_premium,
+                  color: Colors.white.withOpacity(0.8),
+                  size: isPremium ? 14 : 18,
                 ),
             ],
           ),
@@ -835,10 +898,22 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
+  // ── NEU: Auto-Budget Button mit Premium-Prüfung ──────────────────────────
   Widget _buildAutoBudgetButton() {
     final scheme = Theme.of(context).colorScheme;
+    final isPremium = PremiumService.instance.canUseSmartBudget;
+
     return GestureDetector(
       onTap: () {
+        if (!isPremium) {
+          UpgradeBottomSheet.show(
+            context,
+            featureName: 'Auto-Budget-Aufteilung',
+            featureDescription:
+                'Teile dein Budget automatisch auf alle Kategorien auf – basierend auf bewährten Richtwerten.',
+          );
+          return;
+        }
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
@@ -849,8 +924,8 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
               _loadBudgetItems();
               _syncNow();
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Row(
+                const SnackBar(
+                  content: Row(
                     children: [
                       Icon(Icons.check_circle, color: Colors.white),
                       SizedBox(width: 8),
@@ -858,7 +933,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     ],
                   ),
                   backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 2),
+                  duration: Duration(seconds: 2),
                 ),
               );
             },
@@ -868,15 +943,21 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: BoxDecoration(
-          color: scheme.primary.withOpacity(0.06),
-          border: Border.all(color: scheme.primary.withOpacity(0.3)),
+          color: isPremium
+              ? scheme.primary.withOpacity(0.06)
+              : Colors.grey.withOpacity(0.06),
+          border: Border.all(
+            color: isPremium
+                ? scheme.primary.withOpacity(0.3)
+                : Colors.grey.withOpacity(0.3),
+          ),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
             Icon(
-              Icons.pie_chart_outline_rounded,
-              color: scheme.primary,
+              isPremium ? Icons.pie_chart_outline_rounded : Icons.lock_outline,
+              color: isPremium ? scheme.primary : Colors.grey,
               size: 20,
             ),
             const SizedBox(width: 12),
@@ -889,33 +970,52 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
-                      color: scheme.primary,
+                      color: isPremium ? scheme.primary : Colors.grey,
                     ),
                   ),
                   Text(
-                    'Richtwerte für alle Kategorien als Startpunkt',
+                    isPremium
+                        ? 'Richtwerte für alle Kategorien als Startpunkt'
+                        : 'Premium-Feature',
                     style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios, size: 14, color: scheme.primary),
+            Icon(
+              isPremium ? Icons.arrow_forward_ios : Icons.workspace_premium,
+              size: isPremium ? 14 : 18,
+              color: isPremium ? scheme.primary : Colors.amber,
+            ),
           ],
         ),
       ),
     );
   }
 
+  // ── NEU: Zahlungsplan Button mit Premium-Prüfung ─────────────────────────
   Widget _buildPaymentPlanButton() {
+    final isPremium = PremiumService.instance.canUsePaymentPlan;
+
     return GestureDetector(
-      onTap: () =>
-          Navigator.push(
+      onTap: () {
+        if (!isPremium) {
+          UpgradeBottomSheet.show(
             context,
-            MaterialPageRoute(builder: (_) => const PaymentPlanScreen()),
-          ).then((_) {
-            _loadBudgetItems();
-            _loadPaymentPlanSummary();
-          }),
+            featureName: 'Zahlungsplan',
+            featureDescription:
+                'Behalte alle anstehenden Zahlungen im Blick – mit Zeitstrahl, Fälligkeiten und Erinnerungen.',
+          );
+          return;
+        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PaymentPlanScreen()),
+        ).then((_) {
+          _loadBudgetItems();
+          _loadPaymentPlanSummary();
+        });
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 14),
         decoration: BoxDecoration(
@@ -926,7 +1026,11 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.payment_outlined, size: 18, color: Colors.grey.shade700),
+            Icon(
+              isPremium ? Icons.payment_outlined : Icons.lock_outline,
+              size: 18,
+              color: Colors.grey.shade700,
+            ),
             const SizedBox(width: 6),
             Text(
               'Zahlungsplan',
@@ -936,6 +1040,14 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 color: Colors.grey.shade700,
               ),
             ),
+            if (!isPremium) ...[
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.workspace_premium,
+                size: 14,
+                color: Colors.amber,
+              ),
+            ],
           ],
         ),
       ),
@@ -949,7 +1061,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     final childCtrl = TextEditingController(
       text: _childMenuPrice.toStringAsFixed(0),
     );
-
     await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1040,7 +1151,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
         _overBudgetCategoryCount > 0,
       ),
     ];
-
     return Row(
       children: [
         Expanded(
@@ -1331,7 +1441,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 
   Widget _buildAddItemForm() {
     final scheme = Theme.of(context).colorScheme;
-
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1539,7 +1648,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                 final percentage = stat['plannedTotal'] > 0
                     ? (stat['actualTotal'] / stat['plannedTotal']) * 100
                     : 0.0;
-
                 return GestureDetector(
                   onTap: () async {
                     await Navigator.push(
@@ -1652,16 +1760,13 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
     );
   }
 
-  // ── Budget Items Liste MIT offenen Zahlungen ───────────────────────────────
   Widget _buildBudgetItemsList() {
     final dividerColor = Theme.of(context).dividerColor;
-
     final filteredItems = _budgetItems.where((item) {
       if (_paidFilter == 'paid') return item.paid;
       if (_paidFilter == 'open') return !item.paid;
       return true;
     }).toList();
-
     final totalOpen = _budgetItems
         .where((i) => !i.paid)
         .fold(0.0, (s, i) => s + i.actual);
@@ -1677,7 +1782,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header mit Filter-Chips
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
             child: Column(
@@ -1742,8 +1846,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                     final isPaid = item.paid;
                     final isItemOver =
                         item.actual > item.planned && item.planned > 0;
-
-                    // Offene Zahlungen für dieses Budget-Item
                     final openPlans = item.id != null
                         ? (_openPaymentsByBudgetItem[item.id] ?? [])
                         : <PaymentPlan>[];
@@ -1771,7 +1873,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Haupt-Zeile
                             Row(
                               children: [
                                 GestureDetector(
@@ -1888,8 +1989,6 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
                                 ),
                               ],
                             ),
-
-                            // ── NEU: Offene Zahlungen Badge ────────────────
                             if (openPlans.isNotEmpty) ...[
                               const SizedBox(height: 6),
                               GestureDetector(
@@ -1976,7 +2075,7 @@ class EnhancedBudgetPageState extends State<EnhancedBudgetPage> {
 }
 
 // ============================================================================
-// KI BUDGET ANALYSE BOTTOM SHEET
+// KI BUDGET ANALYSE BOTTOM SHEET – unverändert
 // ============================================================================
 
 class _AiBudgetAnalysisSheet extends StatefulWidget {
@@ -2009,7 +2108,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
   int _tab = 0;
   BudgetAiAnalysis? _analysis;
   late TabController _tabController;
-
   int _scenarioRemove = 0;
   bool _openBar = true;
   double _drinksPerPersonPerHour = 2.0;
@@ -2022,9 +2120,8 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
-      if (!_tabController.indexIsChanging) {
+      if (!_tabController.indexIsChanging)
         setState(() => _tab = _tabController.index);
-      }
     });
     _analysis = BudgetAiService.analyze(
       budgetItems: widget.budgetItems,
@@ -2082,7 +2179,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
   Widget build(BuildContext context) {
     final a = _analysis!;
     final scheme = Theme.of(context).colorScheme;
-
     return Container(
       height: MediaQuery.of(context).size.height * 0.88,
       decoration: BoxDecoration(
@@ -2228,7 +2324,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
     final totalPlanned = widget.budgetItems.fold(0.0, (s, i) => s + i.planned);
     final diff = totalActual - widget.totalBudget;
     final isOver = diff > 0;
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -2335,7 +2430,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
     final pct = widget.totalBudget > 0
         ? (totalActual / widget.totalBudget) * 100
         : 0.0;
-
     Color bgColor;
     Color borderColor;
     Color textColor;
@@ -2362,7 +2456,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
       label = '🔴 Rot – ${(pct - 100).toStringAsFixed(1)}% über Budget';
       sub = '+${_fmt(diff.abs())} € über dem Gesamtbudget';
     }
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
@@ -2406,7 +2499,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
     final barFill = b.benchmarkMax > 0
         ? (b.actualAmount / (b.benchmarkMax * 1.3)).clamp(0.0, 1.0)
         : 0.0;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -2485,7 +2577,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
     final scenarioSavings = _scenarioRemove * widget.adultMenuPrice;
     final scenarioNewTotal =
         widget.budgetItems.fold(0.0, (s, i) => s + i.actual) - scenarioSavings;
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -2629,9 +2720,7 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
               if (_scenarioRemove > 0) ...[
                 const SizedBox(height: 8),
                 Text(
-                  '→ $_scenarioRemove Gäste weniger sparen '
-                  '${_fmt(scenarioSavings)} € (nur Catering). '
-                  'Neue Gesamtkosten: ${_fmt(scenarioNewTotal)} €.',
+                  '→ $_scenarioRemove Gäste weniger sparen ${_fmt(scenarioSavings)} € (nur Catering). Neue Gesamtkosten: ${_fmt(scenarioNewTotal)} €.',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade600,
@@ -2657,7 +2746,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
 
   Widget _buildCateringTab(BudgetAiAnalysis a) {
     final c = a.cateringBreakdown;
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -2870,10 +2958,7 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
                 _pricePerDrink *
                 (widget.guestCount + widget.childCount),
             subtitle:
-                '${widget.guestCount + widget.childCount} Pers. × '
-                '${_drinksPerPersonPerHour.toStringAsFixed(1)} × '
-                '${_hoursOfEvent.toStringAsFixed(0)} Std. × '
-                '${_pricePerDrink.toStringAsFixed(1)} €',
+                '${widget.guestCount + widget.childCount} Pers. × ${_drinksPerPersonPerHour.toStringAsFixed(1)} × ${_hoursOfEvent.toStringAsFixed(0)} Std. × ${_pricePerDrink.toStringAsFixed(1)} €',
           ),
         ],
       ],
@@ -3077,7 +3162,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
           final isWarning = rec.startsWith('⚠️') || rec.contains('über Budget');
           final isChild = rec.startsWith('👶');
           final isGood = rec.startsWith('✅');
-
           Color bgColor = Colors.grey.shade50;
           Color borderColor = Colors.grey.shade200;
           if (isWarning) {
@@ -3096,7 +3180,6 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
             bgColor = Colors.red.shade50;
             borderColor = Colors.red.shade200;
           }
-
           return Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(12),
@@ -3161,14 +3244,13 @@ class _AiBudgetAnalysisSheetState extends State<_AiBudgetAnalysisSheet>
 }
 
 // ============================================================================
-// BUDGET ITEM EDIT DIALOG
+// BUDGET ITEM EDIT DIALOG – unverändert
 // ============================================================================
 
 class _BudgetItemEditDialog extends StatefulWidget {
   final BudgetItem item;
   final Map<String, String> categoryLabels;
   final VoidCallback onSave;
-
   const _BudgetItemEditDialog({
     required this.item,
     required this.categoryLabels,
@@ -3186,7 +3268,6 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
   late TextEditingController _notesController;
   late String _selectedCategory;
   late bool _isPaid;
-
   final Map<String, bool> _fieldValidation = {};
 
   @override
@@ -3252,11 +3333,10 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Fehler beim Speichern: $e')));
-      }
     }
   }
 
@@ -3281,18 +3361,16 @@ class _BudgetItemEditDialogState extends State<_BudgetItemEditDialog> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Fehler beim Löschen: $e')));
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-
     return AlertDialog(
       title: const Text('Budgetposten bearbeiten'),
       content: SingleChildScrollView(

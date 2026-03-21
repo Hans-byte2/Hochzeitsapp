@@ -7,14 +7,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // NEU
 
 import '../services/profile_providers.dart';
 import '../services/theme_providers.dart';
 import '../services/sync_service.dart';
-import '../services/premium_service.dart'; // NEU
+import '../services/premium_service.dart';
 import '../theme/theme_variant.dart';
 import '../widgets/theme_picker_grid.dart';
-import '../data/database_helper.dart'; // NEU – für db-Zugriff
+import '../data/database_helper.dart';
+import '../widgets/upgrade_bottom_sheet.dart';
 
 class SettingsPage extends ConsumerWidget {
   final Future<void> Function()? onDataReloaded;
@@ -40,8 +42,6 @@ class SettingsPage extends ConsumerWidget {
           const _Section(title: 'Allgemein', child: _GeneralCard()),
           const SizedBox(height: 16),
           const _Section(title: 'Über HeartPebble', child: _AboutCard()),
-
-          // ── NEU: Debug-Bereich – nur im Debug-Build sichtbar ──
           if (kDebugMode) ...[
             const SizedBox(height: 16),
             const _Section(
@@ -56,7 +56,7 @@ class SettingsPage extends ConsumerWidget {
 }
 
 // ============================================================================
-// NEU: DEBUG PREMIUM CARD
+// DEBUG PREMIUM CARD
 // ============================================================================
 
 class _DebugPremiumCard extends StatefulWidget {
@@ -70,6 +70,8 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
   bool get _isPremium => PremiumService.instance.isPremium;
 
   Future<void> _unlock() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('debug_force_free'); // Flag aufheben
     final db = await DatabaseHelper.instance.database;
     await PremiumService.instance.unlock(db);
     setState(() {});
@@ -99,12 +101,31 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
     }
   }
 
+  // ── NEU: Migration zurücksetzen + debug_force_free setzen ───────────────
+  Future<void> _resetMigration() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('premium_migration_v1');
+    await prefs.setBool('debug_force_free', true); // verhindert Re-Migration
+    final db = await DatabaseHelper.instance.database;
+    await PremiumService.instance.revoke(db);
+    setState(() {});
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔄 Migration zurückgesetzt – App neu starten!'),
+          backgroundColor: Colors.blue,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Status-Anzeige
+        // Status
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -137,7 +158,7 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
         ),
         const SizedBox(height: 12),
 
-        // Feature-Flags Übersicht
+        // Feature-Flags
         const Text(
           'Feature-Flags:',
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
@@ -178,7 +199,7 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
         ),
         const SizedBox(height: 16),
 
-        // Buttons
+        // Zeile 1: Premium aktivieren / Zurücksetzen
         Row(
           children: [
             Expanded(
@@ -201,6 +222,19 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
           ],
         ),
         const SizedBox(height: 8),
+
+        // Zeile 2: Free testen
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _resetMigration,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Free testen (Migration zurücksetzen)'),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.blue),
+          ),
+        ),
+        const SizedBox(height: 8),
+
         const Text(
           'Nur im Debug-Build sichtbar. Im Release-Build durch In-App-Purchase ersetzt.',
           style: TextStyle(fontSize: 11, color: Colors.grey),
@@ -212,7 +246,6 @@ class _DebugPremiumCardState extends State<_DebugPremiumCard> {
 
 class _FlagChip extends StatelessWidget {
   const _FlagChip(this.label, this.enabled);
-
   final String label;
   final bool enabled;
 
@@ -241,12 +274,11 @@ class _FlagChip extends StatelessWidget {
 }
 
 // ============================================================================
-// BESTEHENDER CODE – unverändert
+// SECTION
 // ============================================================================
 
 class _Section extends StatelessWidget {
   const _Section({required this.title, required this.child});
-
   final String title;
   final Widget child;
 
@@ -266,6 +298,10 @@ class _Section extends StatelessWidget {
     );
   }
 }
+
+// ============================================================================
+// PROFILE CARD
+// ============================================================================
 
 class _ProfileCard extends ConsumerWidget {
   const _ProfileCard();
@@ -298,9 +334,7 @@ class _ProfileCard extends ConsumerWidget {
             const SizedBox(width: 12),
             const Expanded(
               child: Text(
-                'Profilbild für die Startseite festlegen.\n'
-                'Es wird hinter den Eingabefeldern für\n'
-                'Namen und Hochzeitsdatum angezeigt.',
+                'Profilbild für die Startseite festlegen.\nEs wird hinter den Eingabefeldern für\nNamen und Hochzeitsdatum angezeigt.',
                 style: TextStyle(fontSize: 13),
               ),
             ),
@@ -327,22 +361,22 @@ class _ProfileCard extends ConsumerWidget {
       imageQuality: 90,
     );
     if (image == null) return;
-
     final dir = await getApplicationDocumentsDirectory();
     final filename =
         'profile_${DateTime.now().millisecondsSinceEpoch.toString()}.jpg';
     final file = File('${dir.path}/$filename');
     await File(image.path).copy(file.path);
-
     await ref.read(profileControllerProvider.notifier).setImagePath(file.path);
-
-    if (context.mounted) {
+    if (context.mounted)
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Profilbild aktualisiert')));
-    }
   }
 }
+
+// ============================================================================
+// APPEARANCE CARD
+// ============================================================================
 
 class _AppearanceCard extends ConsumerWidget {
   const _AppearanceCard();
@@ -350,7 +384,6 @@ class _AppearanceCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(themeControllerProvider.notifier);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -411,19 +444,20 @@ class _AppearanceCard extends ConsumerWidget {
 
 class _ModeChip extends StatelessWidget {
   const _ModeChip({required this.label, required this.onTap});
-
   final String label;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return ActionChip(label: Text(label), onPressed: onTap);
-  }
+  Widget build(BuildContext context) =>
+      ActionChip(label: Text(label), onPressed: onTap);
 }
+
+// ============================================================================
+// SYNC CARD
+// ============================================================================
 
 class _SyncCard extends ConsumerStatefulWidget {
   final Future<void> Function()? onDataReloaded;
-
   const _SyncCard({this.onDataReloaded});
 
   @override
@@ -432,7 +466,6 @@ class _SyncCard extends ConsumerStatefulWidget {
 
 class _SyncCardState extends ConsumerState<_SyncCard> {
   final SyncService _syncService = SyncService();
-
   bool _isExporting = false;
   bool _isImporting = false;
   String _databaseSize = '...';
@@ -447,52 +480,65 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
   Future<void> _loadDatabaseInfo() async {
     final size = await _syncService.getDatabaseSize();
     final counts = await _syncService.countAllRecords();
-
-    if (mounted) {
+    if (mounted)
       setState(() {
         _databaseSize = size;
         _recordCounts = counts;
       });
+  }
+
+  void _onExportTapped() {
+    if (!PremiumService.instance.canUsePartnerSync) {
+      UpgradeBottomSheet.show(
+        context,
+        featureName: 'Partner-Sync',
+        featureDescription:
+            'Teile deine Hochzeitsplanung in Echtzeit mit deinem Partner. Export und Import sind ein Premium-Feature.',
+      );
+      return;
     }
+    _handleExport();
+  }
+
+  void _onImportTapped() {
+    if (!PremiumService.instance.canUsePartnerSync) {
+      UpgradeBottomSheet.show(
+        context,
+        featureName: 'Partner-Sync',
+        featureDescription:
+            'Importiere Daten deines Partners und plant gemeinsam. Export und Import sind ein Premium-Feature.',
+      );
+      return;
+    }
+    _handleImport();
   }
 
   Future<void> _handleExport() async {
     setState(() => _isExporting = true);
-
     try {
       final success = await _syncService.shareExportedData();
-
-      if (mounted) {
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Daten erfolgreich exportiert! 📤'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 3),
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              success
+                  ? 'Daten erfolgreich exportiert! 📤'
+                  : 'Export abgebrochen',
             ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Export abgebrochen'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
+            backgroundColor: success ? Colors.green : Colors.orange,
+            duration: const Duration(seconds: 3),
+          ),
+        );
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Fehler beim Export: $e'),
             backgroundColor: Colors.red,
           ),
         );
-      }
     } finally {
-      if (mounted) {
-        setState(() => _isExporting = false);
-      }
+      if (mounted) setState(() => _isExporting = false);
     }
   }
 
@@ -502,22 +548,16 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
       allowedExtensions: ['heartpebble'],
       dialogTitle: 'Backup-Datei auswählen',
     );
-
-    if (result == null || result.files.single.path == null) {
-      return;
-    }
-
+    if (result == null || result.files.single.path == null) return;
     final filePath = result.files.single.path!;
-
     if (!mounted) return;
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Daten importieren?'),
         content: const Text(
-          'Die importierten Daten werden mit deinen aktuellen Daten zusammengeführt. '
-          'Neuere Einträge überschreiben ältere.\n\n'
-          'Möchtest du fortfahren?',
+          'Die importierten Daten werden mit deinen aktuellen Daten zusammengeführt. Neuere Einträge überschreiben ältere.\n\nMöchtest du fortfahren?',
         ),
         actions: [
           TextButton(
@@ -531,14 +571,11 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
         ],
       ),
     );
-
     if (confirm != true) return;
 
     setState(() => _isImporting = true);
-
     try {
       final result = await _syncService.importData(filePath, mergeData: true);
-
       if (mounted) {
         if (result.success) {
           await showDialog(
@@ -555,10 +592,8 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ...[
-                    Text(result.statistics.toDetailedString()),
-                    const SizedBox(height: 16),
-                  ],
+                  Text(result.statistics.toDetailedString()),
+                  const SizedBox(height: 16),
                   const Text(
                     'Die App wird jetzt die Daten neu laden.',
                     style: TextStyle(fontWeight: FontWeight.w500),
@@ -573,7 +608,7 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                       await widget.onDataReloaded!();
                     } else {
                       _loadDatabaseInfo();
-                      if (mounted) {
+                      if (mounted)
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text(
@@ -583,7 +618,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                             backgroundColor: Colors.orange,
                           ),
                         );
-                      }
                     }
                   },
                   child: const Text('OK'),
@@ -601,26 +635,72 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
         }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Fehler beim Import: $e'),
             backgroundColor: Colors.red,
           ),
         );
-      }
     } finally {
-      if (mounted) {
-        setState(() => _isImporting = false);
-      }
+      if (mounted) setState(() => _isImporting = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isPremium = PremiumService.instance.canUsePartnerSync;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (!isPremium) ...[
+          GestureDetector(
+            onTap: () => UpgradeBottomSheet.show(
+              context,
+              featureName: 'Partner-Sync',
+              featureDescription:
+                  'Teile deine Hochzeitsplanung mit deinem Partner.',
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.amber),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.workspace_premium,
+                    color: Colors.amber,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Partner-Sync ist ein Premium-Feature',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'Upgrade ›',
+                    style: TextStyle(
+                      color: Colors.amber.shade800,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+
         Row(
           children: [
             const Icon(Icons.info_outline, size: 20),
@@ -659,14 +739,23 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.upload),
-          title: const Text('Daten exportieren'),
+              : Icon(Icons.upload, color: isPremium ? null : Colors.grey),
+          title: Text(
+            'Daten exportieren',
+            style: TextStyle(color: isPremium ? null : Colors.grey),
+          ),
           subtitle: const Text(
             'Teile deine Hochzeitsplanung mit deinem Partner',
           ),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: isPremium
+              ? const Icon(Icons.chevron_right)
+              : const Icon(
+                  Icons.workspace_premium,
+                  color: Colors.amber,
+                  size: 20,
+                ),
           enabled: !_isExporting && !_isImporting,
-          onTap: _handleExport,
+          onTap: _onExportTapped,
         ),
 
         const Divider(height: 1),
@@ -679,12 +768,21 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.download),
-          title: const Text('Daten importieren'),
+              : Icon(Icons.download, color: isPremium ? null : Colors.grey),
+          title: Text(
+            'Daten importieren',
+            style: TextStyle(color: isPremium ? null : Colors.grey),
+          ),
           subtitle: const Text('Lade eine Backup-Datei von deinem Partner'),
-          trailing: const Icon(Icons.chevron_right),
+          trailing: isPremium
+              ? const Icon(Icons.chevron_right)
+              : const Icon(
+                  Icons.workspace_premium,
+                  color: Colors.amber,
+                  size: 20,
+                ),
           enabled: !_isExporting && !_isImporting,
-          onTap: _handleImport,
+          onTap: _onImportTapped,
         ),
       ],
     );
@@ -693,7 +791,6 @@ class _SyncCardState extends ConsumerState<_SyncCard> {
 
 class _StatChip extends StatelessWidget {
   const _StatChip(this.label, this.count);
-
   final String label;
   final int count;
 
@@ -706,6 +803,10 @@ class _StatChip extends StatelessWidget {
   }
 }
 
+// ============================================================================
+// ABOUT CARD
+// ============================================================================
+
 class _AboutCard extends StatelessWidget {
   const _AboutCard();
 
@@ -713,11 +814,11 @@ class _AboutCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        ListTile(
+        const ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.info_outline),
-          title: const Text('Version'),
-          subtitle: const Text('1.0.0'),
+          leading: Icon(Icons.info_outline),
+          title: Text('Version'),
+          subtitle: Text('1.0.0'),
         ),
         const Divider(height: 1),
         ListTile(
@@ -732,10 +833,7 @@ class _AboutCard extends StatelessWidget {
               builder: (context) => AlertDialog(
                 title: const Text('Datenschutz'),
                 content: const Text(
-                  'HeartPebble funktioniert komplett offline. '
-                  'Alle deine Daten werden nur lokal auf deinem Gerät gespeichert. '
-                  'Wir sammeln keine Daten und es gibt keine Cloud-Synchronisation.\n\n'
-                  'Beim Export erstellst du eine Datei, die du manuell teilen kannst.',
+                  'HeartPebble funktioniert komplett offline. Alle deine Daten werden nur lokal auf deinem Gerät gespeichert. Wir sammeln keine Daten und es gibt keine Cloud-Synchronisation.\n\nBeim Export erstellst du eine Datei, die du manuell teilen kannst.',
                 ),
                 actions: [
                   TextButton(
@@ -751,6 +849,10 @@ class _AboutCard extends StatelessWidget {
     );
   }
 }
+
+// ============================================================================
+// GENERAL CARD
+// ============================================================================
 
 class _GeneralCard extends StatelessWidget {
   const _GeneralCard();

@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../models/wedding_models.dart';
 import '../services/pdf_export_service.dart';
 import '../services/excel_export_service.dart';
-import '../services/guest_scoring_service.dart'; // ← Scoring Service
-// Smart Validation Imports
+import '../services/guest_scoring_service.dart';
+import '../services/premium_service.dart'; // NEU
+import '../widgets/upgrade_bottom_sheet.dart'; // NEU
 import '../mixins/smart_form_validation_mixin.dart';
 import '../widgets/forms/smart_text_field.dart';
 import '../widgets/forms/smart_dropdown.dart';
-import '../sync/services/sync_service.dart'; // ← NEU: Sync
+import '../sync/services/sync_service.dart';
 
 class GuestPage extends StatefulWidget {
   final List<Guest> guests;
@@ -48,18 +48,14 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 
   Guest? _editingGuest;
 
-  // Filter
   String? _filterStatus;
   String? _filterRelationship;
 
-  // Suche
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
-  // Sortierung
-  String _sortBy = 'name'; // 'name' | 'score' | 'status'
+  String _sortBy = 'name';
 
-  // ── NEU: Sync-Helper ──────────────────────────────────────────────────────
   void _syncNow() {
     SyncService.instance.syncNow().catchError((e) {
       debugPrint('Sync-Fehler: $e');
@@ -75,6 +71,25 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     _childrenNamesController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  // ── NEU: Prüft Gäste-Limit vor dem Dialog ────────────────────────────────
+  void _onAddGuestTapped() {
+    // Beim Bearbeiten kein Limit prüfen – nur beim Hinzufügen
+    final isAtLimit = !PremiumService.instance.canAddGuest(
+      widget.guests.length,
+    );
+    if (isAtLimit) {
+      UpgradeBottomSheet.show(
+        context,
+        featureName: 'Unbegrenzte Gäste',
+        featureDescription:
+            'Du hast das Free-Limit von ${PremiumService.kFreeGuestLimit} Gästen erreicht. '
+            'Mit Premium planst du ohne Einschränkungen.',
+      );
+      return;
+    }
+    _showGuestDialog();
   }
 
   void _showGuestDialog([Guest? guest]) {
@@ -144,7 +159,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
   void _saveGuest() {
     if (_firstNameController.text.isEmpty) return;
 
-    // Kinder-Namen als JSON-Array String speichern
     String? childrenNamesJson;
     if (_childrenCount > 0 && _childrenNamesController.text.trim().isNotEmpty) {
       final names = _childrenNamesController.text
@@ -155,7 +169,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       childrenNamesJson = '[${names.map((n) => '"$n"').join(',')}]';
     }
 
-    // Score berechnen
     final tempGuest = Guest(
       id: _editingGuest?.id,
       firstName: _firstNameController.text,
@@ -178,7 +191,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     );
 
     final score = GuestScoringService.calculateScore(tempGuest);
-
     final guest = tempGuest.copyWith(
       priorityScore: score,
       scoreUpdatedAt: DateTime.now().toIso8601String(),
@@ -192,8 +204,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 
     _resetForm();
     Navigator.pop(context);
-
-    _syncNow(); // ← NEU: Sync nach Speichern
+    _syncNow();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -262,13 +273,10 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 
   List<Guest> _getFilteredAndSortedGuests() {
     var guests = widget.guests.where((g) {
-      // Status-Filter
       if (_filterStatus != null && g.confirmed != _filterStatus) return false;
-      // Beziehungs-Filter
       if (_filterRelationship != null &&
           g.relationshipType != _filterRelationship)
         return false;
-      // Suche
       if (_searchQuery.isNotEmpty) {
         final q = _searchQuery.toLowerCase();
         final name = '${g.firstName} ${g.lastName}'.toLowerCase();
@@ -277,7 +285,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       return true;
     }).toList();
 
-    // Sortierung
     switch (_sortBy) {
       case 'score':
         guests.sort((a, b) => b.priorityScore.compareTo(a.priorityScore));
@@ -289,7 +296,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
               (order[a.confirmed] ?? 1).compareTo(order[b.confirmed] ?? 1),
         );
         break;
-      default: // name
+      default:
         guests.sort(
           (a, b) => '${a.lastName}${a.firstName}'.compareTo(
             '${b.lastName}${b.firstName}',
@@ -300,7 +307,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
     return guests;
   }
 
-  // Export
   Future<void> _showExportDialog() async {
     if (widget.guests.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -423,8 +429,13 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
       0,
       (sum, g) => sum + g.childrenCount,
     );
-
     final filteredGuests = _getFilteredAndSortedGuests();
+
+    // ── NEU: Limit-Anzeige ────────────────────────────────────────────────
+    final isPremium = PremiumService.instance.isPremium;
+    final guestLimit = PremiumService.kFreeGuestLimit;
+    final isNearLimit = !isPremium && totalGuests >= (guestLimit - 3);
+    final isAtLimit = !isPremium && totalGuests >= guestLimit;
 
     return Scaffold(
       appBar: AppBar(
@@ -432,7 +443,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
         actions: [
-          // Sortierung
           PopupMenuButton<String>(
             icon: const Icon(Icons.sort),
             tooltip: 'Sortieren',
@@ -494,6 +504,66 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── NEU: Limit-Banner ─────────────────────────────────
+            if (isNearLimit || isAtLimit) ...[
+              GestureDetector(
+                onTap: () => UpgradeBottomSheet.show(
+                  context,
+                  featureName: 'Unbegrenzte Gäste',
+                  featureDescription:
+                      'Mit Premium planst du ohne Einschränkungen.',
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: isAtLimit
+                        ? Colors.red.withOpacity(0.1)
+                        : Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isAtLimit ? Colors.red : Colors.orange,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isAtLimit ? Icons.lock : Icons.warning_amber,
+                        color: isAtLimit ? Colors.red : Colors.orange,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          isAtLimit
+                              ? 'Limit erreicht: $totalGuests/$guestLimit Gäste – Upgrade für unbegrenzte Gäste'
+                              : 'Fast voll: $totalGuests/$guestLimit Gäste (Free-Limit)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isAtLimit
+                                ? Colors.red
+                                : Colors.orange.shade800,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        'Premium ›',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isAtLimit ? Colors.red : Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
             // ── Stat-Cards ────────────────────────────────────────
             Row(
               children: [
@@ -560,7 +630,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
               ],
             ),
 
-            // ── Kinder-Info (nur wenn Kinder vorhanden) ───────────
             if (totalChildren > 0) ...[
               const SizedBox(height: 8),
               Container(
@@ -598,7 +667,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
               ),
             ],
 
-            // ── Beziehungs-Filter ─────────────────────────────────
             const SizedBox(height: 10),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -617,7 +685,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
               ),
             ),
 
-            // ── Suche ─────────────────────────────────────────────
             const SizedBox(height: 10),
             TextField(
               controller: _searchController,
@@ -647,7 +714,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 
             const SizedBox(height: 10),
 
-            // ── Aktive Filter-Anzeige ─────────────────────────────
             if (_filterStatus != null || _filterRelationship != null) ...[
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -694,7 +760,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
               const SizedBox(height: 8),
             ],
 
-            // ── Gästeliste ────────────────────────────────────────
             Expanded(
               child: filteredGuests.isEmpty
                   ? Center(
@@ -721,26 +786,29 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                     )
                   : ListView.builder(
                       itemCount: filteredGuests.length,
-                      itemBuilder: (context, index) {
-                        final guest = filteredGuests[index];
-                        return _buildGuestCard(guest);
-                      },
+                      itemBuilder: (context, index) =>
+                          _buildGuestCard(filteredGuests[index]),
                     ),
             ),
           ],
         ),
       ),
+
+      // ── NEU: FAB mit Limit-Prüfung ────────────────────────────
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showGuestDialog(),
-        backgroundColor: scheme.primary,
+        onPressed: _onAddGuestTapped,
+        backgroundColor: isAtLimit ? Colors.grey : scheme.primary,
         foregroundColor: scheme.onPrimary,
-        icon: const Icon(Icons.add),
-        label: const Text('Gast hinzufügen'),
+        icon: Icon(isAtLimit ? Icons.lock : Icons.add),
+        label: Text(
+          isAtLimit
+              ? 'Limit erreicht (${PremiumService.kFreeGuestLimit})'
+              : 'Gast hinzufügen',
+        ),
       ),
     );
   }
 
-  // ── Gast-Karte mit Score-Badge + Kinder ──────────────────────────────────
   Widget _buildGuestCard(Guest guest) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -752,7 +820,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Row(
           children: [
-            // Avatar mit Score-Farbe
             Stack(
               children: [
                 CircleAvatar(
@@ -806,8 +873,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
               ],
             ),
             const SizedBox(width: 12),
-
-            // Name + Details
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -824,7 +889,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      // Score-Badge
                       if (guest.priorityScore > 0) _buildScoreBadge(guest),
                     ],
                   ),
@@ -833,25 +897,21 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                     spacing: 6,
                     runSpacing: 2,
                     children: [
-                      // Status
                       _buildMiniChip(
                         _getStatusLabel(guest.confirmed),
                         _getStatusColor(guest.confirmed),
                       ),
-                      // Beziehungstyp
                       if (guest.relationshipType != null)
                         _buildMiniChip(
                           _getRelationshipLabel(guest.relationshipType),
                           Colors.blueGrey,
                         ),
-                      // Kinder
                       if (guest.childrenCount > 0)
                         _buildMiniChip(
                           '${guest.childrenCount} ${guest.childrenCount == 1 ? 'Kind' : 'Kinder'}',
                           Colors.purple,
                           icon: Icons.child_care,
                         ),
-                      // Diät
                       if (guest.dietaryRequirements.isNotEmpty)
                         _buildMiniChip(guest.dietaryRequirements, Colors.teal),
                     ],
@@ -859,8 +919,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                 ],
               ),
             ),
-
-            // Menü
             PopupMenuButton(
               itemBuilder: (_) => [
                 PopupMenuItem(
@@ -886,7 +944,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
                   ),
                   onTap: () {
                     widget.onDeleteGuest(guest.id!);
-                    _syncNow(); // ← NEU: Sync nach Löschen
+                    _syncNow();
                   },
                 ),
               ],
@@ -918,7 +976,6 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
         label = '${guest.priorityScore.toInt()}';
         break;
     }
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
@@ -1055,7 +1112,7 @@ class _GuestPageState extends State<GuestPage> with SmartFormValidation {
 }
 
 // ============================================================================
-// GUEST FORM DIALOG
+// GUEST FORM DIALOG – unverändert
 // ============================================================================
 
 class _GuestFormDialog extends StatefulWidget {
@@ -1180,7 +1237,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Basis-Felder ──────────────────────────────────────
               SmartTextField(
                 label: 'Vorname *',
                 fieldKey: 'first_name',
@@ -1215,8 +1271,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 textInputAction: TextInputAction.next,
               ),
               const SizedBox(height: 12),
-
-              // ── Status ────────────────────────────────────────────
               SmartDropdown<String>(
                 label: 'Status *',
                 fieldKey: 'status',
@@ -1239,8 +1293,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 hintText: 'Bitte wählen...',
               ),
               const SizedBox(height: 16),
-
-              // ── Beziehungstyp ─────────────────────────────────────
               const Text(
                 'Beziehung zum Brautpaar',
                 style: TextStyle(
@@ -1262,8 +1314,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 ],
               ),
               const SizedBox(height: 16),
-
-              // ── VIP + Entfernung ──────────────────────────────────
               Row(
                 children: [
                   Expanded(
@@ -1362,8 +1412,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 ],
               ),
               const SizedBox(height: 16),
-
-              // ── Kinder ────────────────────────────────────────────
               const Text(
                 'Kinder',
                 style: TextStyle(
@@ -1412,8 +1460,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 ),
               ],
               const SizedBox(height: 16),
-
-              // ── Altersgruppe ─────────────────────────────────────
               const Text(
                 'Altersgruppe',
                 style: TextStyle(
@@ -1435,8 +1481,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 ],
               ),
               const SizedBox(height: 16),
-
-              // ── Hobbys ────────────────────────────────────────────
               const Text(
                 'Hobbys / Interessen',
                 style: TextStyle(
@@ -1467,8 +1511,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 },
               ),
               const SizedBox(height: 16),
-
-              // ── Kennt sich mit ────────────────────────────────────
               if (widget.allGuests.isNotEmpty) ...[
                 const Text(
                   'Kennt sich mit',
@@ -1496,8 +1538,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 ),
                 const SizedBox(height: 16),
               ],
-
-              // ── Konflikte ─────────────────────────────────────────
               if (widget.allGuests.isNotEmpty) ...[
                 Row(
                   children: [
@@ -1531,8 +1571,6 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
                 ),
                 const SizedBox(height: 16),
               ],
-
-              // ── Besonderheiten ────────────────────────────────────
               SmartTextField(
                 label: 'Besonderheiten (z.B. Diätwünsche)',
                 fieldKey: 'dietary',
@@ -1654,14 +1692,11 @@ class _GuestFormDialogState extends State<_GuestFormDialog> {
     final selectableGuests = widget.allGuests
         .where((g) => g.id != null && g.id != excludeId)
         .toList();
-
-    if (selectableGuests.isEmpty) {
+    if (selectableGuests.isEmpty)
       return Text(
         'Noch keine anderen Gäste vorhanden',
         style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
       );
-    }
-
     return Wrap(
       spacing: 6,
       runSpacing: 6,

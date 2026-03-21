@@ -1,6 +1,5 @@
 // lib/data/dienstleister_database.dart
 import 'package:sqflite/sqflite.dart';
-import 'dart:convert';
 import '../models/dienstleister_models.dart';
 import 'database_helper.dart';
 
@@ -9,9 +8,6 @@ class DienstleisterDatabase {
   DienstleisterDatabase._init();
 
   // ── Tabellen erstellen ────────────────────────────────────────────────────
-  // Wird von DatabaseHelper beim DB-Upgrade aufgerufen.
-  // updated_at und is_deleted sind für den Partner-Sync notwendig.
-
   static Future<void> createTables(Database db) async {
     await db.execute('''
       CREATE TABLE dienstleister (
@@ -35,6 +31,7 @@ class DienstleisterDatabase {
         dateien_json TEXT,
         notizen TEXT,
         ist_favorit INTEGER DEFAULT 0,
+        vergleichs_tag TEXT,
         updated_at TEXT,
         is_deleted INTEGER DEFAULT 0
       )
@@ -75,17 +72,16 @@ class DienstleisterDatabase {
     ''');
   }
 
-  // ── Migration: updated_at + is_deleted nachrüsten ────────────────────────
-  // Wird von DatabaseHelper.onUpgrade() aufgerufen wenn die Tabellen
-  // bereits existieren aber die neuen Felder fehlen.
+  // ── Migration: alle fehlenden Spalten nachrüsten ─────────────────────────
+  // Wird von DatabaseHelper.onUpgrade() aufgerufen.
+  // Prüft jede Spalte einzeln – sicher bei mehrfachem Aufruf.
   static Future<void> migrateAddSyncColumns(Database db) async {
-    // Prüfen ob updated_at bereits existiert
     final tableInfo = await db.rawQuery('PRAGMA table_info(dienstleister)');
     final columns = tableInfo.map((c) => c['name'] as String).toSet();
 
+    // updated_at
     if (!columns.contains('updated_at')) {
       await db.execute("ALTER TABLE dienstleister ADD COLUMN updated_at TEXT");
-      // Bestehende Einträge mit aktuellem Timestamp befüllen
       final now = DateTime.now().toIso8601String();
       await db.execute(
         "UPDATE dienstleister SET updated_at = ? WHERE updated_at IS NULL",
@@ -93,14 +89,22 @@ class DienstleisterDatabase {
       );
     }
 
+    // is_deleted
     if (!columns.contains('is_deleted')) {
       await db.execute(
         "ALTER TABLE dienstleister ADD COLUMN is_deleted INTEGER DEFAULT 0",
       );
     }
+
+    // ── NEU: vergleichs_tag ───────────────────────────────────────────────
+    if (!columns.contains('vergleichs_tag')) {
+      await db.execute(
+        "ALTER TABLE dienstleister ADD COLUMN vergleichs_tag TEXT",
+      );
+    }
   }
 
-  // ── Hilfsmethode: updated_at setzen ──────────────────────────────────────
+  // ── Hilfsmethode ─────────────────────────────────────────────────────────
   static String _nowIso() => DateTime.now().toIso8601String();
 
   // ── CRUD: Dienstleister ───────────────────────────────────────────────────
@@ -145,8 +149,6 @@ class DienstleisterDatabase {
     );
   }
 
-  /// Soft-Delete: setzt is_deleted=1 und updated_at, damit der Partner
-  /// den Löschvorgang per Sync empfangen kann.
   Future<void> deleteDienstleister(String id) async {
     final db = await DatabaseHelper.instance.database;
     await db.update(

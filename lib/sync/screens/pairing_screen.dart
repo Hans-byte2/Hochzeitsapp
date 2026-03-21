@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/sync_service.dart';
 import '../../app_colors.dart';
+import '../../services/premium_service.dart'; // NEU
+import '../../widgets/upgrade_bottom_sheet.dart'; // NEU
 
 class PairingScreen extends StatefulWidget {
   const PairingScreen({super.key});
@@ -29,6 +31,20 @@ class _PairingScreenState extends State<PairingScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _checkPairingStatus();
+
+    // ── NEU: Premium-Prüfung beim Öffnen ────────────────────────────────
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!PremiumService.instance.canUsePartnerSync) {
+        Navigator.of(context).pop();
+        UpgradeBottomSheet.show(
+          context,
+          featureName: 'Partner-Sync',
+          featureDescription:
+              'Verbinde dich mit deinem Partner und plant gemeinsam in Echtzeit.',
+        );
+      }
+    });
+    // ────────────────────────────────────────────────────────────────────
   }
 
   @override
@@ -43,7 +59,6 @@ class _PairingScreenState extends State<PairingScreen>
     setState(() => _isPaired = status.isPaired);
   }
 
-  // ── Pairing aufheben ─────────────────────────────────────────────────────
   Future<void> _unpair() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -94,7 +109,6 @@ class _PairingScreenState extends State<PairingScreen>
       setState(() => _errorMessage = 'Fehler beim Trennen: $e');
     }
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _createCode() async {
     setState(() {
@@ -194,9 +208,7 @@ class _PairingScreenState extends State<PairingScreen>
       ),
       body: Column(
         children: [
-          // ── Aktueller Status + Trennen-Button ──────────────────────────
           _buildStatusBanner(),
-          // ── Tab-Inhalt ─────────────────────────────────────────────────
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -208,7 +220,6 @@ class _PairingScreenState extends State<PairingScreen>
     );
   }
 
-  /// Zeigt den aktuellen Verbindungsstatus und den Trennen-Button wenn gepairt.
   Widget _buildStatusBanner() {
     final status = SyncService.instance.status;
     final isPaired = status.isPaired;

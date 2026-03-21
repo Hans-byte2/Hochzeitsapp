@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/date_symbol_data_local.dart'; // NEU
 
 // Core / Theme
 import 'services/theme_providers.dart';
@@ -13,6 +14,7 @@ import 'models/wedding_models.dart';
 
 // Data
 import 'data/database_helper.dart';
+import 'data/dienstleister_database.dart';
 
 // Screens
 import 'screens/dashboard_screen.dart';
@@ -30,28 +32,34 @@ import 'sync/services/sync_service.dart';
 // Debug
 import 'utils/error_logger.dart';
 import 'services/notification_service.dart';
-import 'services/premium_service.dart'; // NEU
+import 'services/premium_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ── NEU: Locale-Daten initialisieren ────────────────────────────────────
+  // Verhindert LocaleDataException bei Datumsformatierung mit de_DE
+  await initializeDateFormatting('de_DE', null);
+  // ────────────────────────────────────────────────────────────────────────
+
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
-
   final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
 
-  // ── NEU: PremiumService initialisieren ──────────────────────
-  // Muss nach WidgetsFlutterBinding und vor runApp passieren,
-  // damit alle Screens beim ersten Build den korrekten Status haben.
+  // PremiumService initialisieren
   final db = await DatabaseHelper.instance.database;
   await PremiumService.instance.init(db);
-  // ────────────────────────────────────────────────────────────
+
+  // Dienstleister Migration – vergleichs_tag nachrüsten
+  await DienstleisterDatabase.migrateAddSyncColumns(db);
+
+  // Bestandsnutzer-Migration
+  await _migrateExistingUsers(prefs, db);
 
   SyncService.instance.initialize().catchError((e) {
     print('Sync-Init fehlgeschlagen: $e');
   });
 
-  // Notifications initialisieren + prüfen
   await NotificationService.instance.initialize();
   NotificationService.instance.checkAndNotify();
   NotificationService.instance.scheduleDailyCheck();
@@ -69,17 +77,35 @@ Future<void> main() async {
   );
 }
 
-// ── Ab hier alles unverändert ────────────────────────────────────────────────
+/// Schaltet Bestandsnutzer automatisch auf Premium.
+/// debug_force_free verhindert die Migration beim Free-Testen.
+Future<void> _migrateExistingUsers(SharedPreferences prefs, dynamic db) async {
+  final migrationDone = prefs.getBool('premium_migration_v1') ?? false;
+  if (migrationDone) return;
+
+  final debugForceFree = prefs.getBool('debug_force_free') ?? false;
+  if (debugForceFree) {
+    await prefs.setBool('premium_migration_v1', true);
+    debugPrint('🔒 Debug: Free-Modus erzwungen, Migration übersprungen');
+    return;
+  }
+
+  final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
+  if (onboardingCompleted && !PremiumService.instance.isPremium) {
+    await PremiumService.instance.unlock(db);
+    debugPrint('✅ Bestandsnutzer auf Premium migriert');
+  }
+
+  await prefs.setBool('premium_migration_v1', true);
+}
 
 class WeddingApp extends ConsumerWidget {
   final bool showOnboarding;
-
   const WeddingApp({super.key, required this.showOnboarding});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeDataProvider);
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'HeartPebble',
@@ -146,6 +172,10 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   }
 
   void _onSyncDataReceived() {
+    if (!PremiumService.instance.canUsePartnerSync) {
+      debugPrint('🔒 Sync-Event ignoriert – kein Premium');
+      return;
+    }
     debugPrint('🔄 Sync-Event → gezieltes Reload');
     _loadData();
     _budgetKey.currentState?.reload();
@@ -163,7 +193,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   Future<void> _loadData() async {
     try {
       ErrorLogger.info('Lade Daten...');
-
       final weddingData = await DatabaseHelper.instance.getWeddingData();
       if (weddingData != null) {
         if (mounted) {
@@ -177,10 +206,8 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         }
         ErrorLogger.success('Hochzeitsdaten geladen');
       }
-
       final guests = await DatabaseHelper.instance.getAllGuests();
       final tasks = await DatabaseHelper.instance.getAllTasks();
-
       if (mounted) {
         setState(() {
           _guests = guests;
@@ -188,7 +215,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           _isLoading = false;
         });
       }
-
       ErrorLogger.success(
         '${guests.length} Gäste, ${tasks.length} Tasks geladen',
       );
@@ -200,9 +226,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   Future<void> _reloadAllData() async {
     setState(() => _isLoading = true);
-
     await _loadData();
-
     if (mounted) {
       setState(() {
         _budgetPageKey = UniqueKey();
@@ -210,9 +234,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         _tablePageKey = UniqueKey();
       });
     }
-
     _dashboardKey.currentState?.reload();
-
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -225,15 +247,9 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   }
 
   void _onTabChanged(int index) {
-    if (index == 3) {
-      _budgetKey.currentState?.reload();
-    }
-    if (index == 4) {
-      setState(() => _selectedTaskId = null);
-    }
-    if (index == 0 && _currentIndex != 0) {
-      _dashboardKey.currentState?.reload();
-    }
+    if (index == 3) _budgetKey.currentState?.reload();
+    if (index == 4) setState(() => _selectedTaskId = null);
+    if (index == 0 && _currentIndex != 0) _dashboardKey.currentState?.reload();
     setState(() => _currentIndex = index);
   }
 
@@ -243,11 +259,10 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       setState(() => _guests.add(newGuest));
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Hinzufügen des Gastes', e, stack);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
-      }
     }
   }
 
@@ -284,11 +299,10 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
       setState(() => _tasks.add(newTask));
     } catch (e, stack) {
       ErrorLogger.error('Fehler beim Hinzufügen der Aufgabe', e, stack);
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
-      }
     }
   }
 
@@ -331,11 +345,10 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         e,
         stack,
       );
-      if (mounted) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
         );
-      }
     }
   }
 
@@ -372,9 +385,8 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
+    if (_isLoading)
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
 
     final variant = ref.watch(themeControllerProvider);
     final brand = colorsFor(variant);
@@ -474,9 +486,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
                     ),
                   if (_weddingDate != null)
                     Text(
-                      '${_weddingDate!.day.toString().padLeft(2, '0')}.'
-                      '${_weddingDate!.month.toString().padLeft(2, '0')}.'
-                      '${_weddingDate!.year}',
+                      '${_weddingDate!.day.toString().padLeft(2, '0')}.${_weddingDate!.month.toString().padLeft(2, '0')}.${_weddingDate!.year}',
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 12,
