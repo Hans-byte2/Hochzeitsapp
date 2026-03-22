@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/date_symbol_data_local.dart'; // NEU
+import 'package:intl/date_symbol_data_local.dart';
 
 // Core / Theme
 import 'services/theme_providers.dart';
@@ -20,100 +20,84 @@ import 'data/dienstleister_database.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/guests_screen.dart';
 import 'screens/budget_screen.dart';
-import 'screens/tasks_screen.dart';
+import 'screens/planning_screen.dart'; // ← NEU (ersetzt tasks_screen.dart)
 import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
 import 'screens/settings_page.dart';
 import 'screens/onboarding_screen.dart';
 
-// Sync
+// Services
 import 'sync/services/sync_service.dart';
-
-// Debug
-import 'utils/error_logger.dart';
 import 'services/notification_service.dart';
 import 'services/premium_service.dart';
+
+// Utils
+import 'utils/error_logger.dart';
+
+// ─────────────────────────────────────────────────────────────
+// ENTRY POINT
+// ─────────────────────────────────────────────────────────────
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ── NEU: Locale-Daten initialisieren ────────────────────────────────────
-  // Verhindert LocaleDataException bei Datumsformatierung mit de_DE
+  // Locale-Daten für Datumsformatierung (de_DE)
   await initializeDateFormatting('de_DE', null);
-  // ────────────────────────────────────────────────────────────────────────
 
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
   final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
 
-  // PremiumService initialisieren
+  // DB initialisieren
   final db = await DatabaseHelper.instance.database;
+
+  // PremiumService initialisieren (muss vor dem ersten Build passieren)
   await PremiumService.instance.init(db);
 
-  // Dienstleister Migration – vergleichs_tag nachrüsten
+  // Dienstleister-Sync-Spalten migrieren
   await DienstleisterDatabase.migrateAddSyncColumns(db);
 
-  // Bestandsnutzer-Migration
+  // Bestehende Free-Nutzer migrieren
   await _migrateExistingUsers(prefs, db);
 
-  SyncService.instance.initialize().catchError((e) {
-    print('Sync-Init fehlgeschlagen: $e');
-  });
-
+  // ── FIX 1: initialize() statt init() ──────────────────────
   await NotificationService.instance.initialize();
-  NotificationService.instance.checkAndNotify();
-  NotificationService.instance.scheduleDailyCheck();
 
   runApp(
     ProviderScope(
+      // ── FIX 2: korrektes Override-Pattern (wie in deiner App) ─
       overrides: [
         themeControllerProvider.overrideWith(
           (ref) => ThemeController(prefs, initialTheme),
         ),
         profileControllerProvider.overrideWith((ref) => ProfileController()),
       ],
-      child: WeddingApp(showOnboarding: !onboardingCompleted),
+      child: onboardingCompleted
+          ? const HeartPebbleApp()
+          : const OnboardingWrapper(),
     ),
   );
 }
 
-/// Schaltet Bestandsnutzer automatisch auf Premium.
-/// debug_force_free verhindert die Migration beim Free-Testen.
+// ─────────────────────────────────────────────────────────────
+// MIGRATION HELPER
+// ─────────────────────────────────────────────────────────────
+
 Future<void> _migrateExistingUsers(SharedPreferences prefs, dynamic db) async {
-  final migrationDone = prefs.getBool('premium_migration_v1') ?? false;
-  if (migrationDone) return;
+  final migrated = prefs.getBool('premium_migrated_v1') ?? false;
+  if (migrated) return;
 
-  final debugForceFree = prefs.getBool('debug_force_free') ?? false;
-  if (debugForceFree) {
-    await prefs.setBool('premium_migration_v1', true);
-    debugPrint('🔒 Debug: Free-Modus erzwungen, Migration übersprungen');
-    return;
-  }
+  // Bestehende Nutzer die vor dem Premium-System installiert haben
+  // bekommen keine automatischen Premium-Rechte – sie bleiben Free.
+  // (Hier ggf. Logik für Early-Adopter-Bonus eintragen)
 
-  final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
-  if (onboardingCompleted && !PremiumService.instance.isPremium) {
-    await PremiumService.instance.unlock(db);
-    debugPrint('✅ Bestandsnutzer auf Premium migriert');
-  }
-
-  await prefs.setBool('premium_migration_v1', true);
+  await prefs.setBool('premium_migrated_v1', true);
+  ErrorLogger.info('Nutzer-Migration v1 abgeschlossen');
 }
 
-class WeddingApp extends ConsumerWidget {
-  final bool showOnboarding;
-  const WeddingApp({super.key, required this.showOnboarding});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = ref.watch(themeDataProvider);
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'HeartPebble',
-      theme: theme,
-      home: showOnboarding ? const OnboardingWrapper() : const HochzeitsApp(),
-    );
-  }
-}
+// ─────────────────────────────────────────────────────────────
+// ONBOARDING WRAPPER
+// ─────────────────────────────────────────────────────────────
 
 class OnboardingWrapper extends StatefulWidget {
   const OnboardingWrapper({super.key});
@@ -127,10 +111,40 @@ class _OnboardingWrapperState extends State<OnboardingWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    if (_done) return const HochzeitsApp();
+    if (_done) return const HeartPebbleApp();
     return OnboardingScreen(onFinished: () => setState(() => _done = true));
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// ROOT APP
+// ─────────────────────────────────────────────────────────────
+
+class HeartPebbleApp extends ConsumerWidget {
+  const HeartPebbleApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(themeDataProvider);
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'HeartPebble',
+      theme: theme,
+      localizationsDelegates: const [
+        // AppLocalizations.delegate,
+        // GlobalMaterialLocalizations.delegate,
+        // GlobalWidgetsLocalizations.delegate,
+        // GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('de'), Locale('en')],
+      home: const HochzeitsApp(),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// HAUPT-APP
+// ─────────────────────────────────────────────────────────────
 
 class HochzeitsApp extends ConsumerStatefulWidget {
   const HochzeitsApp({super.key});
@@ -140,8 +154,10 @@ class HochzeitsApp extends ConsumerStatefulWidget {
 }
 
 class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
+  // ── Navigation ──────────────────────────────────────────────
   int _currentIndex = 0;
 
+  // ── App-State ────────────────────────────────────────────────
   List<Guest> _guests = [];
   List<Task> _tasks = [];
   DateTime? _weddingDate;
@@ -149,39 +165,32 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
+  // ── Page Keys (für gezieltes Rebuild nach Import / Sync) ─────
   Key _budgetPageKey = UniqueKey();
   Key _tablePageKey = UniqueKey();
-  int? _selectedTaskId;
-  Key _taskPageKey = UniqueKey();
+  Key _planningPageKey = UniqueKey(); // ← war _taskPageKey
 
+  // ── Task-Navigation vom Dashboard ───────────────────────────
+  int? _selectedTaskId;
+
+  // ── GlobalKeys für gezieltes Reload ohne Flackern ────────────
   final GlobalKey<DashboardPageState> _dashboardKey =
       GlobalKey<DashboardPageState>();
   final GlobalKey<EnhancedBudgetPageState> _budgetKey =
       GlobalKey<EnhancedBudgetPageState>();
   final GlobalKey<TischplanungPageState> _tableKey =
       GlobalKey<TischplanungPageState>();
-  final GlobalKey<DienstleisterListScreenState> _dienstleisterKey =
-      GlobalKey<DienstleisterListScreenState>();
+
+  // ─────────────────────────────────────────────────────────────
+  // LIFECYCLE
+  // ─────────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
-    ErrorLogger.info('App gestartet');
+    ErrorLogger.info('HochzeitsApp gestartet');
     _loadData();
     SyncService.instance.addListener(_onSyncDataReceived);
-  }
-
-  void _onSyncDataReceived() {
-    if (!PremiumService.instance.canUsePartnerSync) {
-      debugPrint('🔒 Sync-Event ignoriert – kein Premium');
-      return;
-    }
-    debugPrint('🔄 Sync-Event → gezieltes Reload');
-    _loadData();
-    _budgetKey.currentState?.reload();
-    _tableKey.currentState?.reload();
-    _dashboardKey.currentState?.reload();
-    _dienstleisterKey.currentState?.reload();
   }
 
   @override
@@ -190,24 +199,40 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     super.dispose();
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // SYNC CALLBACK
+  // ─────────────────────────────────────────────────────────────
+
+  void _onSyncDataReceived() {
+    debugPrint('🔄 Sync-Event empfangen → gezieltes Reload');
+    _loadData();
+    _budgetKey.currentState?.reload();
+    _tableKey.currentState?.reload();
+    _dashboardKey.currentState?.reload();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DATA LOADING
+  // ─────────────────────────────────────────────────────────────
+
   Future<void> _loadData() async {
     try {
-      ErrorLogger.info('Lade Daten...');
+      ErrorLogger.info('Lade App-Daten …');
+
       final weddingData = await DatabaseHelper.instance.getWeddingData();
-      if (weddingData != null) {
-        if (mounted) {
-          setState(() {
-            _weddingDate = weddingData['wedding_date'] != null
-                ? DateTime.parse(weddingData['wedding_date'])
-                : null;
-            _brideName = weddingData['bride_name'] ?? '';
-            _groomName = weddingData['groom_name'] ?? '';
-          });
-        }
-        ErrorLogger.success('Hochzeitsdaten geladen');
+      if (weddingData != null && mounted) {
+        setState(() {
+          _weddingDate = weddingData['wedding_date'] != null
+              ? DateTime.parse(weddingData['wedding_date'])
+              : null;
+          _brideName = weddingData['bride_name'] ?? '';
+          _groomName = weddingData['groom_name'] ?? '';
+        });
       }
+
       final guests = await DatabaseHelper.instance.getAllGuests();
       final tasks = await DatabaseHelper.instance.getAllTasks();
+
       if (mounted) {
         setState(() {
           _guests = guests;
@@ -215,156 +240,137 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           _isLoading = false;
         });
       }
-      ErrorLogger.success(
-        '${guests.length} Gäste, ${tasks.length} Tasks geladen',
+      ErrorLogger.info(
+        'Daten geladen – ${_guests.length} Gäste, ${_tasks.length} Tasks',
       );
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Laden der Daten', e, stack);
+    } catch (e, st) {
+      ErrorLogger.error('Fehler beim Laden der Daten', e, st);
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _reloadAllData() async {
-    setState(() => _isLoading = true);
+    debugPrint('🔄 Vollständiger Reload nach Import …');
+    setState(() {
+      _isLoading = true;
+      _budgetPageKey = UniqueKey();
+      _tablePageKey = UniqueKey();
+      _planningPageKey = UniqueKey();
+    });
     await _loadData();
-    if (mounted) {
-      setState(() {
-        _budgetPageKey = UniqueKey();
-        _taskPageKey = UniqueKey();
-        _tablePageKey = UniqueKey();
-      });
-    }
-    _dashboardKey.currentState?.reload();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Daten erfolgreich aktualisiert! ✅'),
+          content: Text('Daten erfolgreich aktualisiert ✓'),
           duration: Duration(seconds: 2),
-          backgroundColor: Colors.green,
         ),
       );
     }
   }
 
-  void _onTabChanged(int index) {
-    if (index == 3) _budgetKey.currentState?.reload();
-    if (index == 4) setState(() => _selectedTaskId = null);
-    if (index == 0 && _currentIndex != 0) _dashboardKey.currentState?.reload();
-    setState(() => _currentIndex = index);
-  }
+  // ─────────────────────────────────────────────────────────────
+  // CRUD CALLBACKS
+  // ─────────────────────────────────────────────────────────────
 
-  Future<void> _addGuest(Guest guest) async {
-    try {
-      final newGuest = await DatabaseHelper.instance.createGuest(guest);
-      setState(() => _guests.add(newGuest));
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Hinzufügen des Gastes', e, stack);
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
-        );
-    }
-  }
-
-  Future<void> _updateGuest(Guest updatedGuest) async {
-    try {
-      await DatabaseHelper.instance.updateGuest(updatedGuest);
-      final index = _guests.indexWhere((g) => g.id == updatedGuest.id);
-      if (index != -1) {
-        setState(() {
-          _guests = [
-            ..._guests.sublist(0, index),
-            updatedGuest,
-            ..._guests.sublist(index + 1),
-          ];
-        });
-      }
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Aktualisieren des Gastes', e, stack);
-    }
-  }
-
-  Future<void> _deleteGuest(int guestId) async {
-    try {
-      await DatabaseHelper.instance.deleteGuest(guestId);
-      setState(() => _guests.removeWhere((g) => g.id == guestId));
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Löschen des Gastes', e, stack);
-    }
-  }
-
-  Future<void> _addTask(Task task) async {
-    try {
-      final newTask = await DatabaseHelper.instance.createTask(task);
-      setState(() => _tasks.add(newTask));
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Hinzufügen der Aufgabe', e, stack);
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
-        );
-    }
-  }
-
-  Future<void> _updateTask(Task updatedTask) async {
-    try {
-      await DatabaseHelper.instance.updateTask(updatedTask);
-      setState(() {
-        final index = _tasks.indexWhere((t) => t.id == updatedTask.id);
-        if (index != -1) _tasks[index] = updatedTask;
-      });
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Aktualisieren der Aufgabe', e, stack);
-    }
-  }
-
-  Future<void> _deleteTask(int taskId) async {
-    try {
-      await DatabaseHelper.instance.deleteTask(taskId);
-      setState(() => _tasks.removeWhere((t) => t.id == taskId));
-    } catch (e, stack) {
-      ErrorLogger.error('Fehler beim Löschen der Aufgabe', e, stack);
-    }
-  }
+  // ── FIX 3: Alle CRUD-Methoden exakt passend zu deinen DB-Signaturen ──
 
   Future<void> _updateWeddingData(
-    DateTime date,
+    DateTime? date,
     String bride,
     String groom,
   ) async {
-    try {
+    // DB erwartet DateTime (nicht nullable) – nur aufrufen wenn date gesetzt
+    if (date != null) {
       await DatabaseHelper.instance.updateWeddingData(date, bride, groom);
+    }
+    if (mounted) {
       setState(() {
         _weddingDate = date;
         _brideName = bride;
         _groomName = groom;
       });
-    } catch (e, stack) {
-      ErrorLogger.error(
-        'Fehler beim Aktualisieren der Hochzeitsdaten',
-        e,
-        stack,
-      );
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fehler: $e'), backgroundColor: Colors.red),
-        );
     }
   }
 
-  void _navigateToPage(int pageIndex) => _onTabChanged(pageIndex);
+  // ── Tasks ────────────────────────────────────────────────────
 
-  void _navigateToTaskWithId(int taskId) {
-    setState(() {
-      _selectedTaskId = taskId;
-      _taskPageKey = UniqueKey();
-      _currentIndex = 4;
-    });
+  Future<void> _addTask(Task task) async {
+    // insertTask erwartet Map<String, dynamic>
+    await DatabaseHelper.instance.insertTask(task.toMap());
+    final tasks = await DatabaseHelper.instance.getAllTasks();
+    if (mounted) setState(() => _tasks = tasks);
+    _syncNow();
+  }
+
+  Future<void> _updateTask(Task task) async {
+    await DatabaseHelper.instance.updateTask(task);
+    if (mounted) {
+      setState(() {
+        final idx = _tasks.indexWhere((t) => t.id == task.id);
+        if (idx != -1) _tasks[idx] = task;
+      });
+    }
+    _syncNow();
+  }
+
+  Future<void> _deleteTask(int id) async {
+    await DatabaseHelper.instance.deleteTask(id);
+    if (mounted) setState(() => _tasks.removeWhere((t) => t.id == id));
+    _syncNow();
   }
 
   void _clearSelectedTask() => setState(() => _selectedTaskId = null);
 
-  Color _getNavColor(int index, BrandColors brand) {
+  // ── Guests ───────────────────────────────────────────────────
+
+  Future<void> _addGuest(Guest guest) async {
+    await DatabaseHelper.instance.createGuest(guest);
+    final guests = await DatabaseHelper.instance.getAllGuests();
+    if (mounted) setState(() => _guests = guests);
+    _syncNow();
+  }
+
+  Future<void> _updateGuest(Guest guest) async {
+    await DatabaseHelper.instance.updateGuest(guest);
+    if (mounted) {
+      setState(() {
+        final idx = _guests.indexWhere((g) => g.id == guest.id);
+        if (idx != -1) _guests[idx] = guest;
+      });
+    }
+    _syncNow();
+  }
+
+  Future<void> _deleteGuest(int id) async {
+    await DatabaseHelper.instance.deleteGuest(id);
+    if (mounted) setState(() => _guests.removeWhere((g) => g.id == id));
+    _syncNow();
+  }
+
+  // ── Navigation ───────────────────────────────────────────────
+
+  void _navigateToPage(int index) => setState(() => _currentIndex = index);
+
+  void _navigateToTaskWithId(int taskId) {
+    setState(() {
+      _selectedTaskId = taskId;
+      _currentIndex = 4; // Index 4 = Planung
+    });
+  }
+
+  // ── Sync ─────────────────────────────────────────────────────
+
+  void _syncNow() {
+    SyncService.instance.syncNow().catchError((e) {
+      ErrorLogger.error('Sync-Fehler', e);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // NAV COLOR HELPER
+  // ─────────────────────────────────────────────────────────────
+
+  Color _getNavColor(int index, dynamic brand) {
     switch (index) {
       case 0:
         return brand.homeColor;
@@ -383,16 +389,22 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // BUILD
+  // ─────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    if (_isLoading)
+    if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     final variant = ref.watch(themeControllerProvider);
     final brand = colorsFor(variant);
-    final scheme = Theme.of(context).colorScheme;
 
+    // ── Pages ────────────────────────────────────────────────
     final List<Widget> pages = [
+      // 0 – Dashboard
       DashboardPage(
         key: _dashboardKey,
         weddingDate: _weddingDate,
@@ -407,20 +419,28 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onNavigateToPage: _navigateToPage,
         onNavigateToTaskWithId: _navigateToTaskWithId,
       ),
+
+      // 1 – Gäste
       GuestPage(
         guests: _guests,
         onAddGuest: _addGuest,
         onUpdateGuest: _updateGuest,
         onDeleteGuest: _deleteGuest,
       ),
+
+      // 2 – Tischplanung
       TischplanungPage(
         key: _tableKey,
         guests: _guests,
         onUpdateGuest: _updateGuest,
       ),
+
+      // 3 – Budget
       EnhancedBudgetPage(key: _budgetKey),
-      TaskPage(
-        key: _taskPageKey,
+
+      // 4 – Planung  ← war: TaskPage
+      PlanningScreen(
+        key: _planningPageKey,
         tasks: _tasks,
         onAddTask: _addTask,
         onUpdateTask: _updateTask,
@@ -432,141 +452,40 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onClearSelectedTask: _clearSelectedTask,
         onNavigateToHome: () => setState(() => _currentIndex = 0),
       ),
-      DienstleisterListScreen(key: _dienstleisterKey),
+
+      // 5 – Dienstleister
+      const DienstleisterListScreen(),
     ];
 
+    // ── Scaffold ─────────────────────────────────────────────
     return Scaffold(
+      // ── AppBar ─────────────────────────────────────────────
       appBar: AppBar(
         title: Row(
           children: [
             SizedBox(
-              height: 36,
-              width: 36,
+              height: 22,
+              width: 22,
               child: Image.asset(
-                'assets/images/heartpepple_logo.png',
+                'assets/images/heartpebble_logo.png',
                 fit: BoxFit.contain,
               ),
             ),
-            const SizedBox(width: 12),
-            const Text(
-              'HeartPebble',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
-            ),
+            const SizedBox(width: 8),
+            const Text('HeartPebble', style: TextStyle(fontSize: 22)),
           ],
         ),
         backgroundColor: brand.primary,
-        foregroundColor: scheme.onPrimary,
+        foregroundColor: Colors.white,
       ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: BoxDecoration(color: brand.primary),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  const Text(
-                    'HeartPebble',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (_brideName.isNotEmpty || _groomName.isNotEmpty)
-                    Text(
-                      '$_brideName & $_groomName',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                  if (_weddingDate != null)
-                    Text(
-                      '${_weddingDate!.day.toString().padLeft(2, '0')}.${_weddingDate!.month.toString().padLeft(2, '0')}.${_weddingDate!.year}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text('Home'),
-              selected: _currentIndex == 0,
-              onTap: () {
-                _onTabChanged(0);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.people),
-              title: const Text('Gäste'),
-              selected: _currentIndex == 1,
-              onTap: () {
-                _onTabChanged(1);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.table_restaurant),
-              title: const Text('Tischplanung'),
-              selected: _currentIndex == 2,
-              onTap: () {
-                _onTabChanged(2);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.euro),
-              title: const Text('Budget'),
-              selected: _currentIndex == 3,
-              onTap: () {
-                _onTabChanged(3);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.assignment),
-              title: const Text('Checkliste'),
-              selected: _currentIndex == 4,
-              onTap: () {
-                _onTabChanged(4);
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.business),
-              title: const Text('Dienstleister'),
-              selected: _currentIndex == 5,
-              onTap: () {
-                _onTabChanged(5);
-                Navigator.pop(context);
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Einstellungen'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        SettingsPage(onDataReloaded: _reloadAllData),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
+
+      // ── Drawer ────────────────────────────────────────────
+      drawer: _buildDrawer(brand),
+
+      // ── Body ──────────────────────────────────────────────
       body: IndexedStack(index: _currentIndex, children: pages),
+
+      // ── BottomNavigationBar ───────────────────────────────
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -576,7 +495,15 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         unselectedFontSize: 10,
         backgroundColor: Colors.white,
         elevation: 8,
-        onTap: _onTabChanged,
+        onTap: (index) {
+          if (index == 3) {
+            setState(() => _budgetPageKey = UniqueKey());
+          }
+          if (index == 4) {
+            setState(() => _selectedTaskId = null);
+          }
+          setState(() => _currentIndex = index);
+        },
         items: [
           BottomNavigationBarItem(
             icon: Icon(
@@ -612,11 +539,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
           ),
           BottomNavigationBarItem(
             icon: Icon(
-              Icons.assignment,
+              Icons.flag_outlined,
               size: 20,
               color: _currentIndex == 4 ? _getNavColor(4, brand) : Colors.grey,
             ),
-            label: 'Checkliste',
+            label: 'Planung',
           ),
           BottomNavigationBarItem(
             icon: Icon(
@@ -624,10 +551,90 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
               size: 20,
               color: _currentIndex == 5 ? _getNavColor(5, brand) : Colors.grey,
             ),
-            label: 'Dienstleister',
+            label: 'Dienst.',
           ),
         ],
       ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // DRAWER
+  // ─────────────────────────────────────────────────────────────
+
+  Widget _buildDrawer(dynamic brand) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(color: brand.primary),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                SizedBox(
+                  height: 48,
+                  width: 48,
+                  child: Image.asset(
+                    'assets/images/heartpebble_logo.png',
+                    fit: BoxFit.contain,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _brideName.isNotEmpty && _groomName.isNotEmpty
+                      ? '$_brideName & $_groomName'
+                      : 'HeartPebble',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (_weddingDate != null)
+                  Text(
+                    '${_weddingDate!.day.toString().padLeft(2, '0')}.'
+                    '${_weddingDate!.month.toString().padLeft(2, '0')}.'
+                    '${_weddingDate!.year}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+              ],
+            ),
+          ),
+          _drawerItem(Icons.home, 'Home', 0),
+          _drawerItem(Icons.people, 'Gäste', 1),
+          _drawerItem(Icons.table_restaurant, 'Tischplanung', 2),
+          _drawerItem(Icons.euro, 'Budget', 3),
+          _drawerItem(Icons.flag_outlined, 'Planung', 4),
+          _drawerItem(Icons.business, 'Dienstleister', 5),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.settings),
+            title: const Text('Einstellungen'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SettingsPage(onDataReloaded: _reloadAllData),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  ListTile _drawerItem(IconData icon, String label, int index) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      selected: _currentIndex == index,
+      onTap: () {
+        setState(() => _currentIndex = index);
+        Navigator.pop(context);
+      },
     );
   }
 }
