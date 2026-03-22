@@ -1161,7 +1161,18 @@ class _PlanningScreenState extends State<PlanningScreen>
 
   Widget _buildPhaseTask(PhaseTask task) {
     return GestureDetector(
-      onTap: () => setState(() => task.done = !task.done),
+      onTap: () {
+        setState(() {
+          task.done = !task.done;
+          // Fortschritt neu berechnen
+          for (final phase in _phases) {
+            final total = phase.tasks.length;
+            if (total == 0) continue;
+            final done = phase.tasks.where((t) => t.done).length;
+            // progressPercent ist final – wir nutzen den task.done status direkt in der UI
+          }
+        });
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
@@ -1405,32 +1416,8 @@ class _PlanningScreenState extends State<PlanningScreen>
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
             children: [
-              if (_timelineMilestones.isEmpty)
-                Center(
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 40),
-                      Icon(
-                        Icons.checklist_rounded,
-                        size: 48,
-                        color: Color(0xFF8A8299),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Checkliste wird geladen …',
-                        style: TextStyle(color: Color(0xFF8A8299)),
-                      ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: _loadTimelineMilestones,
-                        child: const Text('Neu laden'),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                // HIER: _buildTimeline(l10n) aus tasks_screen.dart einfügen
-                const SizedBox(),
+              // ── Checkliste-Inhalt ──────────────────────────
+              _buildChecklistContent(),
             ],
           ),
         ),
@@ -1497,6 +1484,378 @@ class _PlanningScreenState extends State<PlanningScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildChecklistContent() {
+    final hasTimeline = widget.tasks.any((t) => t.category == 'timeline');
+
+    if (!hasTimeline) {
+      // Noch keine Timeline-Tasks → Erstellungs-Angebot
+      return Column(
+        children: [
+          const SizedBox(height: 32),
+          const Icon(
+            Icons.checklist_rounded,
+            size: 56,
+            color: Color(0xFFECE8F2),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Noch keine Checkliste',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1A1625),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Erstelle die vollständige Hochzeits-\nCheckliste mit 86 Aufgaben.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              color: Color(0xFF8A8299),
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: () => _showCreateChecklistDialog(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFD4607A),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFD4607A).withOpacity(0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_task, color: Colors.white, size: 20),
+                  SizedBox(width: 10),
+                  Text(
+                    '86 Aufgaben erstellen',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: () {},
+            child: const Text(
+              'Später',
+              style: TextStyle(color: Color(0xFF8A8299)),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Tasks vorhanden → bestehende Checkliste anzeigen
+    // HIER: _buildTimeline(l10n) aus tasks_screen.dart einfügen
+    final timelineTasks = widget.tasks
+        .where((t) => t.category == 'timeline' && t.deleted == 0)
+        .toList();
+    final done = timelineTasks.where((t) => t.completed).length;
+    return Column(
+      children: [
+        const SizedBox(height: 8),
+        // Mini progress
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: timelineTasks.isEmpty ? 0 : done / timelineTasks.length,
+              minHeight: 6,
+              backgroundColor: const Color(0xFFECE8F2),
+              valueColor: const AlwaysStoppedAnimation(Color(0xFFD4607A)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Task list placeholder – ersetze durch _buildTimeline() aus tasks_screen.dart
+        ...timelineTasks.map(
+          (task) => GestureDetector(
+            onTap: () {
+              widget.onUpdateTask(task.copyWith(completed: !task.completed));
+            },
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: task.completed ? const Color(0xFFF8F6FB) : Colors.white,
+                border: Border.all(color: const Color(0xFFECE8F2)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: task.completed
+                          ? const Color(0xFFD4607A)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: task.completed
+                            ? const Color(0xFFD4607A)
+                            : const Color(0xFFECE8F2),
+                        width: 1.5,
+                      ),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: task.completed
+                        ? const Icon(Icons.check, size: 11, color: Colors.white)
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      task.title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: task.completed
+                            ? const Color(0xFF8A8299)
+                            : const Color(0xFF1A1625),
+                        decoration: task.completed
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
+                    ),
+                  ),
+                  if (task.deadline != null)
+                    Text(
+                      '${task.deadline!.day.toString().padLeft(2, '0')}.${task.deadline!.month.toString().padLeft(2, '0')}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF8A8299),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showCreateChecklistDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Checkliste erstellen'),
+        content: const Text(
+          'Möchtest du die vollständige Hochzeits-Checkliste mit 86 Aufgaben erstellen?\n\nDie Aufgaben werden automatisch nach deinem Hochzeitsdatum terminiert.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _createDefaultChecklist();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4607A),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Erstellen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createDefaultChecklist() async {
+    if (widget.weddingDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bitte zuerst das Hochzeitsdatum festlegen.'),
+        ),
+      );
+      return;
+    }
+
+    final weddingDate = widget.weddingDate!;
+    final today = DateTime.now();
+
+    // Zeige Ladeindikator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Checkliste wird erstellt…'),
+          ],
+        ),
+      ),
+    );
+
+    final defaultTasks = [
+      {'title': 'Standesamt, Kirche oder beides?', 'months_before': 12},
+      {'title': 'Hochzeitsdatum fixieren', 'months_before': 12},
+      {'title': 'Termin Standesamt / Kirche fixieren', 'months_before': 11},
+      {'title': 'Erste Gästeliste erstellen', 'months_before': 11},
+      {'title': 'Budget festlegen', 'months_before': 11},
+      {'title': 'Hochzeitsmotto und Farben festlegen', 'months_before': 10},
+      {'title': 'Angebote von Locations einholen', 'months_before': 10},
+      {'title': 'Location festlegen', 'months_before': 9},
+      {'title': 'Hotelzimmer für Gäste reservieren', 'months_before': 9},
+      {'title': '"Save the Date" versenden', 'months_before': 8},
+      {'title': 'Trauzeugen offiziell fragen', 'months_before': 8},
+      {'title': 'Erste Dienstleister-Anfragen', 'months_before': 8},
+      {'title': 'Ablauf & Stil der Zeremonie grob planen', 'months_before': 7},
+      {'title': 'Erste Überlegungen zu Flitterwochen', 'months_before': 7},
+      {'title': 'Rechtliche Dokumente prüfen', 'months_before': 7},
+      {'title': 'Versicherungen checken', 'months_before': 6},
+      {'title': 'Ehe beim Standesamt anmelden', 'months_before': 6},
+      {'title': 'Catering für das Fest buchen', 'months_before': 6},
+      {'title': 'Fotograf & DJ buchen', 'months_before': 6},
+      {'title': 'Finale Gästeliste erstellen', 'months_before': 6},
+      {'title': 'Brautkleid aussuchen & bestellen', 'months_before': 6},
+      {'title': 'Outfit für Bräutigam suchen', 'months_before': 6},
+      {'title': 'Einladungen bestellen / drucken', 'months_before': 5},
+      {'title': 'JGA / Polterabend: Termin fixieren', 'months_before': 5},
+      {'title': 'Adressen der Gäste sammeln', 'months_before': 5},
+      {'title': 'Hochzeitsliste einrichten', 'months_before': 5},
+      {'title': 'Videograf buchen', 'months_before': 5},
+      {'title': 'Unterlagen sammeln und ordnen', 'months_before': 5},
+      {'title': 'Papeterie-Konzept festlegen', 'months_before': 5},
+      {'title': 'Kinderprogramm organisieren', 'months_before': 5},
+      {'title': 'Transport / Shuttle buchen', 'months_before': 5},
+      {'title': 'Probeessen beim Caterer vereinbaren', 'months_before': 5},
+      {'title': 'Songauswahl mit Musiker abstimmen', 'months_before': 5},
+      {'title': 'Ablaufplan für den Tag grob erstellen', 'months_before': 5},
+      {'title': 'Traugespräch mit Pfarrer vereinbaren', 'months_before': 4},
+      {'title': 'Menü planen und festlegen', 'months_before': 4},
+      {'title': 'Mit Floristen Blumen planen', 'months_before': 4},
+      {'title': 'Trauringe bestellen', 'months_before': 4},
+      {'title': 'Einladungen versenden', 'months_before': 4},
+      {'title': 'Drucksorten beauftragen', 'months_before': 4},
+      {'title': 'Brautschuhe & Co besorgen', 'months_before': 4},
+      {'title': 'Hochzeitstorte bestellen', 'months_before': 4},
+      {'title': 'Tischdekoration festlegen', 'months_before': 3},
+      {'title': 'Hochzeitsdeko festlegen', 'months_before': 3},
+      {'title': 'Frisur & Make-up testen', 'months_before': 3},
+      {'title': 'Ablaufplan für den Tag detaillieren', 'months_before': 3},
+      {'title': 'Menükarten / Tischkarten drucken', 'months_before': 3},
+      {'title': 'Alle Dienstleister final bestätigen', 'months_before': 3},
+      {'title': 'Rückmeldungen der Gäste einholen', 'months_before': 3},
+      {'title': 'Tischplan erstellen', 'months_before': 2},
+      {'title': 'Reden und Texte vorbereiten', 'months_before': 2},
+      {'title': 'Hochzeitsreise buchen', 'months_before': 2},
+      {'title': 'Letzte Anpassungen Kleid / Anzug', 'months_before': 2},
+      {'title': 'Geschenkwünsche kommunizieren', 'months_before': 2},
+      {'title': 'Notfall-Kit zusammenstellen', 'months_before': 1},
+      {'title': 'Alle Zahlungen prüfen', 'months_before': 1},
+      {'title': 'Reisedokumente prüfen', 'months_before': 1},
+      {'title': 'Endgültigen Ablaufplan an alle senden', 'months_before': 1},
+      {'title': 'Trauringe einpacken', 'months_before': 0},
+      {'title': 'Haare & Make-up Termin', 'months_before': 0},
+      {'title': 'Frühstück nicht vergessen!', 'months_before': 0},
+      {'title': 'Hochzeitskleid / Anzug anlegen', 'months_before': 0},
+      {'title': 'Brautstrauß abholen', 'months_before': 0},
+      {
+        'title': 'Standesamt / Kirche rechtzeitig erreichen',
+        'months_before': 0,
+      },
+      {'title': 'Ehegelübde sprechen', 'months_before': 0},
+      {'title': 'Danke-Karten vorbereiten', 'months_before': -1},
+      {'title': 'Fotos aussortieren und bestellen', 'months_before': -1},
+      {'title': 'Hochzeitsgeschenke verwalten', 'months_before': -1},
+      {'title': 'Namensänderung beim Standesamt', 'months_before': -1},
+      {
+        'title': 'Bank, Versicherung, Ausweise aktualisieren',
+        'months_before': -2,
+      },
+      {'title': 'Dienstleistern Bewertungen hinterlassen', 'months_before': -2},
+    ];
+
+    for (final t in defaultTasks) {
+      final monthsBefore = t['months_before'] as int;
+      DateTime deadline;
+
+      if (monthsBefore > 0) {
+        final ideal = DateTime(
+          weddingDate.year,
+          weddingDate.month - monthsBefore,
+          weddingDate.day,
+        );
+        if (ideal.isBefore(today)) {
+          final overdue = today.difference(ideal).inDays;
+          if (overdue <= 30)
+            deadline = today.add(const Duration(days: 2));
+          else if (overdue <= 90)
+            deadline = today.add(const Duration(days: 7));
+          else if (overdue <= 180)
+            deadline = today.add(const Duration(days: 14));
+          else
+            deadline = today.add(const Duration(days: 30));
+        } else {
+          deadline = ideal;
+        }
+      } else if (monthsBefore < 0) {
+        deadline = DateTime(
+          weddingDate.year,
+          weddingDate.month - monthsBefore,
+          weddingDate.day,
+        );
+      } else {
+        deadline = weddingDate;
+      }
+
+      final priority = monthsBefore >= 6
+          ? 'low'
+          : monthsBefore >= 3
+          ? 'medium'
+          : 'high';
+
+      await widget.onAddTask(
+        Task(
+          title: t['title'] as String,
+          description: '',
+          category: 'timeline',
+          priority: priority,
+          deadline: deadline,
+          completed: false,
+          createdDate: DateTime.now(),
+        ),
+      );
+    }
+
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    await _loadTimelineMilestones();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ 70 Aufgaben erstellt!'),
+          backgroundColor: Color(0xFF6B9E72),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Widget _buildProgressBanner() {

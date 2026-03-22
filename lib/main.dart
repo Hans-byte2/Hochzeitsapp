@@ -467,7 +467,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
               height: 22,
               width: 22,
               child: Image.asset(
-                'assets/images/heartpebble_logo.png',
+                'assets/images/heartpepple_logo.png',
                 fit: BoxFit.contain,
               ),
             ),
@@ -577,7 +577,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
                   height: 48,
                   width: 48,
                   child: Image.asset(
-                    'assets/images/heartpebble_logo.png',
+                    'assets/images/heartpepple_logo.png',
                     fit: BoxFit.contain,
                   ),
                 ),
