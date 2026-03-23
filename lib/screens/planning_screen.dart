@@ -12,12 +12,16 @@
 //   2 – Hochzeitstag  (neuer Stunden-Ablaufplan)
 
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../models/wedding_models.dart';
 import '../app_colors.dart';
 import '../data/database_helper.dart';
 import '../sync/services/sync_service.dart';
 import '../services/premium_service.dart';
+import '../services/notification_service.dart';
 import '../widgets/upgrade_bottom_sheet.dart';
 
 // Farb-Aliasse damit der Code kürzer bleibt
@@ -79,36 +83,35 @@ class WeddingDayTask {
 enum PhaseStatus { done, now, future }
 
 class PlanningPhase {
-  final String month;
-  final String name;
-  final int progressPercent;
-  final PhaseStatus status;
-  final String badge;
-  final List<PhaseTask> tasks;
+  final String month; // Anzeige-Label, z.B. "12 M"
+  final String name; // Phasenname
+  final int monthsFrom; // Deadline-Bereich Start (Monate vor Hochzeit)
+  final int monthsTo; // Deadline-Bereich Ende
+  final PhaseStatus status; // Wird live berechnet
 
   const PlanningPhase({
     required this.month,
     required this.name,
-    required this.progressPercent,
+    required this.monthsFrom,
+    required this.monthsTo,
     required this.status,
-    required this.badge,
-    required this.tasks,
   });
+
+  // Badge-Text aus Status
+  String get badge {
+    switch (status) {
+      case PhaseStatus.done:
+        return 'Erledigt';
+      case PhaseStatus.now:
+        return 'Jetzt';
+      case PhaseStatus.future:
+        return 'Geplant';
+    }
+  }
 }
 
-class PhaseTask {
-  final String title;
-  final String due;
-  final bool urgent;
-  bool done;
-
-  PhaseTask({
-    required this.title,
-    required this.due,
-    this.urgent = false,
-    this.done = false,
-  });
-}
+// PhaseTask wird jetzt direkt aus widget.tasks (Task-Klasse) gelesen.
+// Keine eigene Klasse mehr nötig.
 
 // ─────────────────────────────────────────────────────────────
 // PlanningScreen – Haupt-Widget
@@ -156,7 +159,7 @@ class _PlanningScreenState extends State<PlanningScreen>
   List<Map<String, dynamic>> _timelineMilestones = [];
 
   // ── Meilenstein-Dashboard-State ─────────────────────────
-  int _selectedPhaseIndex = 2;
+  int _selectedPhaseIndex = 0; // wird in initState auf aktuelle Phase gesetzt
   late List<PlanningPhase> _phases;
 
   // ── Hochzeitstag-State ───────────────────────────────────
@@ -169,145 +172,103 @@ class _PlanningScreenState extends State<PlanningScreen>
     });
   }
 
-  // ── Meilenstein-Phasen erzeugen ──────────────────────────
+  // ── Phasen-Definitionen (zeitbasiert) ─────────────────────
+  // monthsFrom / monthsTo = Monate VOR der Hochzeit
+  // Aufgaben in dieser Phase: deadline zwischen (Hochzeit - monthsFrom) und (Hochzeit - monthsTo)
   List<PlanningPhase> _buildPhases(DateTime? weddingDate) {
     final now = DateTime.now();
-    final diff = weddingDate != null ? weddingDate.difference(now).inDays : 180;
+    final diff = weddingDate != null ? weddingDate.difference(now).inDays : 999;
 
-    PhaseStatus _s(int monthsBefore) {
-      final threshold = diff - (monthsBefore * 30);
-      if (threshold > 60) return PhaseStatus.future;
-      if (threshold > -30) return PhaseStatus.now;
-      return PhaseStatus.done;
+    PhaseStatus _status(int mFrom, int mTo) {
+      // Aktiv wenn der Zeitraum jetzt läuft (Hochzeit - mFrom bis Hochzeit - mTo)
+      final startDays = mFrom * 30; // z.B. 12 Monate = 360 Tage vor Hochzeit
+      final endDays = mTo * 30;
+      if (diff > startDays) return PhaseStatus.future; // noch nicht begonnen
+      if (diff > endDays) return PhaseStatus.now; // aktuell
+      return PhaseStatus.done; // Zeitraum vergangen
     }
 
     return [
       PlanningPhase(
-        month: '12 M',
+        month: '12–9 M',
         name: 'Erste Schritte',
-        progressPercent: _s(12) == PhaseStatus.done
-            ? 100
-            : _s(12) == PhaseStatus.now
-            ? 60
-            : 0,
-        status: _s(12),
-        badge: _s(12) == PhaseStatus.done
-            ? 'Erledigt'
-            : _s(12) == PhaseStatus.now
-            ? 'Jetzt'
-            : 'Geplant',
-        tasks: [
-          PhaseTask(
-            title: 'Budget festlegen',
-            due: '12 M vorher',
-            done: _s(12) == PhaseStatus.done,
-          ),
-          PhaseTask(
-            title: 'Gästeliste grob erstellen',
-            due: '12 M vorher',
-            done: _s(12) == PhaseStatus.done,
-          ),
-          PhaseTask(
-            title: 'Hochzeitsdatum fixieren',
-            due: '12 M vorher',
-            done: _s(12) == PhaseStatus.done,
-          ),
-        ],
+        monthsFrom: 12,
+        monthsTo: 9,
+        status: _status(12, 9),
       ),
       PlanningPhase(
-        month: '9 M',
-        name: 'Location & Foto',
-        progressPercent: _s(9) == PhaseStatus.done
-            ? 100
-            : _s(9) == PhaseStatus.now
-            ? 40
-            : 0,
-        status: _s(9),
-        badge: _s(9) == PhaseStatus.done
-            ? 'Erledigt'
-            : _s(9) == PhaseStatus.now
-            ? 'Jetzt'
-            : 'Geplant',
-        tasks: [
-          PhaseTask(
-            title: 'Location buchen',
-            due: '9 M vorher',
-            done: _s(9) == PhaseStatus.done,
-          ),
-          PhaseTask(
-            title: 'Fotograf bestätigen',
-            due: '9 M vorher',
-            done: _s(9) == PhaseStatus.done,
-          ),
-          PhaseTask(
-            title: 'Trauung anmelden',
-            due: '9 M vorher',
-            done: _s(9) == PhaseStatus.done,
-          ),
-        ],
+        month: '9–6 M',
+        name: 'Location & Dienstleister',
+        monthsFrom: 9,
+        monthsTo: 6,
+        status: _status(9, 6),
       ),
       PlanningPhase(
-        month: '6 M',
-        name: 'Einladungen',
-        progressPercent: _s(6) == PhaseStatus.done
-            ? 100
-            : _s(6) == PhaseStatus.now
-            ? 33
-            : 0,
-        status: _s(6),
-        badge: _s(6) == PhaseStatus.done
-            ? 'Erledigt'
-            : _s(6) == PhaseStatus.now
-            ? 'Jetzt'
-            : 'Geplant',
-        tasks: [
-          PhaseTask(title: 'Design auswählen', due: 'Erledigt', done: true),
-          PhaseTask(
-            title: 'Adressen sammeln',
-            due: 'Diese Woche',
-            urgent: _s(6) == PhaseStatus.now,
-          ),
-          PhaseTask(title: 'Einladungen versenden', due: '2 Wochen'),
-          PhaseTask(
-            title: 'Menü bestätigen',
-            due: '5 Tage',
-            urgent: _s(6) == PhaseStatus.now,
-          ),
-        ],
+        month: '6–3 M',
+        name: 'Einladungen & Details',
+        monthsFrom: 6,
+        monthsTo: 3,
+        status: _status(6, 3),
       ),
       PlanningPhase(
-        month: '3 M',
-        name: 'Details & Deko',
-        progressPercent: _s(3) == PhaseStatus.done
-            ? 100
-            : _s(3) == PhaseStatus.now
-            ? 10
-            : 0,
-        status: _s(3),
-        badge: _s(3) == PhaseStatus.done
-            ? 'Erledigt'
-            : _s(3) == PhaseStatus.now
-            ? 'Jetzt'
-            : 'Geplant',
-        tasks: [
-          PhaseTask(title: 'Tischplan erstellen', due: '3 M vorher'),
-          PhaseTask(title: 'Blumenschmuck finalisieren', due: '3 M vorher'),
-          PhaseTask(title: 'Tischkarten drucken', due: '3 M vorher'),
-        ],
-      ),
-      PlanningPhase(
-        month: '1 M',
+        month: '3–1 M',
         name: 'Finale Vorbereitung',
-        progressPercent: 0,
-        status: PhaseStatus.future,
-        badge: 'Geplant',
-        tasks: [
-          PhaseTask(title: 'Ringe abholen', due: '1 M vorher'),
-          PhaseTask(title: 'Ablaufplan finalisieren', due: '1 M vorher'),
-          PhaseTask(title: 'Danke-Karten vorbereiten', due: '1 M vorher'),
-        ],
+        monthsFrom: 3,
+        monthsTo: 0,
+        status: _status(3, 0),
+      ),
+      PlanningPhase(
+        month: 'Tag',
+        name: '🎊 Hochzeitstag',
+        monthsFrom: 0,
+        monthsTo: -1,
+        status: _status(0, -1),
       ),
     ];
+  }
+
+  // ── Tasks einer Phase aus widget.tasks filtern ─────────────
+  List<Task> _getPhaseTasks(PlanningPhase phase) {
+    if (widget.weddingDate == null) return [];
+    final wedding = widget.weddingDate!;
+    final from = DateTime(
+      wedding.year,
+      wedding.month - phase.monthsFrom,
+      wedding.day,
+    );
+    final to = phase.monthsTo < 0
+        ? wedding.add(Duration(days: (-phase.monthsTo) * 30))
+        : DateTime(wedding.year, wedding.month - phase.monthsTo, wedding.day);
+
+    return widget.tasks.where((t) {
+      if (t.category != 'timeline') return false;
+      if (t.deleted != 0) return false;
+      if (t.deadline == null) return false;
+      // Task liegt in diesem Phasen-Zeitraum
+      return t.deadline!.isAfter(from.subtract(const Duration(days: 1))) &&
+          t.deadline!.isBefore(to.add(const Duration(days: 1)));
+    }).toList();
+  }
+
+  // ── Dot-Status einer Phase (fortschrittsbasiert) ─────────
+  PhaseStatus _phaseEffectiveStatus(PlanningPhase phase) {
+    final tasks = _getPhaseTasks(phase);
+    if (tasks.isEmpty) return phase.status; // fallback auf zeitbasiert
+    final done = tasks.where((t) => t.completed).length;
+    if (done == tasks.length) return PhaseStatus.done; // 100% → grün
+    if (done > 0) return PhaseStatus.now; // teilweise → aktiv
+    return phase.status; // 0% → zeitbasiert
+  }
+
+  // ── Fortschritt einer Phase (0–100) ─────────────────────
+  int _phaseProgress(PlanningPhase phase) {
+    final tasks = _getPhaseTasks(phase);
+    if (tasks.isEmpty) {
+      // Keine verknüpften Tasks → Zeitstatus
+      return phase.status == PhaseStatus.done ? 100 : 0;
+    }
+    final done = tasks.where((t) => t.completed).length;
+    return (done / tasks.length * 100).round();
   }
 
   // ── Hochzeitstag-Blöcke ──────────────────────────────────
@@ -440,6 +401,11 @@ class _PlanningScreenState extends State<PlanningScreen>
     _phases = _buildPhases(widget.weddingDate);
     _dayBlocks = _buildDayBlocks();
     _loadTimelineMilestones();
+    // Aktive Phase vorauswählen
+    _selectedPhaseIndex = _phases.indexWhere(
+      (p) => p.status == PhaseStatus.now,
+    );
+    if (_selectedPhaseIndex < 0) _selectedPhaseIndex = 0;
 
     // Direkt zur Task navigieren (aus bestehendem Code)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -456,6 +422,18 @@ class _PlanningScreenState extends State<PlanningScreen>
     _searchController.dispose();
     _newTaskController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(PlanningScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Wenn sich Tasks ändern (abhaken, neue Tasks) → Phasen neu berechnen
+    if (oldWidget.tasks != widget.tasks ||
+        oldWidget.weddingDate != widget.weddingDate) {
+      setState(() {
+        _phases = _buildPhases(widget.weddingDate);
+      });
+    }
   }
 
   Future<void> _loadTimelineMilestones() async {
@@ -841,7 +819,7 @@ class _PlanningScreenState extends State<PlanningScreen>
           _buildHorizontalTimeline(),
           const SizedBox(height: 14),
           // Phase-Detail – KOSTENLOS
-          _buildPhaseDetail(phase),
+          _buildPhaseDetail(phase, onToggle: () => setState(() {})),
           const SizedBox(height: 24),
 
           // Vertikaler Zeitstrahl – PREMIUM
@@ -912,8 +890,14 @@ class _PlanningScreenState extends State<PlanningScreen>
       children: _phases.asMap().entries.map((e) {
         final i = e.key;
         final p = e.value;
-        final urgentTasks = p.tasks.where((t) => !t.done).take(3).toList();
-        if (urgentTasks.isEmpty) return const SizedBox.shrink();
+        final phaseTasks = _getPhaseTasks(p);
+        final urgentTasks = phaseTasks
+            .where((t) => !t.completed)
+            .take(3)
+            .toList();
+        final effStat = _phaseEffectiveStatus(p);
+        final pct = _phaseProgress(p);
+        if (phaseTasks.isEmpty) return const SizedBox.shrink();
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
@@ -934,9 +918,9 @@ class _PlanningScreenState extends State<PlanningScreen>
               children: [
                 Container(
                   height: 3,
-                  color: p.status == PhaseStatus.done
+                  color: effStat == PhaseStatus.done
                       ? Color(0xFF6B9E72)
-                      : p.status == PhaseStatus.now
+                      : effStat == PhaseStatus.now
                       ? Color(0xFFD4607A)
                       : Color(0xFFECE8F2),
                 ),
@@ -948,16 +932,6 @@ class _PlanningScreenState extends State<PlanningScreen>
                       Row(
                         children: [
                           Text(
-                            '${String.fromCharCode(0x30 + i + 1).padLeft(2, '0')}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF8A8299),
-                              letterSpacing: 0.1,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
                             p.month,
                             style: const TextStyle(
                               fontSize: 11,
@@ -967,7 +941,7 @@ class _PlanningScreenState extends State<PlanningScreen>
                             ),
                           ),
                           const Spacer(),
-                          _badgePill(p.badge, p.status),
+                          _badgePill('$pct%', effStat),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -980,7 +954,16 @@ class _PlanningScreenState extends State<PlanningScreen>
                         ),
                       ),
                       const SizedBox(height: 10),
-                      ...urgentTasks.map((t) => _buildPhaseTask(t)),
+                      if (urgentTasks.isEmpty)
+                        const Text(
+                          'Alle Aufgaben erledigt ✓',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF6B9E72),
+                          ),
+                        )
+                      else
+                        ...urgentTasks.map((t) => _buildRealTask(t)),
                     ],
                   ),
                 ),
@@ -1019,7 +1002,7 @@ class _PlanningScreenState extends State<PlanningScreen>
               width: 108,
               child: Column(
                 children: [
-                  _buildHDot(p.status),
+                  _buildHDot(_phaseEffectiveStatus(p)),
                   const SizedBox(height: 8),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -1074,12 +1057,17 @@ class _PlanningScreenState extends State<PlanningScreen>
                           ),
                         ),
                         const SizedBox(height: 2),
-                        Text(
-                          '${p.progressPercent}%',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Color(0xFF8A8299),
-                          ),
+                        Builder(
+                          builder: (ctx) {
+                            final pct = _phaseProgress(p);
+                            return Text(
+                              '$pct%',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFF8A8299),
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -1094,22 +1082,28 @@ class _PlanningScreenState extends State<PlanningScreen>
   }
 
   Widget _buildHDot(PhaseStatus s) {
+    // Farbe nach Fortschritt: grün=fertig, rose=aktiv, grau=future
+    final Color fill = s == PhaseStatus.done
+        ? const Color(0xFF6B9E72)
+        : s == PhaseStatus.now
+        ? const Color(0xFFD4607A)
+        : const Color(0xFFFFFFFF);
+    final Color border = s == PhaseStatus.done
+        ? const Color(0xFF6B9E72)
+        : s == PhaseStatus.now
+        ? const Color(0xFFD4607A)
+        : const Color(0xFFECE8F2);
     return Container(
       width: 22,
       height: 22,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: s != PhaseStatus.future ? Color(0xFFD4607A) : Color(0xFFFFFFFF),
-        border: Border.all(
-          color: s != PhaseStatus.future
-              ? Color(0xFFD4607A)
-              : Color(0xFFECE8F2),
-          width: 2,
-        ),
-        boxShadow: s == PhaseStatus.now
+        color: fill,
+        border: Border.all(color: border, width: 2),
+        boxShadow: s != PhaseStatus.future
             ? [
                 BoxShadow(
-                  color: Color(0xFFD4607A).withOpacity(0.4),
+                  color: fill.withOpacity(0.35),
                   blurRadius: 6,
                   spreadRadius: 2,
                 ),
@@ -1125,7 +1119,12 @@ class _PlanningScreenState extends State<PlanningScreen>
   }
 
   // Phase-Detail
-  Widget _buildPhaseDetail(PlanningPhase phase) {
+  Widget _buildPhaseDetail(PlanningPhase phase, {VoidCallback? onToggle}) {
+    final tasks = _getPhaseTasks(phase);
+    final pct = _phaseProgress(phase);
+    final effStatus = _phaseEffectiveStatus(phase);
+    final hasTimeline = widget.tasks.any((t) => t.category == 'timeline');
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1138,7 +1137,7 @@ class _PlanningScreenState extends State<PlanningScreen>
         children: [
           Row(
             children: [
-              _badgePill(phase.badge, phase.status),
+              _badgePill(tasks.isEmpty ? phase.badge : '$pct%', effStatus),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1150,59 +1149,133 @@ class _PlanningScreenState extends State<PlanningScreen>
                   ),
                 ),
               ),
+              if (tasks.isNotEmpty)
+                Text(
+                  '${tasks.where((t) => t.completed).length}/${tasks.length}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF8A8299),
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 12),
-          ...phase.tasks.map((t) => _buildPhaseTask(t)),
+          if (tasks.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            // Fortschrittsbalken
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: pct / 100,
+                minHeight: 4,
+                backgroundColor: Color(0xFFECE8F2),
+                valueColor: AlwaysStoppedAnimation(
+                  pct == 100 ? Color(0xFF6B9E72) : Color(0xFFD4607A),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            // Aufgaben aus der Checkliste
+            ...tasks.map((t) => _buildRealTask(t)),
+          ] else if (!hasTimeline) ...[
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () {
+                _tabController.animateTo(1);
+                Future.delayed(
+                  const Duration(milliseconds: 300),
+                  () => _showCreateChecklistDialog(),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Color(0xFFECE8F2)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Center(
+                  child: Text(
+                    'Checkliste erstellen →',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFFD4607A),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Keine Aufgaben in diesem Zeitraum.',
+              style: TextStyle(fontSize: 13, color: Color(0xFF8A8299)),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildPhaseTask(PhaseTask task) {
+  // ── Echte Task (aus DB) in der Phase-Detail-Ansicht ──────
+  Widget _buildRealTask(Task task) {
     return GestureDetector(
       onTap: () {
-        setState(() {
-          task.done = !task.done;
-          // Fortschritt neu berechnen
-          for (final phase in _phases) {
-            final total = phase.tasks.length;
-            if (total == 0) continue;
-            final done = phase.tasks.where((t) => t.done).length;
-            // progressPercent ist final – wir nutzen den task.done status direkt in der UI
-          }
-        });
+        widget.onUpdateTask(task.copyWith(completed: !task.completed));
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
         decoration: BoxDecoration(
-          color: Color(0xFFF8F6FB),
+          color: task.completed ? Color(0xFFF8F6FB) : Color(0xFFFFFFFF),
           border: Border.all(color: Color(0xFFECE8F2)),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           children: [
-            _checkbox(task.done),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: task.completed ? Color(0xFF6B9E72) : Colors.transparent,
+                border: Border.all(
+                  color: task.completed ? Color(0xFF6B9E72) : Color(0xFFECE8F2),
+                  width: 1.5,
+                ),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: task.completed
+                  ? const Icon(Icons.check, size: 11, color: Colors.white)
+                  : null,
+            ),
             const SizedBox(width: 9),
             Expanded(
               child: Text(
                 task.title,
                 style: TextStyle(
                   fontSize: 13,
-                  color: task.done ? Color(0xFF8A8299) : Color(0xFF1A1625),
-                  decoration: task.done ? TextDecoration.lineThrough : null,
+                  color: task.completed ? Color(0xFF8A8299) : Color(0xFF1A1625),
+                  decoration: task.completed
+                      ? TextDecoration.lineThrough
+                      : null,
                 ),
               ),
             ),
-            Text(
-              task.due,
-              style: TextStyle(
-                fontSize: 11,
-                color: task.urgent ? Color(0xFFD4607A) : Color(0xFF8A8299),
-                fontWeight: task.urgent ? FontWeight.w700 : FontWeight.normal,
+            if (task.deadline != null)
+              Text(
+                _shortDate(task.deadline!),
+                style: TextStyle(
+                  fontSize: 11,
+                  color:
+                      !task.completed && task.deadline!.isBefore(DateTime.now())
+                      ? Color(0xFFD4607A)
+                      : Color(0xFF8A8299),
+                  fontWeight:
+                      !task.completed && task.deadline!.isBefore(DateTime.now())
+                      ? FontWeight.w700
+                      : FontWeight.normal,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -1280,11 +1353,17 @@ class _PlanningScreenState extends State<PlanningScreen>
                           ),
                         ),
                       ),
-                      _badgePill(p.badge, p.status),
+                      Builder(
+                        builder: (_) {
+                          final pct = _phaseProgress(p);
+                          final eff = _phaseEffectiveStatus(p);
+                          return _badgePill('$pct%', eff);
+                        },
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  ...p.tasks.map((t) => _buildPhaseTask(t)),
+                  ...(_getPhaseTasks(p)).take(3).map((t) => _buildRealTask(t)),
                   const SizedBox(height: 4),
                 ],
               ),
@@ -1338,7 +1417,7 @@ class _PlanningScreenState extends State<PlanningScreen>
             onChanged: (v) => setState(() => _searchQuery = v),
           ),
         ),
-        // Fortschritt + Premium-Schnellaktionen
+        // Fortschritt + Aktions-Buttons
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
           child: Column(
@@ -1347,6 +1426,38 @@ class _PlanningScreenState extends State<PlanningScreen>
               const SizedBox(height: 8),
               Row(
                 children: [
+                  // Checkliste verwalten (erstellen / löschen)
+                  Expanded(
+                    child: Builder(
+                      builder: (_) {
+                        final hasTimeline = widget.tasks.any(
+                          (t) => t.category == 'timeline' && t.deleted == 0,
+                        );
+                        return _buildChecklistActionButton(
+                          icon: hasTimeline
+                              ? Icons.playlist_remove
+                              : Icons.playlist_add_check,
+                          label: hasTimeline ? 'Verwalten' : 'Erstellen',
+                          isPremium: true,
+                          onTap: () {
+                            final tl = widget.tasks
+                                .where(
+                                  (t) =>
+                                      t.category == 'timeline' &&
+                                      t.deleted == 0,
+                                )
+                                .toList();
+                            if (tl.isEmpty) {
+                              _showCreateChecklistDialog();
+                            } else {
+                              _showManageChecklistDialog(tl);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   // PDF-Export – Premium
                   Expanded(
                     child: _buildChecklistActionButton(
@@ -1354,55 +1465,31 @@ class _PlanningScreenState extends State<PlanningScreen>
                       label: 'PDF-Export',
                       isPremium: isPremium,
                       onTap: isPremium
-                          ? () {
-                              /* PDF-Export starten */
-                            }
+                          ? () => _exportChecklistPdf()
                           : () => UpgradeBottomSheet.show(
                               context,
-                              featureName: 'Checklisten-Export',
+                              featureName: 'PDF-Export',
                               featureDescription:
-                                  'Exportiere deine komplette Checkliste als PDF – '
-                                  'perfekt zum Ausdrucken oder Teilen.',
+                                  'Exportiere deine komplette Checkliste '
+                                  'als PDF – perfekt zum Ausdrucken.',
                             ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Partner-Sync – Premium
-                  Expanded(
-                    child: _buildChecklistActionButton(
-                      icon: Icons.people_outline,
-                      label: 'Partner-Sync',
-                      isPremium: isPremium,
-                      onTap: isPremium
-                          ? () {
-                              /* Partner-Sync öffnen */
-                            }
-                          : () => UpgradeBottomSheet.show(
-                              context,
-                              featureName: 'Partner-Sync',
-                              featureDescription:
-                                  'Plant gemeinsam mit eurem Partner – '
-                                  'Aufgaben synchronisieren sich automatisch auf beiden Geräten.',
-                            ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Erinnerungen – Premium
+                  // Erinnerungen
                   Expanded(
                     child: _buildChecklistActionButton(
                       icon: Icons.notifications_outlined,
                       label: 'Erinnerungen',
                       isPremium: isPremium,
                       onTap: isPremium
-                          ? () {
-                              /* Erinnerungen öffnen */
-                            }
+                          ? () => _showReminderSettings()
                           : () => UpgradeBottomSheet.show(
                               context,
                               featureName: 'Smarte Erinnerungen',
                               featureDescription:
-                                  'Bekomme Push-Benachrichtigungen bevor Aufgaben fällig werden – '
-                                  'nie wieder etwas vergessen.',
+                                  'Erhalte Push-Benachrichtigungen '
+                                  'bevor Aufgaben fällig werden.',
                             ),
                     ),
                   ),
@@ -1487,170 +1574,1060 @@ class _PlanningScreenState extends State<PlanningScreen>
   }
 
   Widget _buildChecklistContent() {
-    final hasTimeline = widget.tasks.any((t) => t.category == 'timeline');
+    final timelineTasks = widget.tasks
+        .where((t) => t.category == 'timeline' && t.deleted == 0)
+        .toList();
+    final hasTimeline = timelineTasks.isNotEmpty;
+    final done = timelineTasks.where((t) => t.completed).length;
 
-    if (!hasTimeline) {
-      // Noch keine Timeline-Tasks → Erstellungs-Angebot
-      return Column(
-        children: [
-          const SizedBox(height: 32),
+    return Column(
+      children: [
+        // ── Leer-Zustand ──────────────────────────────────────
+        if (!hasTimeline) ...[
+          const SizedBox(height: 40),
           const Icon(
             Icons.checklist_rounded,
             size: 56,
             color: Color(0xFFECE8F2),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           const Text(
             'Noch keine Checkliste',
             style: TextStyle(
-              fontSize: 17,
+              fontSize: 16,
               fontWeight: FontWeight.w700,
               color: Color(0xFF1A1625),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           const Text(
-            'Erstelle die vollständige Hochzeits-\nCheckliste mit 86 Aufgaben.',
+            'Tippe auf "Checkliste erstellen" um\n70 Aufgaben automatisch anzulegen.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               color: Color(0xFF8A8299),
               height: 1.5,
             ),
           ),
-          const SizedBox(height: 24),
-          GestureDetector(
-            onTap: () => _showCreateChecklistDialog(),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFD4607A),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFFD4607A).withOpacity(0.35),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.add_task, color: Colors.white, size: 20),
-                  SizedBox(width: 10),
-                  Text(
-                    '86 Aufgaben erstellen',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextButton(
-            onPressed: () {},
-            child: const Text(
-              'Später',
-              style: TextStyle(color: Color(0xFF8A8299)),
-            ),
-          ),
         ],
-      );
-    }
 
-    // Tasks vorhanden → bestehende Checkliste anzeigen
-    // HIER: _buildTimeline(l10n) aus tasks_screen.dart einfügen
-    final timelineTasks = widget.tasks
-        .where((t) => t.category == 'timeline' && t.deleted == 0)
-        .toList();
-    final done = timelineTasks.where((t) => t.completed).length;
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        // Mini progress
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          child: ClipRRect(
+        // ── Aufgabenliste ─────────────────────────────────────
+        if (hasTimeline) ...[
+          // Fortschrittsbalken
+          ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: timelineTasks.isEmpty ? 0 : done / timelineTasks.length,
-              minHeight: 6,
+              minHeight: 5,
               backgroundColor: const Color(0xFFECE8F2),
               valueColor: const AlwaysStoppedAnimation(Color(0xFFD4607A)),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        // Task list placeholder – ersetze durch _buildTimeline() aus tasks_screen.dart
-        ...timelineTasks.map(
-          (task) => GestureDetector(
-            onTap: () {
-              widget.onUpdateTask(task.copyWith(completed: !task.completed));
-            },
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 5),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: task.completed ? const Color(0xFFF8F6FB) : Colors.white,
-                border: Border.all(color: const Color(0xFFECE8F2)),
-                borderRadius: BorderRadius.circular(10),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '$done / ${timelineTasks.length} erledigt',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF8A8299)),
               ),
-              child: Row(
+              Text(
+                '${timelineTasks.isEmpty ? 0 : (done / timelineTasks.length * 100).round()}%',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFD4607A),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Neue Aufgabe hinzufügen
+          GestureDetector(
+            onTap: () => _showTaskForm(context),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFDF3F5),
+                border: Border.all(
+                  color: const Color(0xFFD4607A).withOpacity(0.3),
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
                 children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: task.completed
-                          ? const Color(0xFFD4607A)
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: task.completed
-                            ? const Color(0xFFD4607A)
-                            : const Color(0xFFECE8F2),
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: task.completed
-                        ? const Icon(Icons.check, size: 11, color: Colors.white)
-                        : null,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      task.title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: task.completed
-                            ? const Color(0xFF8A8299)
-                            : const Color(0xFF1A1625),
-                        decoration: task.completed
-                            ? TextDecoration.lineThrough
-                            : null,
-                      ),
+                  Icon(Icons.add, size: 18, color: Color(0xFFD4607A)),
+                  SizedBox(width: 8),
+                  Text(
+                    'Neue Aufgabe hinzufügen',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFFD4607A),
                     ),
                   ),
-                  if (task.deadline != null)
-                    Text(
-                      '${task.deadline!.day.toString().padLeft(2, '0')}.${task.deadline!.month.toString().padLeft(2, '0')}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF8A8299),
-                      ),
-                    ),
                 ],
               ),
             ),
           ),
-        ),
+
+          // Aufgaben-Liste mit Swipe-to-Delete + Tap-to-Edit
+          ...timelineTasks.map((task) => _buildChecklistTaskItem(task)),
+        ],
       ],
+    );
+  }
+
+  // ── Einzelne Checklisten-Aufgabe mit Bearbeiten + Löschen ──
+  Widget _buildChecklistTaskItem(Task task) {
+    return Dismissible(
+      key: Key('task_${task.id}'),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        margin: const EdgeInsets.only(bottom: 5),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+      ),
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Aufgabe löschen'),
+                content: Text('„${task.title}" wirklich löschen?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Abbrechen'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Löschen'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+      },
+      onDismissed: (_) {
+        if (task.id != null) widget.onDeleteTask(task.id!);
+      },
+      child: GestureDetector(
+        onTap: () => _showTaskForm(context, existingTask: task),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 5),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: task.completed ? const Color(0xFFF8F6FB) : Colors.white,
+            border: Border.all(color: const Color(0xFFECE8F2)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              // Checkbox
+              GestureDetector(
+                onTap: () => widget.onUpdateTask(
+                  task.copyWith(completed: !task.completed),
+                ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: task.completed
+                        ? const Color(0xFF6B9E72)
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: task.completed
+                          ? const Color(0xFF6B9E72)
+                          : const Color(0xFFECE8F2),
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: task.completed
+                      ? const Icon(Icons.check, size: 12, color: Colors.white)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Titel
+              Expanded(
+                child: Text(
+                  task.title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: task.completed
+                        ? const Color(0xFF8A8299)
+                        : const Color(0xFF1A1625),
+                    decoration: task.completed
+                        ? TextDecoration.lineThrough
+                        : null,
+                  ),
+                ),
+              ),
+              // Datum
+              if (task.deadline != null) ...[
+                const SizedBox(width: 6),
+                Text(
+                  _shortDate(task.deadline!),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color:
+                        !task.completed &&
+                            task.deadline!.isBefore(DateTime.now())
+                        ? const Color(0xFFD4607A)
+                        : const Color(0xFF8A8299),
+                    fontWeight:
+                        !task.completed &&
+                            task.deadline!.isBefore(DateTime.now())
+                        ? FontWeight.w700
+                        : FontWeight.normal,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 6),
+              // Bearbeiten-Icon
+              const Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: Color(0xFFECE8F2),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Aufgabe erstellen / bearbeiten Dialog ──────────────────
+  void _showTaskForm(BuildContext context, {Task? existingTask}) {
+    final isEdit = existingTask != null;
+    final titleCtrl = TextEditingController(text: existingTask?.title ?? '');
+    final descCtrl = TextEditingController(
+      text: existingTask?.description ?? '',
+    );
+    DateTime? deadline = existingTask?.deadline;
+    String priority = existingTask?.priority ?? 'medium';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFECE8F2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isEdit ? 'Aufgabe bearbeiten' : 'Neue Aufgabe',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1625),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Titel
+              TextField(
+                controller: titleCtrl,
+                autofocus: !isEdit,
+                decoration: InputDecoration(
+                  labelText: 'Titel *',
+                  hintText: 'z.B. Einladungen versenden',
+                  filled: true,
+                  fillColor: const Color(0xFFF8F6FB),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFECE8F2)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFECE8F2)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Beschreibung
+              TextField(
+                controller: descCtrl,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: 'Notiz (optional)',
+                  filled: true,
+                  fillColor: const Color(0xFFF8F6FB),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFECE8F2)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFECE8F2)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Datum + Priorität
+              Row(
+                children: [
+                  // Datum
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: deadline ?? DateTime.now(),
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2035),
+                        );
+                        if (picked != null) {
+                          setModalState(() => deadline = picked);
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 13,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8F6FB),
+                          border: Border.all(color: const Color(0xFFECE8F2)),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.calendar_today_outlined,
+                              size: 16,
+                              color: Color(0xFF8A8299),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              deadline != null
+                                  ? _shortDate(deadline!)
+                                  : 'Datum wählen',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: deadline != null
+                                    ? const Color(0xFF1A1625)
+                                    : const Color(0xFF8A8299),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Priorität
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8F6FB),
+                        border: Border.all(color: const Color(0xFFECE8F2)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: priority,
+                          isExpanded: true,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF1A1625),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'high',
+                              child: Text('Hoch'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'medium',
+                              child: Text('Mittel'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'low',
+                              child: Text('Niedrig'),
+                            ),
+                          ],
+                          onChanged: (v) =>
+                              setModalState(() => priority = v ?? 'medium'),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Speichern-Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    final title = titleCtrl.text.trim();
+                    if (title.isEmpty) return;
+                    final task = Task(
+                      id: existingTask?.id,
+                      title: title,
+                      description: descCtrl.text.trim(),
+                      category: 'timeline',
+                      priority: priority,
+                      deadline: deadline,
+                      completed: existingTask?.completed ?? false,
+                      createdDate: existingTask?.createdDate ?? DateTime.now(),
+                    );
+                    if (isEdit) {
+                      widget.onUpdateTask(task);
+                    } else {
+                      widget.onAddTask(task);
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD4607A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Text(
+                    isEdit ? 'Speichern' : 'Aufgabe hinzufügen',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              if (isEdit) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final ok =
+                          await showDialog<bool>(
+                            context: context,
+                            builder: (d) => AlertDialog(
+                              title: const Text('Aufgabe löschen'),
+                              content: Text(
+                                '„${existingTask!.title}" wirklich löschen?',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(d, false),
+                                  child: const Text('Abbrechen'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () => Navigator.pop(d, true),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  child: const Text('Löschen'),
+                                ),
+                              ],
+                            ),
+                          ) ??
+                          false;
+                      if (ok && existingTask.id != null) {
+                        widget.onDeleteTask(existingTask.id!);
+                      }
+                    },
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                    child: const Text('Aufgabe löschen'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Löschen-Dialog ────────────────────────────────────────────
+  void _showDeleteChecklistDialog(List<Task> timelineTasks) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Checkliste löschen'),
+        content: Text(
+          'Möchtest du alle ${timelineTasks.length} Timeline-Aufgaben unwiderruflich löschen?\n\nAlle Aufgaben und der Erledigungsstatus gehen verloren.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+
+              // IDs vorher sammeln
+              final ids = timelineTasks
+                  .where((t) => t.id != null)
+                  .map((t) => t.id!)
+                  .toList();
+
+              if (ids.isEmpty) return;
+
+              // Ladeindikator
+              if (mounted) {
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const CircularProgressIndicator(
+                            color: Color(0xFFD4607A),
+                          ),
+                          const SizedBox(height: 16),
+                          Text('${ids.length} Aufgaben werden gelöscht…'),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              try {
+                for (final id in ids) {
+                  widget.onDeleteTask(id);
+                  await Future.delayed(const Duration(milliseconds: 30));
+                }
+                await Future.delayed(const Duration(milliseconds: 300));
+
+                if (mounted) Navigator.of(context, rootNavigator: true).pop();
+                if (mounted) {
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${ids.length} Aufgaben gelöscht.'),
+                      backgroundColor: const Color(0xFF6B9E72),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) Navigator.of(context, rootNavigator: true).pop();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Fehler: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4607A),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Ja, alles löschen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Checkliste verwalten Dialog (Erstellen / Löschen) ─────
+  void _showManageChecklistDialog(List<Task> timelineTasks) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Checkliste verwalten'),
+        content: Text(
+          '${timelineTasks.length} Aufgaben vorhanden · '
+          '${timelineTasks.where((t) => t.completed).length} erledigt',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showDeleteChecklistDialog(timelineTasks);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Alles löschen'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showCreateChecklistDialog();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD4607A),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Neu erstellen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── PDF-Export ──────────────────────────────────────────────
+  Future<void> _exportChecklistPdf() async {
+    final timelineTasks =
+        widget.tasks
+            .where((t) => t.category == 'timeline' && t.deleted == 0)
+            .toList()
+          ..sort((a, b) {
+            if (a.deadline == null && b.deadline == null) return 0;
+            if (a.deadline == null) return 1;
+            if (b.deadline == null) return -1;
+            return a.deadline!.compareTo(b.deadline!);
+          });
+
+    if (timelineTasks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine Aufgaben zum Exportieren.')),
+      );
+      return;
+    }
+
+    // Ladeindikator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('PDF wird erstellt …'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final pdf = pw.Document();
+      final done = timelineTasks.where((t) => t.completed).length;
+      final pct = (done / timelineTasks.length * 100).round();
+      final now = DateTime.now();
+      const rose = PdfColor.fromInt(0xFFD4607A);
+      const sage = PdfColor.fromInt(0xFF6B9E72);
+      const ink = PdfColor.fromInt(0xFF1A1625);
+      const muted = PdfColor.fromInt(0xFF8A8299);
+      const line = PdfColor.fromInt(0xFFECE8F2);
+
+      // Tasks nach Phasen gruppieren
+      final phases = [
+        {'label': '12–9 Monate vorher', 'from': 9, 'to': 12},
+        {'label': '9–6 Monate vorher', 'from': 6, 'to': 9},
+        {'label': '6–3 Monate vorher', 'from': 3, 'to': 6},
+        {'label': '3–0 Monate vorher', 'from': 0, 'to': 3},
+        {'label': 'Nach der Hochzeit', 'from': -6, 'to': 0},
+      ];
+
+      List<Map<String, dynamic>> getPhaseItems(int mFrom, int mTo) {
+        if (widget.weddingDate == null) return [];
+        final w = widget.weddingDate!;
+        return timelineTasks
+            .where((t) {
+              if (t.deadline == null) return false;
+              final diff = w.difference(t.deadline!).inDays / 30;
+              return diff >= mFrom && diff < mTo;
+            })
+            .map((t) => {'task': t})
+            .toList();
+      }
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(40),
+          header: (ctx) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text(
+                        'HeartPebble',
+                        style: pw.TextStyle(
+                          fontSize: 22,
+                          fontWeight: pw.FontWeight.bold,
+                          color: rose,
+                        ),
+                      ),
+                      pw.Text(
+                        'Hochzeits-Checkliste',
+                        style: pw.TextStyle(fontSize: 13, color: muted),
+                      ),
+                    ],
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      if (widget.brideName.isNotEmpty ||
+                          widget.groomName.isNotEmpty)
+                        pw.Text(
+                          '${widget.brideName} & ${widget.groomName}',
+                          style: pw.TextStyle(
+                            fontSize: 12,
+                            fontWeight: pw.FontWeight.bold,
+                            color: ink,
+                          ),
+                        ),
+                      if (widget.weddingDate != null)
+                        pw.Text(
+                          '${widget.weddingDate!.day}.${widget.weddingDate!.month}.${widget.weddingDate!.year}',
+                          style: pw.TextStyle(fontSize: 11, color: muted),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+              // Fortschrittsbalken via Stack
+              pw.Stack(
+                children: [
+                  pw.Container(
+                    height: 6,
+                    decoration: pw.BoxDecoration(
+                      color: line,
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(3),
+                      ),
+                    ),
+                  ),
+                  pw.Container(
+                    height: 6,
+                    width: (514 * (done / timelineTasks.length)).clamp(0, 514),
+                    decoration: pw.BoxDecoration(
+                      color: pct == 100 ? sage : rose,
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(3),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 4),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    '$done / ${timelineTasks.length} Aufgaben erledigt',
+                    style: pw.TextStyle(fontSize: 9, color: muted),
+                  ),
+                  pw.Text(
+                    '$pct%',
+                    style: pw.TextStyle(
+                      fontSize: 9,
+                      fontWeight: pw.FontWeight.bold,
+                      color: pct == 100 ? sage : rose,
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 12),
+              pw.Divider(color: line),
+              pw.SizedBox(height: 8),
+            ],
+          ),
+          footer: (ctx) => pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'Erstellt am ${now.day}.${now.month}.${now.year}',
+                style: pw.TextStyle(fontSize: 8, color: muted),
+              ),
+              pw.Text(
+                'Seite ${ctx.pageNumber} von ${ctx.pagesCount}',
+                style: pw.TextStyle(fontSize: 8, color: muted),
+              ),
+            ],
+          ),
+          build: (ctx) {
+            final widgets = <pw.Widget>[];
+            for (final phase in phases) {
+              final items = getPhaseItems(
+                phase['from'] as int,
+                phase['to'] as int,
+              );
+              if (items.isEmpty) continue;
+              final phaseDone = items
+                  .where((i) => (i['task'] as Task).completed)
+                  .length;
+
+              widgets.add(pw.SizedBox(height: 12));
+              widgets.add(
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: pw.BoxDecoration(
+                    color: const PdfColor.fromInt(0xFFF8F6FB),
+                    borderRadius: const pw.BorderRadius.all(
+                      pw.Radius.circular(6),
+                    ),
+                  ),
+                  child: pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        phase['label'] as String,
+                        style: pw.TextStyle(
+                          fontSize: 11,
+                          fontWeight: pw.FontWeight.bold,
+                          color: ink,
+                        ),
+                      ),
+                      pw.Text(
+                        '$phaseDone/${items.length}',
+                        style: pw.TextStyle(fontSize: 10, color: muted),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+              widgets.add(pw.SizedBox(height: 4));
+
+              for (final item in items) {
+                final task = item['task'] as Task;
+                widgets.add(
+                  pw.Container(
+                    margin: const pw.EdgeInsets.only(bottom: 3),
+                    padding: const pw.EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 5,
+                    ),
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: line, width: 0.5),
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(4),
+                      ),
+                      color: task.completed
+                          ? const PdfColor.fromInt(0xFFF8F6FB)
+                          : PdfColors.white,
+                    ),
+                    child: pw.Row(
+                      children: [
+                        // Checkbox
+                        pw.Container(
+                          width: 14,
+                          height: 14,
+                          decoration: pw.BoxDecoration(
+                            color: task.completed ? sage : PdfColors.white,
+                            border: pw.Border.all(
+                              color: task.completed ? sage : line,
+                              width: 1,
+                            ),
+                            borderRadius: const pw.BorderRadius.all(
+                              pw.Radius.circular(3),
+                            ),
+                          ),
+                          child: task.completed
+                              ? pw.Center(
+                                  child: pw.Text(
+                                    '✓',
+                                    style: pw.TextStyle(
+                                      fontSize: 9,
+                                      color: PdfColors.white,
+                                      fontWeight: pw.FontWeight.bold,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                        pw.SizedBox(width: 8),
+                        // Titel
+                        pw.Expanded(
+                          child: pw.Text(
+                            task.title,
+                            style: pw.TextStyle(
+                              fontSize: 10,
+                              color: task.completed ? muted : ink,
+                              decoration: task.completed
+                                  ? pw.TextDecoration.lineThrough
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        // Datum
+                        if (task.deadline != null)
+                          pw.Text(
+                            '${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}',
+                            style: pw.TextStyle(fontSize: 9, color: muted),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+            }
+            // Tasks ohne Deadline
+            final noDate = timelineTasks
+                .where((t) => t.deadline == null)
+                .toList();
+            if (noDate.isNotEmpty) {
+              widgets.add(pw.SizedBox(height: 12));
+              widgets.add(
+                pw.Text(
+                  'Ohne Datum',
+                  style: pw.TextStyle(
+                    fontSize: 11,
+                    fontWeight: pw.FontWeight.bold,
+                    color: ink,
+                  ),
+                ),
+              );
+              widgets.add(pw.SizedBox(height: 4));
+              for (final t in noDate) {
+                widgets.add(
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.only(bottom: 3),
+                    child: pw.Row(
+                      children: [
+                        pw.Container(
+                          width: 14,
+                          height: 14,
+                          decoration: pw.BoxDecoration(
+                            color: t.completed ? sage : PdfColors.white,
+                            border: pw.Border.all(
+                              color: t.completed ? sage : line,
+                              width: 1,
+                            ),
+                            borderRadius: const pw.BorderRadius.all(
+                              pw.Radius.circular(3),
+                            ),
+                          ),
+                        ),
+                        pw.SizedBox(width: 8),
+                        pw.Text(
+                          t.title,
+                          style: pw.TextStyle(fontSize: 10, color: ink),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+            }
+            return widgets;
+          },
+        ),
+      );
+
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      await Printing.layoutPdf(
+        onLayout: (_) async => pdf.save(),
+        name:
+            'HeartPebble-Checkliste-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Fehler beim Export: $e')));
+      }
+    }
+  }
+
+  // ── Erinnerungen-Einstellungen ──────────────────────────────
+  void _showReminderSettings() {
+    final openTasks =
+        widget.tasks
+            .where(
+              (t) =>
+                  t.category == 'timeline' &&
+                  t.deleted == 0 &&
+                  !t.completed &&
+                  t.deadline != null &&
+                  t.deadline!.isAfter(DateTime.now()),
+            )
+            .toList()
+          ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ReminderSettingsSheet(
+        openTasks: openTasks,
+        onSchedule: (task, duration) async {
+          await NotificationService.instance.scheduleTaskNotification(
+            task: task,
+            duration: duration,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Erinnerung für „${task.title}" gesetzt ✓'),
+                backgroundColor: const Color(0xFF6B9E72),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        },
+        onCancel: (task) async {
+          if (task.id != null) {
+            await NotificationService.instance.cancelTaskNotification(task.id!);
+          }
+        },
+      ),
     );
   }
 
@@ -1677,6 +2654,75 @@ class _PlanningScreenState extends State<PlanningScreen>
               foregroundColor: Colors.white,
             ),
             child: const Text('Erstellen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showResetTimelineTasksDialog() {
+    final timelineTasks = widget.tasks
+        .where((t) => t.category == 'timeline')
+        .toList();
+    if (timelineTasks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Keine Checklisten-Aufgaben vorhanden.')),
+      );
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Checkliste löschen'),
+        content: Text(
+          'Möchtest du alle ${timelineTasks.length} Checklisten-Aufgaben löschen?\n\n'
+          'Achtung: Diese Aktion kann nicht rückgängig gemacht werden.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Abbrechen'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              // Ladeindikator
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const AlertDialog(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 16),
+                      Text('Checkliste wird gelöscht…'),
+                    ],
+                  ),
+                ),
+              );
+              for (final task in timelineTasks) {
+                if (task.id != null) {
+                  await widget.onDeleteTask(task.id!);
+                }
+              }
+              if (mounted) Navigator.of(context, rootNavigator: true).pop();
+              await _loadTimelineMilestones();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Checkliste gelöscht.'),
+                    backgroundColor: Color(0xFF6B9E72),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Ja, alle löschen'),
           ),
         ],
       ),
@@ -2334,17 +3380,18 @@ class _PlanningScreenState extends State<PlanningScreen>
   }
 
   Widget _badgePill(String label, PhaseStatus status) {
+    // done=grün, now=rose, future=grau
     Color bg, fg;
     switch (status) {
       case PhaseStatus.done:
-        bg = Color(0xFFFDF3F5);
-        fg = Color(0xFFD4607A);
+        bg = const Color(0xFFEEF5EF);
+        fg = const Color(0xFF4A7A4E);
       case PhaseStatus.now:
-        bg = Color(0xFF2D2740);
-        fg = Colors.white;
+        bg = const Color(0xFFFDF3F5);
+        fg = const Color(0xFFD4607A);
       case PhaseStatus.future:
-        bg = Color(0xFFF8F6FB);
-        fg = Color(0xFF8A8299);
+        bg = const Color(0xFFF8F6FB);
+        fg = const Color(0xFF8A8299);
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -2352,7 +3399,7 @@ class _PlanningScreenState extends State<PlanningScreen>
         color: bg,
         borderRadius: BorderRadius.circular(20),
         border: status == PhaseStatus.future
-            ? Border.all(color: Color(0xFFECE8F2))
+            ? Border.all(color: const Color(0xFFECE8F2))
             : null,
       ),
       child: Text(
@@ -2362,6 +3409,7 @@ class _PlanningScreenState extends State<PlanningScreen>
     );
   }
 
+  // Volles Datum für weddingDate
   String _formatDate(DateTime d) {
     const months = [
       'Jan',
@@ -2379,6 +3427,25 @@ class _PlanningScreenState extends State<PlanningScreen>
     ];
     const days = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
     return '${days[d.weekday - 1]}., ${d.day}. ${months[d.month - 1]} ${d.year}';
+  }
+
+  // Kurzes Datum für Deadline-Anzeige in Task-Zeilen
+  String _shortDate(DateTime d) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mär',
+      'Apr',
+      'Mai',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Dez',
+    ];
+    return '${d.day}. ${months[d.month - 1]}';
   }
 
   // ─────────────────────────────────────────────────────────
@@ -2740,5 +3807,288 @@ class _PlanningScreenState extends State<PlanningScreen>
         ),
       ),
     );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ERINNERUNGEN BOTTOM SHEET
+// ─────────────────────────────────────────────────────────────
+
+class _ReminderSettingsSheet extends StatefulWidget {
+  final List<Task> openTasks;
+  final Future<void> Function(Task task, Duration duration) onSchedule;
+  final Future<void> Function(Task task) onCancel;
+
+  const _ReminderSettingsSheet({
+    required this.openTasks,
+    required this.onSchedule,
+    required this.onCancel,
+  });
+
+  @override
+  State<_ReminderSettingsSheet> createState() => _ReminderSettingsSheetState();
+}
+
+class _ReminderSettingsSheetState extends State<_ReminderSettingsSheet> {
+  // Welche Tasks haben eine Erinnerung? taskId → Duration
+  final Map<int, Duration?> _reminders = {};
+  bool _loading = false;
+
+  // Optionen die der Nutzer wählen kann
+  static const _options = [
+    (label: '1 Tag vorher', duration: Duration(days: 1)),
+    (label: '3 Tage vorher', duration: Duration(days: 3)),
+    (label: '1 Woche vorher', duration: Duration(days: 7)),
+    (label: '2 Wochen vorher', duration: Duration(days: 14)),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingReminders();
+  }
+
+  Future<void> _loadExistingReminders() async {
+    for (final task in widget.openTasks) {
+      if (task.id == null) continue;
+      final dur = await NotificationService.instance.getNotificationDuration(
+        task.id!,
+      );
+      if (mounted) setState(() => _reminders[task.id!] = dur);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          // Handle + Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            child: Column(
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECE8F2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.notifications_outlined,
+                      color: Color(0xFFD4607A),
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Erinnerungen',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF1A1625),
+                            ),
+                          ),
+                          Text(
+                            'Tippe auf eine Aufgabe um eine Erinnerung zu setzen',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF8A8299),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: Color(0xFFECE8F2)),
+              ],
+            ),
+          ),
+
+          // Task-Liste
+          Expanded(
+            child: widget.openTasks.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.check_circle_outline,
+                          size: 48,
+                          color: Color(0xFF6B9E72),
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Alle offenen Aufgaben erledigt!',
+                          style: TextStyle(
+                            color: Color(0xFF8A8299),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    itemCount: widget.openTasks.length,
+                    itemBuilder: (_, i) {
+                      final task = widget.openTasks[i];
+                      final existing = task.id != null
+                          ? _reminders[task.id]
+                          : null;
+                      final hasReminder = existing != null;
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        decoration: BoxDecoration(
+                          color: hasReminder
+                              ? const Color(0xFFF0F8F1)
+                              : Colors.white,
+                          border: Border.all(
+                            color: hasReminder
+                                ? const Color(0xFF6B9E72).withOpacity(0.4)
+                                : const Color(0xFFECE8F2),
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 4,
+                          ),
+                          leading: Icon(
+                            hasReminder
+                                ? Icons.notifications_active
+                                : Icons.notifications_none,
+                            color: hasReminder
+                                ? const Color(0xFF6B9E72)
+                                : const Color(0xFF8A8299),
+                            size: 22,
+                          ),
+                          title: Text(
+                            task.title,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF1A1625),
+                            ),
+                          ),
+                          subtitle: Text(
+                            task.deadline != null
+                                ? 'Fällig: ${task.deadline!.day}.${task.deadline!.month}.${task.deadline!.year}'
+                                      '${hasReminder ? ' · Erinnerung: ${_durationLabel(existing)}' : ''}'
+                                : 'Kein Datum',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF8A8299),
+                            ),
+                          ),
+                          trailing: hasReminder
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.close,
+                                    size: 18,
+                                    color: Color(0xFF8A8299),
+                                  ),
+                                  onPressed: () async {
+                                    await widget.onCancel(task);
+                                    if (mounted) {
+                                      setState(
+                                        () => _reminders.remove(task.id),
+                                      );
+                                    }
+                                  },
+                                )
+                              : const Icon(
+                                  Icons.chevron_right,
+                                  color: Color(0xFFECE8F2),
+                                  size: 18,
+                                ),
+                          onTap: hasReminder
+                              ? null
+                              : () => _showPickDuration(task),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPickDuration(Task task) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          task.title,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: _options
+              .map(
+                (opt) => ListTile(
+                  leading: const Icon(
+                    Icons.alarm_outlined,
+                    color: Color(0xFFD4607A),
+                    size: 20,
+                  ),
+                  title: Text(opt.label, style: const TextStyle(fontSize: 14)),
+                  contentPadding: EdgeInsets.zero,
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    setState(() => _loading = true);
+                    await widget.onSchedule(task, opt.duration);
+                    if (mounted) {
+                      setState(() {
+                        _reminders[task.id!] = opt.duration;
+                        _loading = false;
+                      });
+                    }
+                  },
+                ),
+              )
+              .toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Abbrechen'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _durationLabel(Duration d) {
+    if (d.inDays == 1) return '1 Tag vorher';
+    if (d.inDays == 3) return '3 Tage vorher';
+    if (d.inDays == 7) return '1 Woche vorher';
+    if (d.inDays == 14) return '2 Wochen vorher';
+    return '${d.inDays} Tage vorher';
   }
 }
