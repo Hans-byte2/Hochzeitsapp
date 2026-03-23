@@ -152,8 +152,8 @@ class _PlanningScreenState extends State<PlanningScreen>
   late TabController _tabController;
   int _currentTab = 0;
 
-  // ── Checkliste-State (aus bisherigem tasks_screen) ──────
-  String _selectedFilter = 'all';
+  // ── Checkliste-State ────────────────────────────────────
+  String _selectedFilter = 'all'; // all | open | done | week | overdue
   String _searchQuery = '';
   final _searchController = TextEditingController();
   List<Map<String, dynamic>> _timelineMilestones = [];
@@ -1417,6 +1417,8 @@ class _PlanningScreenState extends State<PlanningScreen>
             onChanged: (v) => setState(() => _searchQuery = v),
           ),
         ),
+        // ── Filter-Chips ─────────────────────────────────────
+        _buildFilterChips(),
         // Fortschritt + Aktions-Buttons
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
@@ -1673,15 +1675,18 @@ class _PlanningScreenState extends State<PlanningScreen>
             ),
           ),
 
-          // Aufgaben-Liste mit Swipe-to-Delete + Tap-to-Edit
-          ...timelineTasks.map((task) => _buildChecklistTaskItem(task)),
+          // ── Überfällig-Sektion ──────────────────────────────
+          ..._buildOverdueSection(timelineTasks),
+
+          // ── Gefilterte Aufgaben-Liste ───────────────────────
+          ..._buildFilteredTaskList(timelineTasks),
         ],
       ],
     );
   }
 
   // ── Einzelne Checklisten-Aufgabe mit Bearbeiten + Löschen ──
-  Widget _buildChecklistTaskItem(Task task) {
+  Widget _buildChecklistTaskItem(Task task, {bool isOverdue = false}) {
     return Dismissible(
       key: Key('task_${task.id}'),
       direction: DismissDirection.endToStart,
@@ -1728,8 +1733,16 @@ class _PlanningScreenState extends State<PlanningScreen>
           margin: const EdgeInsets.only(bottom: 5),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: task.completed ? const Color(0xFFF8F6FB) : Colors.white,
-            border: Border.all(color: const Color(0xFFECE8F2)),
+            color: task.completed
+                ? const Color(0xFFF8F6FB)
+                : isOverdue
+                ? const Color(0xFFFDF3F5)
+                : Colors.white,
+            border: Border.all(
+              color: isOverdue && !task.completed
+                  ? const Color(0xFFD4607A).withOpacity(0.35)
+                  : const Color(0xFFECE8F2),
+            ),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
@@ -2181,6 +2194,308 @@ class _PlanningScreenState extends State<PlanningScreen>
   }
 
   // ── Checkliste verwalten Dialog (Erstellen / Löschen) ─────
+  // ─────────────────────────────────────────────────────────
+  // FILTER CHIPS
+  // ─────────────────────────────────────────────────────────
+
+  Widget _buildFilterChips() {
+    final now = DateTime.now();
+    final allTasks = widget.tasks
+        .where((t) => t.category == 'timeline' && t.deleted == 0)
+        .toList();
+    if (allTasks.isEmpty) return const SizedBox.shrink();
+
+    final overdueCount = allTasks
+        .where(
+          (t) =>
+              !t.completed && t.deadline != null && t.deadline!.isBefore(now),
+        )
+        .length;
+    final weekEnd = now.add(const Duration(days: 7));
+    final weekCount = allTasks
+        .where(
+          (t) =>
+              !t.completed &&
+              t.deadline != null &&
+              !t.deadline!.isBefore(now) &&
+              t.deadline!.isBefore(weekEnd),
+        )
+        .length;
+
+    final chips = [
+      (id: 'all', label: 'Alle', count: allTasks.length, isAlert: false),
+      (
+        id: 'open',
+        label: 'Offen',
+        count: allTasks.where((t) => !t.completed).length,
+        isAlert: false,
+      ),
+      (
+        id: 'done',
+        label: 'Erledigt',
+        count: allTasks.where((t) => t.completed).length,
+        isAlert: false,
+      ),
+      (
+        id: 'week',
+        label: 'Diese Woche',
+        count: weekCount,
+        isAlert: weekCount > 0,
+      ),
+      (
+        id: 'overdue',
+        label: 'Überfällig',
+        count: overdueCount,
+        isAlert: overdueCount > 0,
+      ),
+    ];
+
+    return SizedBox(
+      height: 36,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+        itemCount: chips.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (_, i) {
+          final c = chips[i];
+          final active = _selectedFilter == c.id;
+          // Farbe
+          Color bg, fg, border;
+          if (c.id == 'overdue' && c.isAlert && !active) {
+            bg = const Color(0xFFFDF3F5);
+            fg = const Color(0xFFD4607A);
+            border = const Color(0xFFD4607A);
+          } else if (active) {
+            bg = c.id == 'overdue'
+                ? const Color(0xFFD4607A)
+                : const Color(0xFF1A1625);
+            fg = Colors.white;
+            border = bg;
+          } else {
+            bg = Colors.white;
+            fg = const Color(0xFF8A8299);
+            border = const Color(0xFFECE8F2);
+          }
+          return GestureDetector(
+            onTap: () => setState(() => _selectedFilter = c.id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+              decoration: BoxDecoration(
+                color: bg,
+                border: Border.all(color: border),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    c.label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: fg,
+                    ),
+                  ),
+                  if (c.count > 0) ...[
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: active
+                            ? Colors.white.withOpacity(0.25)
+                            : (c.isAlert
+                                  ? const Color(0xFFD4607A).withOpacity(0.15)
+                                  : const Color(0xFFECE8F2)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${c.count}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: active
+                              ? Colors.white
+                              : (c.isAlert
+                                    ? const Color(0xFFD4607A)
+                                    : const Color(0xFF8A8299)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // ÜBERFÄLLIG-SEKTION
+  // ─────────────────────────────────────────────────────────
+
+  List<Widget> _buildOverdueSection(List<Task> allTasks) {
+    // Nur anzeigen wenn kein spezieller Filter aktiv ist
+    if (_selectedFilter != 'all' && _selectedFilter != 'overdue') return [];
+
+    final now = DateTime.now();
+    final overdue =
+        allTasks
+            .where(
+              (t) =>
+                  !t.completed &&
+                  t.deadline != null &&
+                  t.deadline!.isBefore(now) &&
+                  (_searchQuery.isEmpty ||
+                      t.title.toLowerCase().contains(
+                        _searchQuery.toLowerCase(),
+                      )),
+            )
+            .toList()
+          ..sort((a, b) => a.deadline!.compareTo(b.deadline!));
+
+    if (overdue.isEmpty) return [];
+
+    return [
+      // Header
+      Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFDF3F5),
+          border: Border.all(color: const Color(0xFFD4607A).withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.warning_amber_rounded,
+              size: 16,
+              color: Color(0xFFD4607A),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${overdue.length} überfällige Aufgabe${overdue.length == 1 ? '' : 'n'}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFD4607A),
+              ),
+            ),
+          ],
+        ),
+      ),
+      // Überfällige Tasks
+      ...overdue.map((t) => _buildChecklistTaskItem(t, isOverdue: true)),
+      // Trennlinie zur normalen Liste
+      if (_selectedFilter == 'all') ...[
+        const SizedBox(height: 4),
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          height: 1,
+          color: const Color(0xFFECE8F2),
+        ),
+      ],
+    ];
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // GEFILTERTE TASK-LISTE
+  // ─────────────────────────────────────────────────────────
+
+  List<Widget> _buildFilteredTaskList(List<Task> allTasks) {
+    final now = DateTime.now();
+    final weekEnd = now.add(const Duration(days: 7));
+
+    // Filter anwenden
+    List<Task> filtered;
+    switch (_selectedFilter) {
+      case 'open':
+        filtered = allTasks.where((t) => !t.completed).toList();
+      // Überfällige im "Offen"-Filter auch zeigen (ohne eigene Sektion)
+      case 'done':
+        filtered = allTasks.where((t) => t.completed).toList();
+      case 'week':
+        filtered = allTasks
+            .where(
+              (t) =>
+                  !t.completed &&
+                  t.deadline != null &&
+                  !t.deadline!.isBefore(now) &&
+                  t.deadline!.isBefore(weekEnd),
+            )
+            .toList();
+      case 'overdue':
+        // Überfällige kommen schon aus _buildOverdueSection
+        return [];
+      default: // 'all'
+        // Nicht-überfällige anzeigen (überfällige sind oben)
+        filtered = allTasks
+            .where(
+              (t) =>
+                  t.completed ||
+                  t.deadline == null ||
+                  !t.deadline!.isBefore(now),
+            )
+            .toList();
+    }
+
+    // Suchfilter
+    if (_searchQuery.isNotEmpty) {
+      filtered = filtered
+          .where(
+            (t) => t.title.toLowerCase().contains(_searchQuery.toLowerCase()),
+          )
+          .toList();
+    }
+
+    // Nach Deadline sortieren
+    filtered.sort((a, b) {
+      if (a.deadline == null && b.deadline == null) return 0;
+      if (a.deadline == null) return 1;
+      if (b.deadline == null) return -1;
+      if (a.completed && !b.completed) return 1;
+      if (!a.completed && b.completed) return -1;
+      return a.deadline!.compareTo(b.deadline!);
+    });
+
+    if (filtered.isEmpty) {
+      return [
+        const SizedBox(height: 24),
+        Center(
+          child: Column(
+            children: [
+              Icon(
+                _selectedFilter == 'done'
+                    ? Icons.check_circle_outline
+                    : Icons.search_off,
+                size: 40,
+                color: const Color(0xFFECE8F2),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _selectedFilter == 'done'
+                    ? 'Noch nichts erledigt'
+                    : _selectedFilter == 'week'
+                    ? 'Diese Woche nichts fällig'
+                    : 'Keine Aufgaben gefunden',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF8A8299)),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+      ];
+    }
+
+    return filtered.map((t) => _buildChecklistTaskItem(t)).toList();
+  }
+
   void _showManageChecklistDialog(List<Task> timelineTasks) {
     showDialog(
       context: context,
