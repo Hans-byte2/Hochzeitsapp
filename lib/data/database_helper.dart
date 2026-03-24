@@ -26,13 +26,12 @@ class DatabaseHelper {
 
       final db = await openDatabase(
         pathString,
-        version:
-            19, // VERSION 19: kommunikations_log + angebot_vergleiche + vergleichs_tag
+        version: 20, // VERSION 20: dienstleister_checklisten
         onCreate: _createDB,
         onUpgrade: _onUpgrade,
       );
 
-      ErrorLogger.success('Datenbank v19 erfolgreich initialisiert');
+      ErrorLogger.success('Datenbank v20 erfolgreich initialisiert');
       return db;
     } catch (e, stack) {
       ErrorLogger.error('Fehler bei DB-Initialisierung', e, stack);
@@ -176,7 +175,6 @@ class DatabaseHelper {
         )
       ''');
 
-      // ── v19: Kommunikations-Log ──────────────────────────────────────────
       await db.execute('''
         CREATE TABLE kommunikations_log (
           id TEXT PRIMARY KEY,
@@ -188,7 +186,6 @@ class DatabaseHelper {
         )
       ''');
 
-      // ── v19: Angebots-Vergleich ──────────────────────────────────────────
       await db.execute('''
         CREATE TABLE angebot_vergleiche (
           id TEXT PRIMARY KEY,
@@ -202,16 +199,32 @@ class DatabaseHelper {
         )
       ''');
 
-      ErrorLogger.success('🎉 Alle Tabellen erfolgreich erstellt!');
+      // ── v20: Kategorie-Checkliste ────────────────────────────────────────
+      await db.execute('''
+        CREATE TABLE dienstleister_checklisten (
+          id TEXT PRIMARY KEY,
+          dienstleister_id TEXT NOT NULL,
+          text TEXT NOT NULL,
+          erledigt INTEGER NOT NULL DEFAULT 0,
+          vorlage_key TEXT,
+          reihenfolge INTEGER NOT NULL DEFAULT 0
+        )
+      ''');
+      await db.execute('''
+        CREATE INDEX IF NOT EXISTS idx_checklisten_dienstleister
+        ON dienstleister_checklisten(dienstleister_id)
+      ''');
+
+      ErrorLogger.success('Alle Tabellen erfolgreich erstellt!');
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Erstellen der Tabellen', e, stack);
+      ErrorLogger.error('Fehler beim Erstellen der Tabellen', e, stack);
       rethrow;
     }
   }
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
     try {
-      ErrorLogger.info('🔄 Upgrade DB von v$oldVersion zu v$newVersion');
+      ErrorLogger.info('Upgrade DB von v$oldVersion zu v$newVersion');
 
       Future<bool> columnExists(String table, String column) async {
         final result = await db.rawQuery('PRAGMA table_info($table)');
@@ -250,7 +263,7 @@ class DatabaseHelper {
             }
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ v9 Migration: $e');
+          ErrorLogger.info('v9 Migration: $e');
         }
       }
 
@@ -272,7 +285,7 @@ class DatabaseHelper {
             }
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ v10 Migration: $e');
+          ErrorLogger.info('v10 Migration: $e');
         }
       }
 
@@ -289,7 +302,7 @@ class DatabaseHelper {
             }
           }
         } catch (e) {
-          ErrorLogger.info('  ℹ️ v11 Migration: $e');
+          ErrorLogger.info('v11 Migration: $e');
         }
       }
 
@@ -299,7 +312,7 @@ class DatabaseHelper {
             await db.execute('ALTER TABLE tables ADD COLUMN categories TEXT');
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v12 Migration: $e');
+          ErrorLogger.info('v12 Migration: $e');
         }
       }
 
@@ -336,7 +349,7 @@ class DatabaseHelper {
             );
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v13 Migration: $e');
+          ErrorLogger.info('v13 Migration: $e');
         }
       }
 
@@ -348,7 +361,7 @@ class DatabaseHelper {
             );
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v14 Migration: $e');
+          ErrorLogger.info('v14 Migration: $e');
         }
       }
 
@@ -356,7 +369,7 @@ class DatabaseHelper {
         try {
           await DienstleisterDatabase.migrateAddSyncColumns(db);
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v15 Migration: $e');
+          ErrorLogger.info('v15 Migration: $e');
         }
       }
 
@@ -389,7 +402,7 @@ class DatabaseHelper {
             });
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v16 Migration: $e');
+          ErrorLogger.info('v16 Migration: $e');
         }
       }
 
@@ -412,7 +425,7 @@ class DatabaseHelper {
             ''');
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v17 Migration: $e');
+          ErrorLogger.info('v17 Migration: $e');
         }
       }
 
@@ -424,17 +437,13 @@ class DatabaseHelper {
             );
           }
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v18 Migration: $e');
+          ErrorLogger.info('v18 Migration: $e');
         }
       }
 
-      // ═══════════════════════════════════════════════════════════════════════
-      // Migration zu v19: Kommunikations-Log + Angebots-Vergleich + VergleichsTag
-      // ═══════════════════════════════════════════════════════════════════════
       if (oldVersion < 19) {
-        ErrorLogger.info('🔧 v19: Kommunikations-Log + Angebots-Vergleich...');
+        ErrorLogger.info('v19: Kommunikations-Log + Angebots-Vergleich...');
         try {
-          // kommunikations_log Tabelle
           if (!await tableExists('kommunikations_log')) {
             await db.execute('''
               CREATE TABLE kommunikations_log (
@@ -446,10 +455,9 @@ class DatabaseHelper {
                 vorlage_key TEXT
               )
             ''');
-            ErrorLogger.success('  ✅ kommunikations_log Tabelle erstellt');
+            ErrorLogger.success('kommunikations_log Tabelle erstellt');
           }
 
-          // angebot_vergleiche Tabelle
           if (!await tableExists('angebot_vergleiche')) {
             await db.execute('''
               CREATE TABLE angebot_vergleiche (
@@ -463,27 +471,54 @@ class DatabaseHelper {
                 ist_gewaehlt INTEGER DEFAULT 0
               )
             ''');
-            ErrorLogger.success('  ✅ angebot_vergleiche Tabelle erstellt');
+            ErrorLogger.success('angebot_vergleiche Tabelle erstellt');
           }
 
-          // vergleichs_tag Spalte in dienstleister Tabelle
-          // (DienstleisterDatabase verwaltet die Tabelle, aber wir fügen hier die Spalte hinzu)
           if (!await columnExists('dienstleister', 'vergleichs_tag')) {
             await db.execute(
               'ALTER TABLE dienstleister ADD COLUMN vergleichs_tag TEXT',
             );
-            ErrorLogger.success('  ✅ dienstleister.vergleichs_tag hinzugefügt');
+            ErrorLogger.success('dienstleister.vergleichs_tag hinzugefügt');
           }
 
-          ErrorLogger.success('  ✅ v19 Migration erfolgreich');
+          ErrorLogger.success('v19 Migration erfolgreich');
         } catch (e) {
-          ErrorLogger.info('  ⚠️ v19 Migration: $e');
+          ErrorLogger.info('v19 Migration: $e');
         }
       }
 
-      ErrorLogger.success('🎉 DB-Upgrade erfolgreich abgeschlossen');
+      // ═══════════════════════════════════════════════════════════════════════
+      // Migration zu v20: Kategorie-Checkliste je Dienstleister
+      // ═══════════════════════════════════════════════════════════════════════
+      if (oldVersion < 20) {
+        ErrorLogger.info('v20: Kategorie-Checkliste...');
+        try {
+          if (!await tableExists('dienstleister_checklisten')) {
+            await db.execute('''
+              CREATE TABLE dienstleister_checklisten (
+                id TEXT PRIMARY KEY,
+                dienstleister_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                erledigt INTEGER NOT NULL DEFAULT 0,
+                vorlage_key TEXT,
+                reihenfolge INTEGER NOT NULL DEFAULT 0
+              )
+            ''');
+            await db.execute('''
+              CREATE INDEX IF NOT EXISTS idx_checklisten_dienstleister
+              ON dienstleister_checklisten(dienstleister_id)
+            ''');
+            ErrorLogger.success('dienstleister_checklisten Tabelle erstellt');
+          }
+          ErrorLogger.success('v20 Migration erfolgreich');
+        } catch (e) {
+          ErrorLogger.info('v20 Migration: $e');
+        }
+      }
+
+      ErrorLogger.success('DB-Upgrade erfolgreich abgeschlossen');
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim DB-Upgrade', e, stack);
+      ErrorLogger.error('Fehler beim DB-Upgrade', e, stack);
       rethrow;
     }
   }
@@ -518,7 +553,7 @@ class DatabaseHelper {
         'updated_at': DateTime.now().toIso8601String(),
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     } catch (e, stack) {
-      ErrorLogger.error('❌ setSetting Fehler für key "$key"', e, stack);
+      ErrorLogger.error('setSetting Fehler für key "$key"', e, stack);
       rethrow;
     }
   }
@@ -550,7 +585,7 @@ class DatabaseHelper {
       final id = await db.insert('guests', g.toMap());
       return g.copyWith(id: id);
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Erstellen des Gastes', e, stack);
+      ErrorLogger.error('Fehler beim Erstellen des Gastes', e, stack);
       rethrow;
     }
   }
@@ -566,7 +601,7 @@ class DatabaseHelper {
         whereArgs: [guest.id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Aktualisieren des Gastes', e, stack);
+      ErrorLogger.error('Fehler beim Aktualisieren des Gastes', e, stack);
       rethrow;
     }
   }
@@ -585,7 +620,7 @@ class DatabaseHelper {
         whereArgs: [id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Löschen des Gastes', e, stack);
+      ErrorLogger.error('Fehler beim Löschen des Gastes', e, stack);
       rethrow;
     }
   }
@@ -601,7 +636,7 @@ class DatabaseHelper {
       );
       return maps.map(Guest.fromMap).toList();
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Laden der Gäste', e, stack);
+      ErrorLogger.error('Fehler beim Laden der Gäste', e, stack);
       return [];
     }
   }
@@ -634,7 +669,7 @@ class DatabaseHelper {
       final id = await db.insert('tasks', t.toMap());
       return t.copyWith(id: id);
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Erstellen des Tasks', e, stack);
+      ErrorLogger.error('Fehler beim Erstellen des Tasks', e, stack);
       rethrow;
     }
   }
@@ -650,7 +685,7 @@ class DatabaseHelper {
         whereArgs: [task.id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Aktualisieren des Tasks', e, stack);
+      ErrorLogger.error('Fehler beim Aktualisieren des Tasks', e, stack);
       rethrow;
     }
   }
@@ -669,7 +704,7 @@ class DatabaseHelper {
         whereArgs: [id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Löschen des Tasks', e, stack);
+      ErrorLogger.error('Fehler beim Löschen des Tasks', e, stack);
       rethrow;
     }
   }
@@ -685,7 +720,7 @@ class DatabaseHelper {
       );
       return maps.map(Task.fromMap).toList();
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Laden der Tasks', e, stack);
+      ErrorLogger.error('Fehler beim Laden der Tasks', e, stack);
       return [];
     }
   }
@@ -715,7 +750,7 @@ class DatabaseHelper {
       final id = await db.insert('budget_items', i.toMap());
       return i.copyWith(id: id);
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Erstellen des Budget-Items', e, stack);
+      ErrorLogger.error('Fehler beim Erstellen des Budget-Items', e, stack);
       rethrow;
     }
   }
@@ -731,11 +766,7 @@ class DatabaseHelper {
         whereArgs: [item.id],
       );
     } catch (e, stack) {
-      ErrorLogger.error(
-        '❌ Fehler beim Aktualisieren des Budget-Items',
-        e,
-        stack,
-      );
+      ErrorLogger.error('Fehler beim Aktualisieren des Budget-Items', e, stack);
       rethrow;
     }
   }
@@ -754,7 +785,7 @@ class DatabaseHelper {
         whereArgs: [id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Löschen des Budget-Items', e, stack);
+      ErrorLogger.error('Fehler beim Löschen des Budget-Items', e, stack);
       rethrow;
     }
   }
@@ -770,7 +801,7 @@ class DatabaseHelper {
       );
       return maps.map(BudgetItem.fromMap).toList();
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Laden der Budget-Items', e, stack);
+      ErrorLogger.error('Fehler beim Laden der Budget-Items', e, stack);
       return [];
     }
   }
@@ -819,7 +850,7 @@ class DatabaseHelper {
       );
     } catch (e, stack) {
       ErrorLogger.error(
-        '❌ Fehler bei recalculateBudgetActual($budgetItemId)',
+        'Fehler bei recalculateBudgetActual($budgetItemId)',
         e,
         stack,
       );
@@ -840,7 +871,7 @@ class DatabaseHelper {
       final id = await db.insert('tables', t.toMap());
       return t.copyWith(id: id);
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Erstellen des Tisches', e, stack);
+      ErrorLogger.error('Fehler beim Erstellen des Tisches', e, stack);
       rethrow;
     }
   }
@@ -856,7 +887,7 @@ class DatabaseHelper {
         whereArgs: [table.id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Aktualisieren des Tisches', e, stack);
+      ErrorLogger.error('Fehler beim Aktualisieren des Tisches', e, stack);
       rethrow;
     }
   }
@@ -875,7 +906,7 @@ class DatabaseHelper {
         whereArgs: [id],
       );
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Löschen des Tisches', e, stack);
+      ErrorLogger.error('Fehler beim Löschen des Tisches', e, stack);
       rethrow;
     }
   }
@@ -891,7 +922,7 @@ class DatabaseHelper {
       );
       return maps.map(TableModel.fromMap).toList();
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Laden der Tische', e, stack);
+      ErrorLogger.error('Fehler beim Laden der Tische', e, stack);
       return [];
     }
   }
@@ -917,7 +948,7 @@ class DatabaseHelper {
       final maps = await db.query('wedding_data');
       return maps.isNotEmpty ? maps.first : null;
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Laden der Hochzeitsdaten', e, stack);
+      ErrorLogger.error('Fehler beim Laden der Hochzeitsdaten', e, stack);
       return null;
     }
   }
@@ -950,7 +981,7 @@ class DatabaseHelper {
         );
       }
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Speichern des Gesamtbudgets', e, stack);
+      ErrorLogger.error('Fehler beim Speichern des Gesamtbudgets', e, stack);
       rethrow;
     }
   }
@@ -985,7 +1016,7 @@ class DatabaseHelper {
         );
       }
     } catch (e, stack) {
-      ErrorLogger.error('❌ Fehler beim Speichern der Hochzeitsdaten', e, stack);
+      ErrorLogger.error('Fehler beim Speichern der Hochzeitsdaten', e, stack);
       rethrow;
     }
   }
@@ -1067,7 +1098,7 @@ class DatabaseHelper {
   }
 
   // ================================================================
-  // KOMMUNIKATIONS-LOG  (NEU v19)
+  // KOMMUNIKATIONS-LOG
   // ================================================================
 
   Future<List<KommunikationsLogEintrag>> getKommunikationsLogFuer(
@@ -1101,7 +1132,7 @@ class DatabaseHelper {
   }
 
   // ================================================================
-  // ANGEBOT VERGLEICH  (NEU v19)
+  // ANGEBOT VERGLEICH
   // ================================================================
 
   Future<List<AngebotVergleich>> getAngeboteVergleichFuer(
@@ -1142,7 +1173,6 @@ class DatabaseHelper {
     await db.delete('angebot_vergleiche', where: 'id = ?', whereArgs: [id]);
   }
 
-  /// Setzt ein Angebot als gewählt und alle anderen als nicht-gewählt
   Future<void> waehleAngebot(String dienstleisterId, String angebotId) async {
     final db = await database;
     await db.update(
@@ -1157,5 +1187,114 @@ class DatabaseHelper {
       where: 'id = ?',
       whereArgs: [angebotId],
     );
+  }
+
+  // ================================================================
+  // DIENSTLEISTER CHECKLISTE  (NEU v20)
+  // ================================================================
+
+  /// Lädt alle Checklistenpunkte für einen Dienstleister,
+  /// sortiert nach reihenfolge ASC.
+  Future<List<ChecklistenEintrag>> getChecklistenEintraege(
+    String dienstleisterId,
+  ) async {
+    try {
+      final db = await database;
+      final maps = await db.query(
+        'dienstleister_checklisten',
+        where: 'dienstleister_id = ?',
+        whereArgs: [dienstleisterId],
+        orderBy: 'reihenfolge ASC, rowid ASC',
+      );
+      return maps.map(ChecklistenEintrag.fromMap).toList();
+    } catch (e) {
+      ErrorLogger.info('getChecklistenEintraege Fehler: $e');
+      return [];
+    }
+  }
+
+  /// Speichert einen einzelnen Eintrag (insert or replace).
+  Future<void> saveChecklistenEintrag(ChecklistenEintrag eintrag) async {
+    final db = await database;
+    await db.insert(
+      'dienstleister_checklisten',
+      eintrag.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Speichert mehrere Einträge auf einmal (Batch, z.B. beim Befüllen der Vorlage).
+  Future<void> saveChecklistenEintraege(
+    List<ChecklistenEintrag> eintraege,
+  ) async {
+    final db = await database;
+    final batch = db.batch();
+    for (final e in eintraege) {
+      batch.insert(
+        'dienstleister_checklisten',
+        e.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Toggelt nur das erledigt-Flag eines Eintrags — kein vollständiges Update.
+  Future<void> toggleChecklistenEintrag(String id, bool erledigt) async {
+    final db = await database;
+    await db.update(
+      'dienstleister_checklisten',
+      {'erledigt': erledigt ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Löscht einen einzelnen Eintrag endgültig.
+  Future<void> deleteChecklistenEintrag(String id) async {
+    final db = await database;
+    await db.delete(
+      'dienstleister_checklisten',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Löscht alle Einträge eines Dienstleisters (z.B. für Reset auf Vorlage).
+  Future<void> deleteAllChecklistenEintraege(String dienstleisterId) async {
+    final db = await database;
+    await db.delete(
+      'dienstleister_checklisten',
+      where: 'dienstleister_id = ?',
+      whereArgs: [dienstleisterId],
+    );
+  }
+
+  /// Gibt Fortschritt zurück: {'gesamt': N, 'erledigt': M}.
+  Future<Map<String, int>> getChecklistenFortschritt(
+    String dienstleisterId,
+  ) async {
+    try {
+      final db = await database;
+      final result = await db.rawQuery(
+        '''
+        SELECT
+          COUNT(*)        AS gesamt,
+          SUM(erledigt)   AS erledigt
+        FROM dienstleister_checklisten
+        WHERE dienstleister_id = ?
+      ''',
+        [dienstleisterId],
+      );
+
+      if (result.isEmpty) return {'gesamt': 0, 'erledigt': 0};
+      return {
+        'gesamt': (result.first['gesamt'] as int?) ?? 0,
+        'erledigt': (result.first['erledigt'] as int?) ?? 0,
+      };
+    } catch (e) {
+      ErrorLogger.info('getChecklistenFortschritt Fehler: $e');
+      return {'gesamt': 0, 'erledigt': 0};
+    }
   }
 }

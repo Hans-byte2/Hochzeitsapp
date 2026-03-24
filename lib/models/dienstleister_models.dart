@@ -1,7 +1,5 @@
-// lib/models/dienstleister_models.dart
-//
-// v2: KommunikationsLogEintrag + AngebotVergleich hinzugefügt
-//     VergleichsTag (Favorit/Backup/Abgelehnt) für Dienstleister
+// lib/models/dienstleister_models.dart  —  v3 (Drop-in Ersatz)
+// Neu: ChecklistenEintrag + ChecklistenVorlagen (18 Kategorien, ~180 Punkte)
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -195,7 +193,6 @@ enum DienstleisterStatus {
   }
 }
 
-/// NEU v2: Tag für Angebots-Vergleich
 enum VergleichsTag {
   favorit,
   backup,
@@ -242,7 +239,6 @@ enum VergleichsTag {
   }
 }
 
-/// NEU v2: Typ eines Kommunikations-Log-Eintrags
 enum KommunikationsTyp {
   email,
   anruf,
@@ -324,11 +320,8 @@ enum KommunikationsTyp {
 class Geld {
   final double betrag;
   final String waehrung;
-
   Geld({required this.betrag, this.waehrung = 'EUR'});
-
   Map<String, dynamic> toJson() => {'betrag': betrag, 'waehrung': waehrung};
-
   factory Geld.fromJson(Map<String, dynamic> json) => Geld(
     betrag: json['betrag']?.toDouble() ?? 0.0,
     waehrung: json['waehrung'] ?? 'EUR',
@@ -339,15 +332,12 @@ class Kontakt {
   final String name;
   final String email;
   final String telefon;
-
   Kontakt({required this.name, this.email = '', this.telefon = ''});
-
   Map<String, dynamic> toJson() => {
     'name': name,
     'email': email,
     'telefon': telefon,
   };
-
   factory Kontakt.fromJson(Map<String, dynamic> json) => Kontakt(
     name: json['name'] ?? '',
     email: json['email'] ?? '',
@@ -361,7 +351,6 @@ class Logistik {
   final String parken;
   final String strom;
   final String zugangshinweise;
-
   Logistik({
     this.adresse = '',
     this.ankunftsfenster = '',
@@ -369,7 +358,6 @@ class Logistik {
     this.strom = '',
     this.zugangshinweise = '',
   });
-
   Map<String, dynamic> toJson() => {
     'adresse': adresse,
     'ankunftsfenster': ankunftsfenster,
@@ -377,7 +365,6 @@ class Logistik {
     'strom': strom,
     'zugangshinweise': zugangshinweise,
   };
-
   factory Logistik.fromJson(Map<String, dynamic> json) => Logistik(
     adresse: json['adresse'] ?? '',
     ankunftsfenster: json['ankunftsfenster'] ?? '',
@@ -388,7 +375,7 @@ class Logistik {
 }
 
 // ============================================================================
-// HAUPTKLASSEN
+// DIENSTLEISTER
 // ============================================================================
 
 class Dienstleister {
@@ -409,8 +396,6 @@ class Dienstleister {
   final List<String> dateien;
   final String notizen;
   final bool istFavorit;
-
-  /// NEU v2: Vergleichs-Tag für Angebots-Vergleich
   final VergleichsTag? vergleichsTag;
 
   Dienstleister({
@@ -458,58 +443,56 @@ class Dienstleister {
     'vergleichs_tag': vergleichsTag?.name,
   };
 
-  factory Dienstleister.fromMap(Map<String, dynamic> map) {
-    return Dienstleister(
-      id: map['id'],
-      name: map['name'] ?? '',
-      kategorie: DienstleisterKategorie.values.firstWhere(
-        (e) => e.name == map['kategorie'],
-        orElse: () => DienstleisterKategorie.sonstiges,
-      ),
-      status: DienstleisterStatus.values.firstWhere(
-        (e) => e.name == map['status'],
-        orElse: () => DienstleisterStatus.recherche,
-      ),
-      website: map['website'],
-      instagram: map['instagram'] ?? '',
-      hauptkontakt: Kontakt(
-        name: map['kontakt_name'] ?? '',
-        email: map['kontakt_email'] ?? '',
-        telefon: map['kontakt_telefon'] ?? '',
-      ),
-      bewertung: map['bewertung']?.toDouble() ?? 0.0,
-      angebotsSumme: map['angebot_betrag'] != null
-          ? Geld(
-              betrag: map['angebot_betrag']?.toDouble() ?? 0.0,
-              waehrung: map['angebot_waehrung'] ?? 'EUR',
-            )
-          : null,
-      optionBis: map['option_bis'] != null
-          ? DateTime.parse(map['option_bis'])
-          : null,
-      briefingDatum: map['briefing_datum'] != null
-          ? DateTime.parse(map['briefing_datum'])
-          : null,
-      ankunft: map['ankunft'] != null ? DateTime.parse(map['ankunft']) : null,
-      logistik: map['logistik_json'] != null
-          ? Logistik.fromJson(jsonDecode(map['logistik_json']))
-          : Logistik(),
-      tags: map['tags_json'] != null
-          ? List<String>.from(jsonDecode(map['tags_json']))
-          : [],
-      dateien: map['dateien_json'] != null
-          ? List<String>.from(jsonDecode(map['dateien_json']))
-          : [],
-      notizen: map['notizen'] ?? '',
-      istFavorit: map['ist_favorit'] == 1,
-      vergleichsTag: map['vergleichs_tag'] != null
-          ? VergleichsTag.values.firstWhere(
-              (e) => e.name == map['vergleichs_tag'],
-              orElse: () => VergleichsTag.inPruefung,
-            )
-          : null,
-    );
-  }
+  factory Dienstleister.fromMap(Map<String, dynamic> map) => Dienstleister(
+    id: map['id'],
+    name: map['name'] ?? '',
+    kategorie: DienstleisterKategorie.values.firstWhere(
+      (e) => e.name == map['kategorie'],
+      orElse: () => DienstleisterKategorie.sonstiges,
+    ),
+    status: DienstleisterStatus.values.firstWhere(
+      (e) => e.name == map['status'],
+      orElse: () => DienstleisterStatus.recherche,
+    ),
+    website: map['website'],
+    instagram: map['instagram'] ?? '',
+    hauptkontakt: Kontakt(
+      name: map['kontakt_name'] ?? '',
+      email: map['kontakt_email'] ?? '',
+      telefon: map['kontakt_telefon'] ?? '',
+    ),
+    bewertung: map['bewertung']?.toDouble() ?? 0.0,
+    angebotsSumme: map['angebot_betrag'] != null
+        ? Geld(
+            betrag: map['angebot_betrag']?.toDouble() ?? 0.0,
+            waehrung: map['angebot_waehrung'] ?? 'EUR',
+          )
+        : null,
+    optionBis: map['option_bis'] != null
+        ? DateTime.parse(map['option_bis'])
+        : null,
+    briefingDatum: map['briefing_datum'] != null
+        ? DateTime.parse(map['briefing_datum'])
+        : null,
+    ankunft: map['ankunft'] != null ? DateTime.parse(map['ankunft']) : null,
+    logistik: map['logistik_json'] != null
+        ? Logistik.fromJson(jsonDecode(map['logistik_json']))
+        : Logistik(),
+    tags: map['tags_json'] != null
+        ? List<String>.from(jsonDecode(map['tags_json']))
+        : [],
+    dateien: map['dateien_json'] != null
+        ? List<String>.from(jsonDecode(map['dateien_json']))
+        : [],
+    notizen: map['notizen'] ?? '',
+    istFavorit: map['ist_favorit'] == 1,
+    vergleichsTag: map['vergleichs_tag'] != null
+        ? VergleichsTag.values.firstWhere(
+            (e) => e.name == map['vergleichs_tag'],
+            orElse: () => VergleichsTag.inPruefung,
+          )
+        : null,
+  );
 
   Dienstleister copyWith({
     String? id,
@@ -531,30 +514,28 @@ class Dienstleister {
     bool? istFavorit,
     VergleichsTag? vergleichsTag,
     bool clearVergleichsTag = false,
-  }) {
-    return Dienstleister(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      kategorie: kategorie ?? this.kategorie,
-      status: status ?? this.status,
-      website: website ?? this.website,
-      instagram: instagram ?? this.instagram,
-      hauptkontakt: hauptkontakt ?? this.hauptkontakt,
-      bewertung: bewertung ?? this.bewertung,
-      angebotsSumme: angebotsSumme ?? this.angebotsSumme,
-      optionBis: optionBis ?? this.optionBis,
-      briefingDatum: briefingDatum ?? this.briefingDatum,
-      ankunft: ankunft ?? this.ankunft,
-      logistik: logistik ?? this.logistik,
-      tags: tags ?? this.tags,
-      dateien: dateien ?? this.dateien,
-      notizen: notizen ?? this.notizen,
-      istFavorit: istFavorit ?? this.istFavorit,
-      vergleichsTag: clearVergleichsTag
-          ? null
-          : (vergleichsTag ?? this.vergleichsTag),
-    );
-  }
+  }) => Dienstleister(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    kategorie: kategorie ?? this.kategorie,
+    status: status ?? this.status,
+    website: website ?? this.website,
+    instagram: instagram ?? this.instagram,
+    hauptkontakt: hauptkontakt ?? this.hauptkontakt,
+    bewertung: bewertung ?? this.bewertung,
+    angebotsSumme: angebotsSumme ?? this.angebotsSumme,
+    optionBis: optionBis ?? this.optionBis,
+    briefingDatum: briefingDatum ?? this.briefingDatum,
+    ankunft: ankunft ?? this.ankunft,
+    logistik: logistik ?? this.logistik,
+    tags: tags ?? this.tags,
+    dateien: dateien ?? this.dateien,
+    notizen: notizen ?? this.notizen,
+    istFavorit: istFavorit ?? this.istFavorit,
+    vergleichsTag: clearVergleichsTag
+        ? null
+        : (vergleichsTag ?? this.vergleichsTag),
+  );
 }
 
 // ============================================================================
@@ -610,20 +591,18 @@ class DienstleisterZahlung {
     Geld? betrag,
     DateTime? faelligAm,
     bool? bezahlt,
-  }) {
-    return DienstleisterZahlung(
-      id: id ?? this.id,
-      dienstleisterId: dienstleisterId ?? this.dienstleisterId,
-      bezeichnung: bezeichnung ?? this.bezeichnung,
-      betrag: betrag ?? this.betrag,
-      faelligAm: faelligAm ?? this.faelligAm,
-      bezahlt: bezahlt ?? this.bezahlt,
-    );
-  }
+  }) => DienstleisterZahlung(
+    id: id ?? this.id,
+    dienstleisterId: dienstleisterId ?? this.dienstleisterId,
+    bezeichnung: bezeichnung ?? this.bezeichnung,
+    betrag: betrag ?? this.betrag,
+    faelligAm: faelligAm ?? this.faelligAm,
+    bezahlt: bezahlt ?? this.bezahlt,
+  );
 }
 
 // ============================================================================
-// DIENSTLEISTER NOTIZ (bestehend)
+// DIENSTLEISTER NOTIZ
 // ============================================================================
 
 class DienstleisterNotiz {
@@ -656,7 +635,7 @@ class DienstleisterNotiz {
 }
 
 // ============================================================================
-// DIENSTLEISTER AUFGABE (bestehend)
+// DIENSTLEISTER AUFGABE
 // ============================================================================
 
 class DienstleisterAufgabe {
@@ -699,19 +678,17 @@ class DienstleisterAufgabe {
     String? titel,
     DateTime? faelligAm,
     bool? erledigt,
-  }) {
-    return DienstleisterAufgabe(
-      id: id ?? this.id,
-      dienstleisterId: dienstleisterId ?? this.dienstleisterId,
-      titel: titel ?? this.titel,
-      faelligAm: faelligAm ?? this.faelligAm,
-      erledigt: erledigt ?? this.erledigt,
-    );
-  }
+  }) => DienstleisterAufgabe(
+    id: id ?? this.id,
+    dienstleisterId: dienstleisterId ?? this.dienstleisterId,
+    titel: titel ?? this.titel,
+    faelligAm: faelligAm ?? this.faelligAm,
+    erledigt: erledigt ?? this.erledigt,
+  );
 }
 
 // ============================================================================
-// NEU v2: KOMMUNIKATIONS-LOG EINTRAG
+// KOMMUNIKATIONS-LOG EINTRAG
 // ============================================================================
 
 class KommunikationsLogEintrag {
@@ -720,7 +697,7 @@ class KommunikationsLogEintrag {
   final DateTime erstelltAm;
   final KommunikationsTyp typ;
   final String text;
-  final String? vorlageKey; // Key der verwendeten Vorlage (optional)
+  final String? vorlageKey;
 
   KommunikationsLogEintrag({
     required this.id,
@@ -755,19 +732,18 @@ class KommunikationsLogEintrag {
 }
 
 // ============================================================================
-// NEU v2: ANGEBOT VERGLEICH
-// Speichert ein konkretes Angebot (kann es mehrere pro Dienstleister geben)
+// ANGEBOT VERGLEICH
 // ============================================================================
 
 class AngebotVergleich {
   final String id;
   final String dienstleisterId;
-  final String bezeichnung; // z.B. "Angebot Paket Gold"
+  final String bezeichnung;
   final double preis;
-  final String leistungen; // Freitext, was enthalten ist
+  final String leistungen;
   final String notizen;
   final DateTime erstelltAm;
-  final bool istGewaehlt; // Das gewählte Angebot
+  final bool istGewaehlt;
 
   AngebotVergleich({
     required this.id,
@@ -812,23 +788,20 @@ class AngebotVergleich {
     String? notizen,
     DateTime? erstelltAm,
     bool? istGewaehlt,
-  }) {
-    return AngebotVergleich(
-      id: id ?? this.id,
-      dienstleisterId: dienstleisterId ?? this.dienstleisterId,
-      bezeichnung: bezeichnung ?? this.bezeichnung,
-      preis: preis ?? this.preis,
-      leistungen: leistungen ?? this.leistungen,
-      notizen: notizen ?? this.notizen,
-      erstelltAm: erstelltAm ?? this.erstelltAm,
-      istGewaehlt: istGewaehlt ?? this.istGewaehlt,
-    );
-  }
+  }) => AngebotVergleich(
+    id: id ?? this.id,
+    dienstleisterId: dienstleisterId ?? this.dienstleisterId,
+    bezeichnung: bezeichnung ?? this.bezeichnung,
+    preis: preis ?? this.preis,
+    leistungen: leistungen ?? this.leistungen,
+    notizen: notizen ?? this.notizen,
+    erstelltAm: erstelltAm ?? this.erstelltAm,
+    istGewaehlt: istGewaehlt ?? this.istGewaehlt,
+  );
 }
 
 // ============================================================================
-// NEU v2: KOMMUNIKATIONS-VORLAGEN
-// Offline, keine API, vordefinierte Texte
+// KOMMUNIKATIONS-VORLAGEN
 // ============================================================================
 
 class KommunikationsVorlage {
@@ -836,8 +809,7 @@ class KommunikationsVorlage {
   final String titel;
   final String text;
   final KommunikationsTyp typ;
-  final DienstleisterStatus? fuerStatus; // null = immer verfügbar
-
+  final DienstleisterStatus? fuerStatus;
   const KommunikationsVorlage({
     required this.key,
     required this.titel,
@@ -898,10 +870,824 @@ class KommunikationsVorlagen {
     ),
   ];
 
-  /// Gibt Vorlagen zurück, die für einen Status passen (+ alle ohne Status-Filter)
-  static List<KommunikationsVorlage> fuerStatus(DienstleisterStatus status) {
-    return alle
-        .where((v) => v.fuerStatus == null || v.fuerStatus == status)
-        .toList();
-  }
+  static List<KommunikationsVorlage> fuerStatus(DienstleisterStatus status) =>
+      alle
+          .where((v) => v.fuerStatus == null || v.fuerStatus == status)
+          .toList();
+}
+
+// ============================================================================
+// NEU v3: CHECKLISTEN-EINTRAG
+// ============================================================================
+
+class ChecklistenEintrag {
+  final String id;
+  final String dienstleisterId;
+  final String text;
+  final bool erledigt;
+  final String? vorlagenKey;
+  final int reihenfolge;
+
+  const ChecklistenEintrag({
+    required this.id,
+    required this.dienstleisterId,
+    required this.text,
+    this.erledigt = false,
+    this.vorlagenKey,
+    this.reihenfolge = 0,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'dienstleister_id': dienstleisterId,
+    'text': text,
+    'erledigt': erledigt ? 1 : 0,
+    'vorlage_key': vorlagenKey,
+    'reihenfolge': reihenfolge,
+  };
+
+  factory ChecklistenEintrag.fromMap(Map<String, dynamic> map) =>
+      ChecklistenEintrag(
+        id: map['id'],
+        dienstleisterId: map['dienstleister_id'],
+        text: map['text'] ?? '',
+        erledigt: map['erledigt'] == 1,
+        vorlagenKey: map['vorlage_key'],
+        reihenfolge: map['reihenfolge'] ?? 0,
+      );
+
+  ChecklistenEintrag copyWith({
+    String? id,
+    String? dienstleisterId,
+    String? text,
+    bool? erledigt,
+    String? vorlagenKey,
+    int? reihenfolge,
+    bool clearVorlagenKey = false,
+  }) => ChecklistenEintrag(
+    id: id ?? this.id,
+    dienstleisterId: dienstleisterId ?? this.dienstleisterId,
+    text: text ?? this.text,
+    erledigt: erledigt ?? this.erledigt,
+    vorlagenKey: clearVorlagenKey ? null : (vorlagenKey ?? this.vorlagenKey),
+    reihenfolge: reihenfolge ?? this.reihenfolge,
+  );
+}
+
+// ============================================================================
+// NEU v3: CHECKLISTEN-VORLAGEN
+// ============================================================================
+
+class ChecklistenVorlagePunkt {
+  final String key;
+  final String text;
+  const ChecklistenVorlagePunkt({required this.key, required this.text});
+}
+
+class ChecklistenVorlagen {
+  static List<ChecklistenVorlagePunkt> fuerKategorie(
+    DienstleisterKategorie k,
+  ) => _vorlagen[k] ?? _allgemein;
+
+  static const List<ChecklistenVorlagePunkt> _allgemein = [
+    ChecklistenVorlagePunkt(key: 'allg_angebot', text: 'Angebot eingeholt'),
+    ChecklistenVorlagePunkt(
+      key: 'allg_vertrag',
+      text: 'Vertrag unterschrieben',
+    ),
+    ChecklistenVorlagePunkt(key: 'allg_anzahlung', text: 'Anzahlung geleistet'),
+    ChecklistenVorlagePunkt(
+      key: 'allg_briefing',
+      text: 'Briefing-Termin vereinbart',
+    ),
+    ChecklistenVorlagePunkt(
+      key: 'allg_logistik',
+      text: 'Ankunftszeit & Adresse bestätigt',
+    ),
+    ChecklistenVorlagePunkt(
+      key: 'allg_restzahlung',
+      text: 'Restzahlung terminiert',
+    ),
+    ChecklistenVorlagePunkt(key: 'allg_bewertung', text: 'Bewertung abgegeben'),
+  ];
+
+  static const Map<DienstleisterKategorie, List<ChecklistenVorlagePunkt>>
+  _vorlagen = {
+    DienstleisterKategorie.location: [
+      ChecklistenVorlagePunkt(
+        key: 'loc_besichtigung',
+        text: 'Besichtigung durchgeführt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_kapazitaet',
+        text: 'Kapazität & Bestuhlung geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_exklusiv',
+        text: 'Exklusivbuchung geprüft',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_catering_ext',
+        text: 'Externes Catering erlaubt?',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_musik_sperrstd',
+        text: 'Musik-Sperrstunde geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_parken',
+        text: 'Parkmöglichkeiten besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_backup_indoor',
+        text: 'Indoor-Backup bei Regen vorhanden',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_depo',
+        text: 'Kaution / Depotbetrag bekannt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_aufbau_zeit',
+        text: 'Aufbau- & Abbauzeiten bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'loc_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.trauredner: [
+      ChecklistenVorlagePunkt(
+        key: 'trau_kennenlern',
+        text: 'Kennenlerngespräch geführt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_zeremonie',
+        text: 'Zeremonie-Ablauf besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_persoenlich',
+        text: 'Persönliche Geschichte übermittelt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_musik',
+        text: 'Musikwünsche für Trauung mitgeteilt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_probe',
+        text: 'Probetext / Entwurf erhalten & freigegeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_mikrofon',
+        text: 'Mikrofon / Technik geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_ankunft',
+        text: 'Ankunftszeit & Treffpunkt bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trau_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.catering: [
+      ChecklistenVorlagePunkt(
+        key: 'cat_probe',
+        text: 'Probeessen durchgeführt',
+      ),
+      ChecklistenVorlagePunkt(key: 'cat_menue', text: 'Menü finalisiert'),
+      ChecklistenVorlagePunkt(
+        key: 'cat_allergien',
+        text: 'Allergien & Unverträglichkeiten übermittelt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_vegetarisch',
+        text: 'Anzahl vegetarischer / veganer Gerichte festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_kinder',
+        text: 'Kinderteller besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_getraenke',
+        text: 'Getränkepauschale oder Einzelpreise geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_personal',
+        text: 'Anzahl Servicepersonal bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_auf_abbau',
+        text: 'Aufbau- und Abbauzeiten abgestimmt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_geschirr',
+        text: 'Geschirr / Besteck inklusive?',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_final_gaeste',
+        text: 'Finale Gästezahl übermittelt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'cat_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.torte: [
+      ChecklistenVorlagePunkt(
+        key: 'torte_design',
+        text: 'Design / Skizze freigegeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_geschmack',
+        text: 'Geschmacksrichtung festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_probe',
+        text: 'Verkostungstermin gemacht',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_allergien',
+        text: 'Allergien mitgeteilt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_etagen',
+        text: 'Anzahl Etagen & Personen geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_lieferung',
+        text: 'Lieferzeit & Lieferadresse bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_transport',
+        text: 'Transportbedingungen abgeklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_aufbau',
+        text: 'Aufbau an Location besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'torte_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.fotografie: [
+      ChecklistenVorlagePunkt(
+        key: 'foto_portfolio',
+        text: 'Portfolio angeschaut & Stil passt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_kennenlern',
+        text: 'Kennenlerngespräch geführt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_wunschliste',
+        text: 'Foto-Wunschliste übergeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_ablauf',
+        text: 'Tagesablauf & Zeitplan besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_backup',
+        text: 'Backup-Fotograf vorhanden?',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_bildrechte',
+        text: 'Bildrechte & Nutzungsrecht geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_lieferzeit',
+        text: 'Lieferzeit der Bilder vereinbart',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_formate',
+        text: 'Bildformate (RAW/JPG) & Anzahl besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_locations',
+        text: 'Shootinglocations abgestimmt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'foto_restzahlung',
+        text: 'Restzahlung nach Bildlieferung',
+      ),
+    ],
+    DienstleisterKategorie.video: [
+      ChecklistenVorlagePunkt(
+        key: 'vid_portfolio',
+        text: 'Showreel angeschaut & Stil passt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_kennenlern',
+        text: 'Kennenlerngespräch geführt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_ablauf',
+        text: 'Tagesablauf & Schlüsselszenen besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_musik',
+        text: 'Musikwünsche für Video mitgeteilt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_lieferzeit',
+        text: 'Lieferzeit & Schnittfassung vereinbart',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_format',
+        text: 'Videoformat & Auflösung besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_drohne',
+        text: 'Drohnenaufnahmen gewünscht & erlaubt?',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_bildrechte',
+        text: 'Nutzungsrechte geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'vid_restzahlung',
+        text: 'Restzahlung nach Lieferung',
+      ),
+    ],
+    DienstleisterKategorie.musik: [
+      ChecklistenVorlagePunkt(key: 'musik_demo', text: 'Demo / Mixe angehört'),
+      ChecklistenVorlagePunkt(
+        key: 'musik_wunschliste',
+        text: 'Musikwunschliste übergeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_taboo',
+        text: 'Taboo-Liste (keine dieser Songs) übergeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_einzug',
+        text: 'Song für Einzug festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_erster_tanz',
+        text: 'Song für ersten Tanz festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_technik',
+        text: 'Technikbedarf & Stromversorgung geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_aufbau',
+        text: 'Aufbauzeit & Soundcheck besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_sperrstd',
+        text: 'Musik-Sperrstunde bekannt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_pausen',
+        text: 'Pausenregelung besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'musik_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.floristik: [
+      ChecklistenVorlagePunkt(
+        key: 'flor_beratung',
+        text: 'Beratungstermin & Moodboard besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_brautstrauss',
+        text: 'Brautstrauß-Design finalisiert',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_anstecker',
+        text: 'Anstecker / Boutonnières bestellt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_tischdeko',
+        text: 'Tischdekorationen besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_zeremonie',
+        text: 'Zeremoniedekoration besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_saisonal',
+        text: 'Saisonale Verfügbarkeit geprüft',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_lieferung',
+        text: 'Lieferzeitpunkt & Adresse bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_aufbau',
+        text: 'Aufbau vor Ort besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_abbau',
+        text: 'Abbau / Rückgabe geregelt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'flor_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.styling: [
+      ChecklistenVorlagePunkt(
+        key: 'style_probe',
+        text: 'Probestyling-Termin gemacht',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_frisur',
+        text: 'Frisur-Design festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_makeup',
+        text: 'Make-up-Look festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_fotos_ref',
+        text: 'Referenzfotos übergeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_dauer',
+        text: 'Zeitbedarf & Abfolge geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_brautjungfern',
+        text: 'Styling für Brautjungfern / Familie besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_haarkranz',
+        text: 'Haarkranz / Accessoires abgestimmt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_anfahrt',
+        text: 'Kommt zur Location oder Studio?',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'style_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.kleidung: [
+      ChecklistenVorlagePunkt(key: 'kleid_probe1', text: '1. Anprobe gemacht'),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_probe2',
+        text: '2. Anprobe / Änderungen gemacht',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_abholung',
+        text: 'Abholtermin bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_schuhe',
+        text: 'Schuhe für Anprobe mitgebracht',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_unterwaesche',
+        text: 'Passende Unterwäsche beim Termin dabei',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_reinigung',
+        text: 'Reinigung nach Hochzeit besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_braeutigam',
+        text: 'Anzug / Bräutigam-Outfit bestellt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_transport',
+        text: 'Transport des Kleides zum Ort geplant',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kleid_restzahlung',
+        text: 'Restzahlung bei Abholung',
+      ),
+    ],
+    DienstleisterKategorie.papeterie: [
+      ChecklistenVorlagePunkt(
+        key: 'pap_design',
+        text: 'Design & Stil besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_muster',
+        text: 'Muster / Proof freigegeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_einladungen',
+        text: 'Einladungen bestellt & verschickt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_tischkarten',
+        text: 'Tischkarten mit finaler Gästeliste bestellt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_menuekarten',
+        text: 'Menükarten erstellt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_danksagungen',
+        text: 'Danksagungs-Karten vorbereitet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_lieferzeit',
+        text: 'Lieferzeit rechtzeitig eingeplant',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'pap_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.transport: [
+      ChecklistenVorlagePunkt(
+        key: 'trans_fahrzeug',
+        text: 'Fahrzeugtyp & Ausstattung bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_deko',
+        text: 'Fahrzeugdekoration besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_routen',
+        text: 'Routen & Haltepunkte festgelegt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_abholung',
+        text: 'Abholadresse & Uhrzeit bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_gaeste',
+        text: 'Gäste-Transfer geregelt (falls nötig)',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_foto',
+        text: 'Zwischenstopp für Fotos eingeplant',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_fahrer',
+        text: 'Fahrer-Kontakt erhalten',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'trans_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.kinderbetreuung: [
+      ChecklistenVorlagePunkt(
+        key: 'kids_anzahl',
+        text: 'Anzahl & Alter der Kinder mitgeteilt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_allergien',
+        text: 'Allergien / Unverträglichkeiten mitgeteilt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_programm',
+        text: 'Kinderprogramm & Aktivitäten besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_raum',
+        text: 'Kinderraum / -bereich an Location geprüft',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_essen',
+        text: 'Kinderverpflegung geregelt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_notfallkontakt',
+        text: 'Notfallkontakte der Eltern übergeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'kids_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.technik: [
+      ChecklistenVorlagePunkt(
+        key: 'tech_begehung',
+        text: 'Location-Begehung gemacht',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_licht',
+        text: 'Lichtkonzept besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_ton',
+        text: 'Tonanlage & Mikrofone geprüft',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_beamer',
+        text: 'Beamer / Leinwand besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_strom',
+        text: 'Stromversorgung & Absicherung geprüft',
+      ),
+      ChecklistenVorlagePunkt(key: 'tech_aufbau', text: 'Aufbauzeit bestätigt'),
+      ChecklistenVorlagePunkt(
+        key: 'tech_soundcheck',
+        text: 'Soundcheck mit DJ/Band geplant',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_backup',
+        text: 'Backup-Equipment vorhanden',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'tech_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.fotobox: [
+      ChecklistenVorlagePunkt(
+        key: 'fbox_design',
+        text: 'Druckdesign / Rahmen freigegeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'fbox_props',
+        text: 'Requisiten-Set besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'fbox_aufstellung',
+        text: 'Aufstellungsort an Location geprüft',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'fbox_strom',
+        text: 'Stromversorgung sichergestellt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'fbox_digital',
+        text: 'Digitale Bildgalerie für Gäste eingerichtet',
+      ),
+      ChecklistenVorlagePunkt(key: 'fbox_aufbau', text: 'Aufbauzeit bestätigt'),
+      ChecklistenVorlagePunkt(key: 'fbox_abbau', text: 'Abbauzeit bestätigt'),
+      ChecklistenVorlagePunkt(
+        key: 'fbox_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'fbox_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.unterkunft: [
+      ChecklistenVorlagePunkt(
+        key: 'unt_zimmer',
+        text: 'Zimmerkontingent reserviert',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_suite',
+        text: 'Brautpaar-Suite / Zimmer bestätigt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_fruehbucher',
+        text: 'Frühbucher-Rabatt für Gäste kommuniziert',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_fruehstueck',
+        text: 'Frühstück inklusive?',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_checkin',
+        text: 'Check-in-Zeiten für Gäste mitgeteilt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_depo',
+        text: 'Kaution / Depositum geklärt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_transfer',
+        text: 'Transfer zwischen Unterkunft und Location',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'unt_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+    DienstleisterKategorie.planer: [
+      ChecklistenVorlagePunkt(
+        key: 'plan_erstgespraech',
+        text: 'Erstgespräch & Leistungsumfang besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_dienstleister',
+        text: 'Dienstleister-Empfehlungen erhalten',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_timeline',
+        text: 'Master-Timeline für den Tag erstellt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_budget',
+        text: 'Budget-Tracking gemeinsam aufgesetzt',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_probe',
+        text: 'Ablaufprobe / Rehearsal koordiniert',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_notfall',
+        text: 'Notfallplan & Backup-Optionen besprochen',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_kontakte',
+        text: 'Alle Dienstleister-Kontakte an Planer übergeben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_vertrag',
+        text: 'Vertrag unterschrieben',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_anzahlung',
+        text: 'Anzahlung geleistet',
+      ),
+      ChecklistenVorlagePunkt(
+        key: 'plan_restzahlung',
+        text: 'Restzahlung terminiert',
+      ),
+    ],
+  };
 }
