@@ -4,6 +4,7 @@ import '../models/wedding_models.dart';
 import '../data/database_helper.dart';
 import '../data/dienstleister_database.dart';
 import '../services/dienstleister_score_service.dart';
+import '../widgets/dienstleister_checkliste_widget.dart'; // NEU v20
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 import '../sync/services/sync_service.dart';
@@ -367,7 +368,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
             ),
             onPressed: _toggleFavorit,
           ),
-          // Globaler Bearbeiten-Button in AppBar
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Stammdaten bearbeiten',
@@ -439,7 +439,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Name + Score-Badge + Status
           Row(
             children: [
               Container(
@@ -525,12 +524,8 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               ),
             ],
           ),
-
-          // Status-Timeline
           const SizedBox(height: 10),
           _buildStatusTimeline(),
-
-          // Schnellkontakt-Buttons
           if (_dienstleister!.hauptkontakt.telefon.isNotEmpty ||
               _dienstleister!.hauptkontakt.email.isNotEmpty ||
               _dienstleister!.website != null) ...[
@@ -581,8 +576,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               ),
             ),
           ],
-
-          // Vergleichs-Tag
           if (_dienstleister!.vergleichsTag != null) ...[
             const SizedBox(height: 7),
             Container(
@@ -1090,9 +1083,9 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               ),
             ),
           ),
+          const SizedBox(height: 12),
 
           // ── Termine & Logistik ────────────────────────────────────────────
-          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -1184,9 +1177,9 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               ),
             ),
           ),
+          const SizedBox(height: 12),
 
           // ── Notizen ───────────────────────────────────────────────────────
-          const SizedBox(height: 12),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -1240,6 +1233,19 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                       style: const TextStyle(fontSize: 13),
                     ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // ── Checkliste ────────────────────────────────────────────────────
+          // NEU v20: Kategorie-Checkliste
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: DienstleisterChecklisteWidget(
+                dienstleister: _dienstleister!,
+                onChanged: () => setState(() {}),
               ),
             ),
           ),
@@ -2352,7 +2358,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
   // DIALOGE
   // ════════════════════════════════════════════════════════════════════════════
 
-  /// Vollständiger Bearbeitungs-Dialog für alle Stammdaten
   void _showStammdatenDialog() {
     final d = _dienstleister!;
     final nameCtrl = TextEditingController(text: d.name);
@@ -2480,7 +2485,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
               constraints: const BoxConstraints(maxHeight: 720),
               child: Column(
                 children: [
-                  // ── Dialog-Header ──────────────────────────────────────
                   Container(
                     padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
                     decoration: BoxDecoration(
@@ -2514,15 +2518,12 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                       ],
                     ),
                   ),
-
-                  // ── Formular ──────────────────────────────────────────
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.all(18),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // STAMMDATEN
                           sectionHeader('STAMMDATEN'),
                           TextField(
                             controller: nameCtrl,
@@ -2598,8 +2599,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                             onChanged: (v) =>
                                 setDialogState(() => istFavorit = v ?? false),
                           ),
-
-                          // KONTAKT
                           sectionHeader('KONTAKT'),
                           TextField(
                             controller: kontaktCtrl,
@@ -2659,8 +2658,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                               ),
                             ],
                           ),
-
-                          // ANGEBOT
                           sectionHeader('ANGEBOT'),
                           Row(
                             children: [
@@ -2684,8 +2681,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                               ),
                             ],
                           ),
-
-                          // TERMINE
                           sectionHeader('TERMINE'),
                           Row(
                             children: [
@@ -2706,8 +2701,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                               ),
                             ],
                           ),
-
-                          // LOGISTIK
                           sectionHeader('LOGISTIK'),
                           TextField(
                             controller: adresseCtrl,
@@ -2749,8 +2742,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                             ),
                             maxLines: 2,
                           ),
-
-                          // NOTIZEN
                           sectionHeader('NOTIZEN'),
                           TextField(
                             controller: notizenCtrl,
@@ -2764,8 +2755,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                       ),
                     ),
                   ),
-
-                  // ── Speichern ─────────────────────────────────────────
                   Container(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
                     decoration: BoxDecoration(
@@ -2788,7 +2777,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                         ElevatedButton.icon(
                           onPressed: () async {
                             if (nameCtrl.text.trim().isEmpty) return;
-
                             final updated = d.copyWith(
                               name: nameCtrl.text.trim(),
                               kategorie: kategorie,
@@ -2824,14 +2812,12 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                               ),
                               notizen: notizenCtrl.text.trim(),
                             );
-
                             await DienstleisterDatabase.instance
                                 .updateDienstleister(updated);
                             _syncNow();
                             if (ctx.mounted) Navigator.pop(ctx);
                             _loadData();
-
-                            if (mounted) {
+                            if (mounted)
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Gespeichert ✓'),
@@ -2839,7 +2825,6 @@ class _DienstleisterDetailScreenState extends State<DienstleisterDetailScreen>
                                   duration: Duration(seconds: 2),
                                 ),
                               );
-                            }
                           },
                           icon: const Icon(Icons.save, size: 16),
                           label: const Text('Speichern'),

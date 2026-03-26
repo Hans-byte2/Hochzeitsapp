@@ -1,9 +1,11 @@
+﻿// lib/services/theme_providers.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../theme/theme_variant.dart';
+import 'package:hochzeits_planer/App_colors.dart'; // buildThemeWithColors + AppColorsExtension
 
 const _kThemeKey = 'theme_variant';
 
@@ -26,7 +28,7 @@ final themeControllerProvider =
 
 final themeDataProvider = Provider<ThemeData>((ref) {
   final variant = ref.watch(themeControllerProvider);
-  return buildThemeFor(variant);
+  return buildThemeWithColors(variant);
 });
 
 Future<ThemeVariant> resolveInitialVariant(SharedPreferences prefs) async {
@@ -39,6 +41,7 @@ Future<ThemeVariant> resolveInitialVariant(SharedPreferences prefs) async {
       SchedulerBinding.instance.platformDispatcher.platformBrightness;
 
   return brightness == Brightness.dark
-      ? ThemeVariant.vintageMintDark
-      : ThemeVariant.vintageMint;
+      ? ThemeVariant.darkPink
+      : ThemeVariant.romanticPink;
 }
+

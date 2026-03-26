@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'app_colors.dart';
 
 enum ThemeVariant {
+  // ── Bestehende helle Themes ─────────────────────────────────
   vintageMint,
   vintageMintDark,
   sandVintageCream,
@@ -10,13 +11,152 @@ enum ThemeVariant {
   mintStone,
   seafoamNavy,
   champagne,
-
-  // 👇 NEU
   romanticPink,
   cremeElegance,
   blackWhite,
   royalGold,
   frozenMint,
+
+  // ── Neue Dark Themes ────────────────────────────────────────
+  darkPink,
+  darkPinkDark,
+  blackGold,
+  blackGoldDark,
+  midnightMint,
+  midnightMintDark,
+  champagneNight,
+  champagneNightDark,
+  royalDark,
+  royalDarkDark,
+  roseCard,
+  roseCardDark,
+}
+
+bool isDarkTheme(ThemeVariant v) {
+  switch (v) {
+    case ThemeVariant.vintageMintDark:
+    case ThemeVariant.darkPink:
+    case ThemeVariant.darkPinkDark:
+    case ThemeVariant.blackGold:
+    case ThemeVariant.blackGoldDark:
+    case ThemeVariant.midnightMint:
+    case ThemeVariant.midnightMintDark:
+    case ThemeVariant.champagneNight:
+    case ThemeVariant.champagneNightDark:
+    case ThemeVariant.royalDark:
+    case ThemeVariant.royalDarkDark:
+    case ThemeVariant.roseCard:
+    case ThemeVariant.roseCardDark:
+      return true;
+    default:
+      return false;
+  }
+}
+
+String themeDisplayName(ThemeVariant v) {
+  switch (v) {
+    case ThemeVariant.vintageMint:
+      return 'Vintage Mint';
+    case ThemeVariant.vintageMintDark:
+      return 'Vintage Mint Dark';
+    case ThemeVariant.sandVintageCream:
+      return 'Sand Cream';
+    case ThemeVariant.mintFresh:
+      return 'Mint Fresh';
+    case ThemeVariant.mintStone:
+      return 'Mint Stone';
+    case ThemeVariant.seafoamNavy:
+      return 'Seafoam Navy';
+    case ThemeVariant.champagne:
+      return 'Champagne';
+    case ThemeVariant.romanticPink:
+      return 'Romantic Pink';
+    case ThemeVariant.cremeElegance:
+      return 'Creme Elegance';
+    case ThemeVariant.blackWhite:
+      return 'Black & White';
+    case ThemeVariant.royalGold:
+      return 'Royal Gold';
+    case ThemeVariant.frozenMint:
+      return 'Frozen Mint';
+    case ThemeVariant.darkPink:
+      return 'Dark Pink';
+    case ThemeVariant.darkPinkDark:
+      return 'Dark Pink (tief)';
+    case ThemeVariant.blackGold:
+      return 'Black & Gold';
+    case ThemeVariant.blackGoldDark:
+      return 'Black & Gold (tief)';
+    case ThemeVariant.midnightMint:
+      return 'Midnight Mint';
+    case ThemeVariant.midnightMintDark:
+      return 'Midnight Mint (tief)';
+    case ThemeVariant.champagneNight:
+      return 'Champagne Night';
+    case ThemeVariant.champagneNightDark:
+      return 'Champagne Night (tief)';
+    case ThemeVariant.royalDark:
+      return 'Royal Dark';
+    case ThemeVariant.royalDarkDark:
+      return 'Royal Dark (tief)';
+    case ThemeVariant.roseCard:
+      return 'Rose Card';
+    case ThemeVariant.roseCardDark:
+      return 'Rose Card (tief)';
+  }
+}
+
+String themeEmoji(ThemeVariant v) {
+  switch (v) {
+    case ThemeVariant.vintageMint:
+      return '🌿';
+    case ThemeVariant.vintageMintDark:
+      return '🌿🖤';
+    case ThemeVariant.sandVintageCream:
+      return '🏜️';
+    case ThemeVariant.mintFresh:
+      return '🍃';
+    case ThemeVariant.mintStone:
+      return '🪨';
+    case ThemeVariant.seafoamNavy:
+      return '🌊';
+    case ThemeVariant.champagne:
+      return '🥂';
+    case ThemeVariant.romanticPink:
+      return '💗';
+    case ThemeVariant.cremeElegance:
+      return '🧁';
+    case ThemeVariant.blackWhite:
+      return '⚫️';
+    case ThemeVariant.royalGold:
+      return '✨';
+    case ThemeVariant.frozenMint:
+      return '❄️';
+    case ThemeVariant.darkPink:
+      return '🖤💗';
+    case ThemeVariant.darkPinkDark:
+      return '🖤💗';
+    case ThemeVariant.blackGold:
+      return '🖤✨';
+    case ThemeVariant.blackGoldDark:
+      return '🖤✨';
+    case ThemeVariant.midnightMint:
+      return '🌿🖤';
+    case ThemeVariant.midnightMintDark:
+      return '🌿🖤';
+    case ThemeVariant.champagneNight:
+      return '🥂🖤';
+    case ThemeVariant.champagneNightDark:
+      return '🥂🖤';
+    case ThemeVariant.royalDark:
+      return '💜🖤';
+    case ThemeVariant.royalDarkDark:
+      return '💜🖤';
+    case ThemeVariant.roseCard:
+      return '🌸🖤';
+    case ThemeVariant.roseCardDark:
+      return '🌸🖤';
+  }
 }
 
 class BrandColors {
@@ -143,8 +283,6 @@ BrandColors colorsFor(ThemeVariant v) {
         tableColor: AppColorsChampagne.tableColor,
         serviceColor: AppColorsChampagne.serviceColor,
       );
-
-    // 👇 NEU: Romantic Pink
     case ThemeVariant.romanticPink:
       return const BrandColors(
         primary: AppColorsRomanticPink.primary,
@@ -159,8 +297,6 @@ BrandColors colorsFor(ThemeVariant v) {
         tableColor: AppColorsRomanticPink.tableColor,
         serviceColor: AppColorsRomanticPink.serviceColor,
       );
-
-    // 👇 NEU: Creme Elegance
     case ThemeVariant.cremeElegance:
       return const BrandColors(
         primary: AppColorsCremeElegance.primary,
@@ -175,8 +311,6 @@ BrandColors colorsFor(ThemeVariant v) {
         tableColor: AppColorsCremeElegance.tableColor,
         serviceColor: AppColorsCremeElegance.serviceColor,
       );
-
-    // 👇 NEU: Black & White
     case ThemeVariant.blackWhite:
       return const BrandColors(
         primary: AppColorsBlackWhite.primary,
@@ -191,8 +325,6 @@ BrandColors colorsFor(ThemeVariant v) {
         tableColor: AppColorsBlackWhite.tableColor,
         serviceColor: AppColorsBlackWhite.serviceColor,
       );
-
-    // 👇 NEU: Royal Gold
     case ThemeVariant.royalGold:
       return const BrandColors(
         primary: AppColorsRoyalGold.primary,
@@ -207,8 +339,6 @@ BrandColors colorsFor(ThemeVariant v) {
         tableColor: AppColorsRoyalGold.tableColor,
         serviceColor: AppColorsRoyalGold.serviceColor,
       );
-
-    // 👇 NEU: Frozen Mint
     case ThemeVariant.frozenMint:
       return const BrandColors(
         primary: AppColorsFrozenMint.primary,
@@ -223,22 +353,188 @@ BrandColors colorsFor(ThemeVariant v) {
         tableColor: AppColorsFrozenMint.tableColor,
         serviceColor: AppColorsFrozenMint.serviceColor,
       );
+    case ThemeVariant.darkPink:
+      return const BrandColors(
+        primary: AppColorsDarkPink.primary,
+        background: AppColorsDarkPink.background,
+        cardColor: AppColorsDarkPink.cardColor,
+        cardBorder: AppColorsDarkPink.cardBorder,
+        secondary: AppColorsDarkPink.secondary,
+        homeColor: AppColorsDarkPink.homeColor,
+        guestColor: AppColorsDarkPink.guestColor,
+        budgetColor: AppColorsDarkPink.budgetColor,
+        taskColor: AppColorsDarkPink.taskColor,
+        tableColor: AppColorsDarkPink.tableColor,
+        serviceColor: AppColorsDarkPink.serviceColor,
+      );
+    case ThemeVariant.darkPinkDark:
+      return const BrandColors(
+        primary: AppColorsDarkPinkDark.primary,
+        background: AppColorsDarkPinkDark.background,
+        cardColor: AppColorsDarkPinkDark.cardColor,
+        cardBorder: AppColorsDarkPinkDark.cardBorder,
+        secondary: AppColorsDarkPinkDark.secondary,
+        homeColor: AppColorsDarkPinkDark.homeColor,
+        guestColor: AppColorsDarkPinkDark.guestColor,
+        budgetColor: AppColorsDarkPinkDark.budgetColor,
+        taskColor: AppColorsDarkPinkDark.taskColor,
+        tableColor: AppColorsDarkPinkDark.tableColor,
+        serviceColor: AppColorsDarkPinkDark.serviceColor,
+      );
+    case ThemeVariant.blackGold:
+      return const BrandColors(
+        primary: AppColorsBlackGold.primary,
+        background: AppColorsBlackGold.background,
+        cardColor: AppColorsBlackGold.cardColor,
+        cardBorder: AppColorsBlackGold.cardBorder,
+        secondary: AppColorsBlackGold.secondary,
+        homeColor: AppColorsBlackGold.homeColor,
+        guestColor: AppColorsBlackGold.guestColor,
+        budgetColor: AppColorsBlackGold.budgetColor,
+        taskColor: AppColorsBlackGold.taskColor,
+        tableColor: AppColorsBlackGold.tableColor,
+        serviceColor: AppColorsBlackGold.serviceColor,
+      );
+    case ThemeVariant.blackGoldDark:
+      return const BrandColors(
+        primary: AppColorsBlackGoldDark.primary,
+        background: AppColorsBlackGoldDark.background,
+        cardColor: AppColorsBlackGoldDark.cardColor,
+        cardBorder: AppColorsBlackGoldDark.cardBorder,
+        secondary: AppColorsBlackGoldDark.secondary,
+        homeColor: AppColorsBlackGoldDark.homeColor,
+        guestColor: AppColorsBlackGoldDark.guestColor,
+        budgetColor: AppColorsBlackGoldDark.budgetColor,
+        taskColor: AppColorsBlackGoldDark.taskColor,
+        tableColor: AppColorsBlackGoldDark.tableColor,
+        serviceColor: AppColorsBlackGoldDark.serviceColor,
+      );
+    case ThemeVariant.midnightMint:
+      return const BrandColors(
+        primary: AppColorsMidnightMint.primary,
+        background: AppColorsMidnightMint.background,
+        cardColor: AppColorsMidnightMint.cardColor,
+        cardBorder: AppColorsMidnightMint.cardBorder,
+        secondary: AppColorsMidnightMint.secondary,
+        homeColor: AppColorsMidnightMint.homeColor,
+        guestColor: AppColorsMidnightMint.guestColor,
+        budgetColor: AppColorsMidnightMint.budgetColor,
+        taskColor: AppColorsMidnightMint.taskColor,
+        tableColor: AppColorsMidnightMint.tableColor,
+        serviceColor: AppColorsMidnightMint.serviceColor,
+      );
+    case ThemeVariant.midnightMintDark:
+      return const BrandColors(
+        primary: AppColorsMidnightMintDark.primary,
+        background: AppColorsMidnightMintDark.background,
+        cardColor: AppColorsMidnightMintDark.cardColor,
+        cardBorder: AppColorsMidnightMintDark.cardBorder,
+        secondary: AppColorsMidnightMintDark.secondary,
+        homeColor: AppColorsMidnightMintDark.homeColor,
+        guestColor: AppColorsMidnightMintDark.guestColor,
+        budgetColor: AppColorsMidnightMintDark.budgetColor,
+        taskColor: AppColorsMidnightMintDark.taskColor,
+        tableColor: AppColorsMidnightMintDark.tableColor,
+        serviceColor: AppColorsMidnightMintDark.serviceColor,
+      );
+    case ThemeVariant.champagneNight:
+      return const BrandColors(
+        primary: AppColorsChampagneNight.primary,
+        background: AppColorsChampagneNight.background,
+        cardColor: AppColorsChampagneNight.cardColor,
+        cardBorder: AppColorsChampagneNight.cardBorder,
+        secondary: AppColorsChampagneNight.secondary,
+        homeColor: AppColorsChampagneNight.homeColor,
+        guestColor: AppColorsChampagneNight.guestColor,
+        budgetColor: AppColorsChampagneNight.budgetColor,
+        taskColor: AppColorsChampagneNight.taskColor,
+        tableColor: AppColorsChampagneNight.tableColor,
+        serviceColor: AppColorsChampagneNight.serviceColor,
+      );
+    case ThemeVariant.champagneNightDark:
+      return const BrandColors(
+        primary: AppColorsChampagneNightDark.primary,
+        background: AppColorsChampagneNightDark.background,
+        cardColor: AppColorsChampagneNightDark.cardColor,
+        cardBorder: AppColorsChampagneNightDark.cardBorder,
+        secondary: AppColorsChampagneNightDark.secondary,
+        homeColor: AppColorsChampagneNightDark.homeColor,
+        guestColor: AppColorsChampagneNightDark.guestColor,
+        budgetColor: AppColorsChampagneNightDark.budgetColor,
+        taskColor: AppColorsChampagneNightDark.taskColor,
+        tableColor: AppColorsChampagneNightDark.tableColor,
+        serviceColor: AppColorsChampagneNightDark.serviceColor,
+      );
+    case ThemeVariant.royalDark:
+      return const BrandColors(
+        primary: AppColorsRoyalDark.primary,
+        background: AppColorsRoyalDark.background,
+        cardColor: AppColorsRoyalDark.cardColor,
+        cardBorder: AppColorsRoyalDark.cardBorder,
+        secondary: AppColorsRoyalDark.secondary,
+        homeColor: AppColorsRoyalDark.homeColor,
+        guestColor: AppColorsRoyalDark.guestColor,
+        budgetColor: AppColorsRoyalDark.budgetColor,
+        taskColor: AppColorsRoyalDark.taskColor,
+        tableColor: AppColorsRoyalDark.tableColor,
+        serviceColor: AppColorsRoyalDark.serviceColor,
+      );
+    case ThemeVariant.royalDarkDark:
+      return const BrandColors(
+        primary: AppColorsRoyalDarkDark.primary,
+        background: AppColorsRoyalDarkDark.background,
+        cardColor: AppColorsRoyalDarkDark.cardColor,
+        cardBorder: AppColorsRoyalDarkDark.cardBorder,
+        secondary: AppColorsRoyalDarkDark.secondary,
+        homeColor: AppColorsRoyalDarkDark.homeColor,
+        guestColor: AppColorsRoyalDarkDark.guestColor,
+        budgetColor: AppColorsRoyalDarkDark.budgetColor,
+        taskColor: AppColorsRoyalDarkDark.taskColor,
+        tableColor: AppColorsRoyalDarkDark.tableColor,
+        serviceColor: AppColorsRoyalDarkDark.serviceColor,
+      );
+    case ThemeVariant.roseCard:
+      return const BrandColors(
+        primary: AppColorsRoseCard.primary,
+        background: AppColorsRoseCard.background,
+        cardColor: AppColorsRoseCard.cardColor,
+        cardBorder: AppColorsRoseCard.cardBorder,
+        secondary: AppColorsRoseCard.secondary,
+        homeColor: AppColorsRoseCard.homeColor,
+        guestColor: AppColorsRoseCard.guestColor,
+        budgetColor: AppColorsRoseCard.budgetColor,
+        taskColor: AppColorsRoseCard.taskColor,
+        tableColor: AppColorsRoseCard.tableColor,
+        serviceColor: AppColorsRoseCard.serviceColor,
+      );
+    case ThemeVariant.roseCardDark:
+      return const BrandColors(
+        primary: AppColorsRoseCardDark.primary,
+        background: AppColorsRoseCardDark.background,
+        cardColor: AppColorsRoseCardDark.cardColor,
+        cardBorder: AppColorsRoseCardDark.cardBorder,
+        secondary: AppColorsRoseCardDark.secondary,
+        homeColor: AppColorsRoseCardDark.homeColor,
+        guestColor: AppColorsRoseCardDark.guestColor,
+        budgetColor: AppColorsRoseCardDark.budgetColor,
+        taskColor: AppColorsRoseCardDark.taskColor,
+        tableColor: AppColorsRoseCardDark.tableColor,
+        serviceColor: AppColorsRoseCardDark.serviceColor,
+      );
   }
 }
 
 final _themeCache = <ThemeVariant, ThemeData>{};
 
 ThemeData buildThemeFor(ThemeVariant variant) {
-  if (_themeCache.containsKey(variant)) {
-    return _themeCache[variant]!;
-  }
+  if (_themeCache.containsKey(variant)) return _themeCache[variant]!;
 
   final c = colorsFor(variant);
-  final isDark = variant == ThemeVariant.vintageMintDark;
+  final dark = isDarkTheme(variant);
 
   final scheme = ColorScheme.fromSeed(
     seedColor: c.primary,
-    brightness: isDark ? Brightness.dark : Brightness.light,
+    brightness: dark ? Brightness.dark : Brightness.light,
     background: c.background,
   );
 

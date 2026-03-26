@@ -1,9 +1,9 @@
-// lib/sync/screens/sync_status_widget.dart
+﻿// lib/sync/screens/sync_status_widget.dart
 import 'package:flutter/material.dart';
 import '../services/sync_service.dart';
 import '../models/sync_models.dart';
 import 'pairing_screen.dart';
-import '../../app_colors.dart';
+import 'package:hochzeits_planer/App_colors.dart';
 
 class SyncStatusWidget extends StatelessWidget {
   final bool compact;
@@ -22,7 +22,7 @@ class SyncStatusWidget extends StatelessWidget {
   }
 
   Widget _buildCompact(BuildContext context, SyncStatus status) {
-    final (icon, color, label) = _getStatusInfo(status);
+    final (icon, color, label) = _getStatusInfo(status, context);
     return InkWell(
       onTap: () => _handleTap(context, status),
       borderRadius: BorderRadius.circular(12),
@@ -53,7 +53,7 @@ class SyncStatusWidget extends StatelessWidget {
   }
 
   Widget _buildFull(BuildContext context, SyncStatus status) {
-    final (icon, color, label) = _getStatusInfo(status);
+    final (icon, color, label) = _getStatusInfo(status, context);
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -127,7 +127,9 @@ class SyncStatusWidget extends StatelessWidget {
           onPressed: () => _openPairingScreen(context),
           icon: const Icon(Icons.add_link, size: 16),
           label: const Text('Verbinden'),
-          style: TextButton.styleFrom(foregroundColor: AppColors.primary),
+          style: TextButton.styleFrom(
+            foregroundColor: AppColors.of(context).primary,
+          ),
         );
       case SyncConnectionState.connected:
         return IconButton(
@@ -165,7 +167,10 @@ class SyncStatusWidget extends StatelessWidget {
     }
   }
 
-  (IconData, Color, String) _getStatusInfo(SyncStatus status) {
+  (IconData, Color, String) _getStatusInfo(
+    SyncStatus status,
+    BuildContext context,
+  ) {
     switch (status.connectionState) {
       case SyncConnectionState.unpaired:
         return (Icons.link_off, Colors.grey, 'Nicht verbunden');
@@ -176,7 +181,7 @@ class SyncStatusWidget extends StatelessWidget {
       case SyncConnectionState.partnerOffline:
         return (Icons.wifi_off, Colors.orange, 'Partner offline');
       case SyncConnectionState.syncing:
-        return (Icons.sync, AppColors.primary, 'Synchronisiert...');
+        return (Icons.sync, AppColors.of(context).primary, 'Synchronisiert...');
       case SyncConnectionState.error:
         return (Icons.error_outline, Colors.red, 'Sync-Fehler');
     }
@@ -194,7 +199,7 @@ class SyncStatusWidget extends StatelessWidget {
 
   /// Dialog wenn gepairt: zeigt Status + Sync + Trennen
   void _showSyncDialog(BuildContext context, SyncStatus status) {
-    final (icon, color, label) = _getStatusInfo(status);
+    final (icon, color, label) = _getStatusInfo(status, context);
 
     showDialog(
       context: context,
@@ -276,7 +281,7 @@ class SyncStatusWidget extends StatelessWidget {
             icon: const Icon(Icons.sync, size: 16),
             label: const Text('Jetzt syncen'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
+              backgroundColor: AppColors.of(context).primary,
               foregroundColor: Colors.white,
             ),
           ),

@@ -18,7 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/dienstleister_models.dart';
-import '../database/database_helper.dart';
+import '../data/database_helper.dart';
 
 // ============================================================================
 // HAUPTWIDGET

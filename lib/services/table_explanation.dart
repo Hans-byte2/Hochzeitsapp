@@ -13,6 +13,7 @@
 
 import '../models/table_categories.dart';
 import '../services/table_suggestion_service.dart';
+import '../App_colors.dart';
 
 // ─────────────────────────────────────────────────────────────────
 // Datenmodelle
@@ -143,9 +144,7 @@ class TableExplanationService {
           icon: '🤝',
           label: 'Kennen sich',
           detail:
-              kp.take(3).join(', ') +
-              extra +
-              ' (+${(kp.length * 20).toInt()} Punkte)',
+              '${kp.take(3).join(', ')}$extra (+${(kp.length * 20).toInt()} Punkte)',
           score: kp.length * 20.0,
           type: ExplanationReasonType.knows,
         ),
@@ -191,8 +190,7 @@ class TableExplanationService {
           icon: '🎯',
           label: 'Gemeinsame Hobbys',
           detail:
-              sh.take(3).map((e) => '${e.key} (${e.value}x)').join(', ') +
-              ' (+${pts.toInt()} Punkte)',
+              '${sh.take(3).map((e) => '${e.key} (${e.value}x)').join(', ')} (+${pts.toInt()} Punkte)',
           score: pts,
           type: ExplanationReasonType.hobbies,
         ),

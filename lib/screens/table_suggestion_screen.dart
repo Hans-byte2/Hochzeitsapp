@@ -1,9 +1,9 @@
-// lib/screens/table_suggestion_screen.dart
+﻿// lib/screens/table_suggestion_screen.dart
 
 import 'package:flutter/material.dart';
 import '../models/wedding_models.dart';
 import '../models/table_categories.dart';
-import '../app_colors.dart';
+import 'package:hochzeits_planer/App_colors.dart';
 import '../services/table_suggestion_service.dart';
 import '../services/table_explanation.dart';
 
@@ -138,7 +138,9 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
               );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: hasConflicts ? Colors.orange : AppColors.primary,
+              backgroundColor: hasConflicts
+                  ? Colors.orange
+                  : AppColors.of(context).primary,
               foregroundColor: Colors.white,
             ),
             child: Text(hasConflicts ? 'Trotzdem übernehmen' : 'Übernehmen'),
@@ -153,7 +155,7 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Tischvorschlag'),
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.of(context).primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -181,7 +183,7 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: AppColors.primary),
+          CircularProgressIndicator(color: AppColors.of(context).primary),
           const SizedBox(height: 16),
           const Text('Berechne optimale Sitzordnung...'),
           const SizedBox(height: 8),
@@ -308,7 +310,7 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.auto_awesome, color: AppColors.primary),
+                Icon(Icons.auto_awesome, color: AppColors.of(context).primary),
                 const SizedBox(width: 8),
                 const Text(
                   'Vorschlag-Übersicht',
@@ -479,12 +481,12 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: AppColors.of(context).primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     Icons.table_restaurant,
-                    color: AppColors.primary,
+                    color: AppColors.of(context).primary,
                     size: 20,
                   ),
                 ),
@@ -550,10 +552,10 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
                         vertical: 5,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.08),
+                        color: AppColors.of(context).primary.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: AppColors.primary.withOpacity(0.3),
+                          color: AppColors.of(context).primary.withOpacity(0.3),
                         ),
                       ),
                       child: Row(
@@ -562,14 +564,14 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
                           Icon(
                             Icons.help_outline,
                             size: 12,
-                            color: AppColors.primary,
+                            color: AppColors.of(context).primary,
                           ),
                           const SizedBox(width: 3),
                           Text(
                             'Warum?',
                             style: TextStyle(
                               fontSize: 11,
-                              color: AppColors.primary,
+                              color: AppColors.of(context).primary,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -594,17 +596,21 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.08),
+                          color: AppColors.of(
+                            context,
+                          ).primary.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: AppColors.primary.withOpacity(0.25),
+                            color: AppColors.of(
+                              context,
+                            ).primary.withOpacity(0.25),
                           ),
                         ),
                         child: Text(
                           cat.label,
                           style: TextStyle(
                             fontSize: 11,
-                            color: AppColors.primary,
+                            color: AppColors.of(context).primary,
                           ),
                         ),
                       ),
@@ -695,7 +701,7 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
         ? Colors.red
         : hasCatMismatch
         ? Colors.orange
-        : AppColors.primary;
+        : AppColors.of(context).primary;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
@@ -804,7 +810,9 @@ class _TableSuggestionScreenState extends State<TableSuggestionScreen> {
                 : 'Vorschlag übernehmen',
           ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: r.hasConflicts ? Colors.orange : AppColors.primary,
+            backgroundColor: r.hasConflicts
+                ? Colors.orange
+                : AppColors.of(context).primary,
             foregroundColor: Colors.white,
             minimumSize: const Size(double.infinity, 50),
             shape: RoundedRectangleBorder(
@@ -867,12 +875,12 @@ class _WarumSheet extends StatelessWidget {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
+                      color: AppColors.of(context).primary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       Icons.psychology,
-                      color: AppColors.primary,
+                      color: AppColors.of(context).primary,
                       size: 22,
                     ),
                   ),
@@ -1118,3 +1126,4 @@ class _WarumSheet extends StatelessWidget {
     ),
   );
 }
+

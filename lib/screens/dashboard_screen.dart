@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../models/wedding_models.dart';
-import '../app_colors.dart';
+import 'package:hochzeits_planer/App_colors.dart';
 import '../data/database_helper.dart';
 import '../widgets/budget_donut_chart.dart';
 import 'dart:io';
@@ -283,8 +283,8 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                           colors: [
-                            AppColors.primary.withOpacity(0.1),
-                            AppColors.secondary,
+                            AppColors.of(context).primary.withOpacity(0.1),
+                            AppColors.of(context).secondary,
                           ],
                         ),
                       ),
@@ -300,12 +300,17 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                         height: 150,
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [AppColors.primary, Colors.pink.shade300],
+                            colors: [
+                              AppColors.of(context).primary,
+                              Colors.pink.shade300,
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(60),
                           boxShadow: [
                             BoxShadow(
-                              color: AppColors.primary.withOpacity(0.3),
+                              color: AppColors.of(
+                                context,
+                              ).primary.withOpacity(0.3),
                               blurRadius: 25,
                               offset: const Offset(0, 10),
                             ),
@@ -335,7 +340,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                           style: TextStyle(
                             fontSize: 58,
                             fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                            color: AppColors.of(context).primary,
                           ),
                         ),
                         Text(
@@ -392,7 +397,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                         icon: const Icon(Icons.edit, size: 16),
                         label: const Text('Bearbeiten'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
+                          backgroundColor: AppColors.of(context).primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
@@ -421,31 +426,31 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
       {
         'title': 'Gäste',
         'icon': Icons.people,
-        'color': AppColors.guestColor,
+        'color': AppColors.of(context).guestColor,
         'page': 1,
       },
       {
         'title': 'Budget',
         'icon': Icons.euro,
-        'color': AppColors.budgetColor,
+        'color': AppColors.of(context).budgetColor,
         'page': 3,
       },
       {
         'title': 'Checkliste',
         'icon': Icons.assignment,
-        'color': AppColors.taskColor,
+        'color': AppColors.of(context).taskColor,
         'page': 4,
       },
       {
         'title': 'Tischplan',
         'icon': Icons.table_restaurant,
-        'color': AppColors.tableColor,
+        'color': AppColors.of(context).tableColor,
         'page': 2,
       },
       {
         'title': 'Dienstleister',
         'icon': Icons.business,
-        'color': AppColors.serviceColor,
+        'color': AppColors.of(context).serviceColor,
         'page': 5,
       },
     ];
@@ -555,7 +560,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
               children: [
                 Icon(
                   Icons.account_balance_wallet,
-                  color: AppColors.primary,
+                  color: AppColors.of(context).primary,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
@@ -594,7 +599,7 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
+                          color: AppColors.of(context).primary,
                         ),
                       ),
                       Text(
@@ -693,7 +698,11 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
           children: [
             Row(
               children: [
-                Icon(Icons.people, color: AppColors.primary, size: 20),
+                Icon(
+                  Icons.people,
+                  color: AppColors.of(context).primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   'Gäste-Status',
@@ -732,19 +741,25 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.06),
+                  color: AppColors.of(context).primary.withOpacity(0.06),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                  border: Border.all(
+                    color: AppColors.of(context).primary.withOpacity(0.2),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.child_care, size: 16, color: AppColors.primary),
+                    Icon(
+                      Icons.child_care,
+                      size: 16,
+                      color: AppColors.of(context).primary,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       '$totalChildren ${totalChildren == 1 ? 'Kind' : 'Kinder'} dabei',
                       style: TextStyle(
                         fontSize: 13,
-                        color: AppColors.primary,
+                        color: AppColors.of(context).primary,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -794,7 +809,11 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
           children: [
             Row(
               children: [
-                Icon(Icons.check_circle, color: AppColors.primary, size: 20),
+                Icon(
+                  Icons.check_circle,
+                  color: AppColors.of(context).primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   'Checklisten-Fortschritt',
@@ -849,7 +868,11 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
           children: [
             Row(
               children: [
-                Icon(Icons.calendar_today, color: AppColors.primary, size: 20),
+                Icon(
+                  Icons.calendar_today,
+                  color: AppColors.of(context).primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   'Nächste 3 Aufgaben',
@@ -921,17 +944,21 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: AppColors.primary.withOpacity(0.1),
+                                    color: AppColors.of(
+                                      context,
+                                    ).primary.withOpacity(0.1),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: AppColors.primary.withOpacity(0.3),
+                                      color: AppColors.of(
+                                        context,
+                                      ).primary.withOpacity(0.3),
                                     ),
                                   ),
                                   child: Text(
                                     '${task.deadline!.day}.${task.deadline!.month}.',
                                     style: TextStyle(
                                       fontSize: 11,
-                                      color: AppColors.primary,
+                                      color: AppColors.of(context).primary,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -1001,7 +1028,11 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
           children: [
             Row(
               children: [
-                Icon(Icons.star, color: AppColors.primary, size: 20),
+                Icon(
+                  Icons.star,
+                  color: AppColors.of(context).primary,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 const Text(
                   'Wichtige Meilensteine',
@@ -1028,12 +1059,12 @@ class DashboardPageState extends State<DashboardPage> with SmartFormValidation {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
+                        color: AppColors.of(context).primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(24),
                       ),
                       child: Icon(
                         milestone['icon'] as IconData,
-                        color: AppColors.primary,
+                        color: AppColors.of(context).primary,
                         size: 24,
                       ),
                     ),
@@ -1159,7 +1190,9 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                   value: _fieldValidation.values.where((v) => v).length / 3.0,
                   backgroundColor: Colors.grey[200],
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    _areAllFieldsValid ? Colors.green : AppColors.primary,
+                    _areAllFieldsValid
+                        ? Colors.green
+                        : AppColors.of(context).primary,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1177,8 +1210,9 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty)
+                  if (value == null || value.trim().isEmpty) {
                     return 'Name der Braut ist erforderlich';
+                  }
                   if (value.trim().length < 2) return 'Mindestens 2 Zeichen';
                   return null;
                 },
@@ -1193,8 +1227,9 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                 onValidationChanged: _updateFieldValidation,
                 isDisabled: false,
                 validator: (value) {
-                  if (value == null || value.trim().isEmpty)
+                  if (value == null || value.trim().isEmpty) {
                     return 'Name des Bräutigams ist erforderlich';
+                  }
                   if (value.trim().length < 2) return 'Mindestens 2 Zeichen';
                   return null;
                 },
@@ -1215,8 +1250,9 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
                 lastDate: DateTime.now().add(const Duration(days: 1095)),
                 validator: (date) {
                   if (date == null) return 'Hochzeitsdatum ist erforderlich';
-                  if (date.isBefore(DateTime.now()))
+                  if (date.isBefore(DateTime.now())) {
                     return 'Datum muss in der Zukunft liegen';
+                  }
                   return null;
                 },
               ),
@@ -1233,7 +1269,7 @@ class _WeddingDataDialogState extends State<_WeddingDataDialog> {
           onPressed: _areAllFieldsValid ? () => _handleSave(context) : null,
           style: ElevatedButton.styleFrom(
             backgroundColor: _areAllFieldsValid
-                ? AppColors.primary
+                ? AppColors.of(context).primary
                 : Colors.grey[300],
           ),
           child: Row(

@@ -1,9 +1,9 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../models/wedding_models.dart';
 import '../models/table_models.dart';
 import '../models/table_categories.dart';
 import '../data/database_helper.dart';
-import '../app_colors.dart';
+import 'package:hochzeits_planer/App_colors.dart';
 import '../services/excel_export_service.dart';
 import '../services/pdf_export_service.dart';
 import '../services/premium_service.dart'; // NEU
@@ -478,8 +478,10 @@ class TischplanungPageState extends State<TischplanungPage> {
                             selectedCats.remove(cat);
                           }
                         }),
-                        selectedColor: AppColors.primary.withOpacity(0.2),
-                        checkmarkColor: AppColors.primary,
+                        selectedColor: AppColors.of(
+                          context,
+                        ).primary.withOpacity(0.2),
+                        checkmarkColor: AppColors.of(context).primary,
                       );
                     }).toList(),
                   ),
@@ -525,7 +527,7 @@ class TischplanungPageState extends State<TischplanungPage> {
                 icon: const Icon(Icons.save, size: 16),
                 label: const Text('Speichern'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: AppColors.of(context).primary,
                   foregroundColor: Colors.white,
                 ),
                 onPressed: () async {
@@ -2169,3 +2171,4 @@ class UnassignedGuestsArea extends StatelessWidget {
     );
   }
 }
+

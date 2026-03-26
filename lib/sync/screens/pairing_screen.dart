@@ -1,10 +1,10 @@
-// lib/sync/screens/pairing_screen.dart
+﻿// lib/sync/screens/pairing_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/sync_service.dart';
-import '../../app_colors.dart';
+import 'package:hochzeits_planer/App_colors.dart';
 import '../../services/premium_service.dart'; // NEU
 import '../../widgets/upgrade_bottom_sheet.dart'; // NEU
 
@@ -193,7 +193,7 @@ class _PairingScreenState extends State<PairingScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Partner verbinden'),
-        backgroundColor: AppColors.primary,
+        backgroundColor: AppColors.of(context).primary,
         foregroundColor: Colors.white,
         bottom: TabBar(
           controller: _tabController,
@@ -295,7 +295,7 @@ class _PairingScreenState extends State<PairingScreen>
               icon: const Icon(Icons.add_circle_outline),
               label: const Text('Code erstellen'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: AppColors.of(context).primary,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(
@@ -345,9 +345,11 @@ class _PairingScreenState extends State<PairingScreen>
                   vertical: 16,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.08),
+                  color: AppColors.of(context).primary.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                  border: Border.all(
+                    color: AppColors.of(context).primary.withOpacity(0.3),
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -357,12 +359,16 @@ class _PairingScreenState extends State<PairingScreen>
                       style: TextStyle(
                         fontSize: 36,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
+                        color: AppColors.of(context).primary,
                         letterSpacing: 8,
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Icon(Icons.copy, color: AppColors.primary, size: 20),
+                    Icon(
+                      Icons.copy,
+                      color: AppColors.of(context).primary,
+                      size: 20,
+                    ),
                   ],
                 ),
               ),
@@ -418,7 +424,7 @@ class _PairingScreenState extends State<PairingScreen>
             style: TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.bold,
-              color: AppColors.primary,
+              color: AppColors.of(context).primary,
               letterSpacing: 8,
             ),
             decoration: InputDecoration(
@@ -434,7 +440,10 @@ class _PairingScreenState extends State<PairingScreen>
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: AppColors.primary, width: 2),
+                borderSide: BorderSide(
+                  color: AppColors.of(context).primary,
+                  width: 2,
+                ),
               ),
             ),
             onChanged: (value) {
@@ -452,7 +461,7 @@ class _PairingScreenState extends State<PairingScreen>
               icon: const Icon(Icons.link),
               label: const Text('Verbinden'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
+                backgroundColor: AppColors.of(context).primary,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(52),
                 shape: RoundedRectangleBorder(
@@ -478,13 +487,13 @@ class _PairingScreenState extends State<PairingScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.06),
+        color: AppColors.of(context).primary.withOpacity(0.06),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: AppColors.primary, size: 28),
+          Icon(icon, color: AppColors.of(context).primary, size: 28),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -533,3 +542,4 @@ class _PairingScreenState extends State<PairingScreen>
     );
   }
 }
+
