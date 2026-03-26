@@ -8,7 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'services/theme_providers.dart';
 import 'services/profile_providers.dart';
 import 'theme/theme_variant.dart';
-
+import 'sync/services/supabase_signaling.dart';
 // Models
 import 'models/wedding_models.dart';
 
@@ -53,6 +53,8 @@ Future<void> main() async {
 
   // PremiumService initialisieren (muss vor dem ersten Build passieren)
   await PremiumService.instance.init(db);
+  // Partner-Sync initialisieren
+  await SupabaseSignaling.instance.initialize();
 
   // Dienstleister-Sync-Spalten migrieren
   await DienstleisterDatabase.migrateAddSyncColumns(db);
