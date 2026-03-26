@@ -8,7 +8,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'services/theme_providers.dart';
 import 'services/profile_providers.dart';
 import 'theme/theme_variant.dart';
-import 'sync/services/supabase_signaling.dart';
+
 // Models
 import 'models/wedding_models.dart';
 
@@ -20,7 +20,7 @@ import 'data/dienstleister_database.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/guests_screen.dart';
 import 'screens/budget_screen.dart';
-import 'screens/planning_screen.dart'; // ← NEU (ersetzt tasks_screen.dart)
+import 'screens/planning_screen.dart';
 import 'screens/table_planning_screen.dart';
 import 'screens/dienstleister_list_screen.dart';
 import 'screens/settings_page.dart';
@@ -41,20 +41,17 @@ import 'utils/error_logger.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Locale-Daten für Datumsformatierung (de_DE)
   await initializeDateFormatting('de_DE', null);
 
   final prefs = await SharedPreferences.getInstance();
   final initialTheme = await resolveInitialVariant(prefs);
   final onboardingCompleted = prefs.getBool('onboarding_completed') ?? false;
 
-  // DB initialisieren
+  // DB initialisieren (löst auch Migration v20 aus)
   final db = await DatabaseHelper.instance.database;
 
-  // PremiumService initialisieren (muss vor dem ersten Build passieren)
+  // PremiumService initialisieren
   await PremiumService.instance.init(db);
-  // Partner-Sync initialisieren
-  await SupabaseSignaling.instance.initialize();
 
   // Dienstleister-Sync-Spalten migrieren
   await DienstleisterDatabase.migrateAddSyncColumns(db);
@@ -62,12 +59,18 @@ Future<void> main() async {
   // Bestehende Free-Nutzer migrieren
   await _migrateExistingUsers(prefs, db);
 
-  // ── FIX 1: initialize() statt init() ──────────────────────
+  // Partner-Sync initialisieren — SyncService registriert intern die
+  // Supabase-Callbacks und lädt gespeichertes Pairing. Supabase.initialize()
+  // wird von SyncService.initialize() → SupabaseSignaling.initialize() aufgerufen.
+  // NICHT SupabaseSignaling direkt aufrufen — das würde den SyncService-Status
+  // nicht korrekt setzen und den gelben "connecting"-Zustand verursachen.
+  await SyncService.instance.initialize();
+
+  // Notifications
   await NotificationService.instance.initialize();
 
   runApp(
     ProviderScope(
-      // ── FIX 2: korrektes Override-Pattern (wie in deiner App) ─
       overrides: [
         themeControllerProvider.overrideWith(
           (ref) => ThemeController(prefs, initialTheme),
@@ -88,11 +91,6 @@ Future<void> main() async {
 Future<void> _migrateExistingUsers(SharedPreferences prefs, dynamic db) async {
   final migrated = prefs.getBool('premium_migrated_v1') ?? false;
   if (migrated) return;
-
-  // Bestehende Nutzer die vor dem Premium-System installiert haben
-  // bekommen keine automatischen Premium-Rechte – sie bleiben Free.
-  // (Hier ggf. Logik für Early-Adopter-Bonus eintragen)
-
   await prefs.setBool('premium_migrated_v1', true);
   ErrorLogger.info('Nutzer-Migration v1 abgeschlossen');
 }
@@ -132,12 +130,7 @@ class HeartPebbleApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       title: 'HeartPebble',
       theme: theme,
-      localizationsDelegates: const [
-        // AppLocalizations.delegate,
-        // GlobalMaterialLocalizations.delegate,
-        // GlobalWidgetsLocalizations.delegate,
-        // GlobalCupertinoLocalizations.delegate,
-      ],
+      localizationsDelegates: const [],
       supportedLocales: const [Locale('de'), Locale('en')],
       home: const HochzeitsApp(),
     );
@@ -156,10 +149,8 @@ class HochzeitsApp extends ConsumerStatefulWidget {
 }
 
 class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
-  // ── Navigation ──────────────────────────────────────────────
   int _currentIndex = 0;
 
-  // ── App-State ────────────────────────────────────────────────
   List<Guest> _guests = [];
   List<Task> _tasks = [];
   DateTime? _weddingDate;
@@ -167,15 +158,12 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   String _groomName = '';
   bool _isLoading = true;
 
-  // ── Page Keys (für gezieltes Rebuild nach Import / Sync) ─────
   Key _budgetPageKey = UniqueKey();
   Key _tablePageKey = UniqueKey();
-  Key _planningPageKey = UniqueKey(); // ← war _taskPageKey
+  Key _planningPageKey = UniqueKey();
 
-  // ── Task-Navigation vom Dashboard ───────────────────────────
   int? _selectedTaskId;
 
-  // ── GlobalKeys für gezieltes Reload ohne Flackern ────────────
   final GlobalKey<DashboardPageState> _dashboardKey =
       GlobalKey<DashboardPageState>();
   final GlobalKey<EnhancedBudgetPageState> _budgetKey =
@@ -208,6 +196,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   void _onSyncDataReceived() {
     debugPrint('🔄 Sync-Event empfangen → gezieltes Reload');
     _loadData();
+    // Budget neu laden via GlobalKey (kein UniqueKey nötig — vermeidet Flackern)
     _budgetKey.currentState?.reload();
     _tableKey.currentState?.reload();
     _dashboardKey.currentState?.reload();
@@ -274,14 +263,11 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   // CRUD CALLBACKS
   // ─────────────────────────────────────────────────────────────
 
-  // ── FIX 3: Alle CRUD-Methoden exakt passend zu deinen DB-Signaturen ──
-
   Future<void> _updateWeddingData(
     DateTime? date,
     String bride,
     String groom,
   ) async {
-    // DB erwartet DateTime (nicht nullable) – nur aufrufen wenn date gesetzt
     if (date != null) {
       await DatabaseHelper.instance.updateWeddingData(date, bride, groom);
     }
@@ -294,10 +280,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     }
   }
 
-  // ── Tasks ────────────────────────────────────────────────────
-
   Future<void> _addTask(Task task) async {
-    // insertTask erwartet Map<String, dynamic>
     await DatabaseHelper.instance.insertTask(task.toMap());
     final tasks = await DatabaseHelper.instance.getAllTasks();
     if (mounted) setState(() => _tasks = tasks);
@@ -323,8 +306,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
 
   void _clearSelectedTask() => setState(() => _selectedTaskId = null);
 
-  // ── Guests ───────────────────────────────────────────────────
-
   Future<void> _addGuest(Guest guest) async {
     await DatabaseHelper.instance.createGuest(guest);
     final guests = await DatabaseHelper.instance.getAllGuests();
@@ -349,28 +330,20 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     _syncNow();
   }
 
-  // ── Navigation ───────────────────────────────────────────────
-
   void _navigateToPage(int index) => setState(() => _currentIndex = index);
 
   void _navigateToTaskWithId(int taskId) {
     setState(() {
       _selectedTaskId = taskId;
-      _currentIndex = 4; // Index 4 = Planung
+      _currentIndex = 4;
     });
   }
-
-  // ── Sync ─────────────────────────────────────────────────────
 
   void _syncNow() {
     SyncService.instance.syncNow().catchError((e) {
       ErrorLogger.error('Sync-Fehler', e);
     });
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // NAV COLOR HELPER
-  // ─────────────────────────────────────────────────────────────
 
   Color _getNavColor(int index, dynamic brand) {
     switch (index) {
@@ -404,9 +377,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
     final variant = ref.watch(themeControllerProvider);
     final brand = colorsFor(variant);
 
-    // ── Pages ────────────────────────────────────────────────
     final List<Widget> pages = [
-      // 0 – Dashboard
       DashboardPage(
         key: _dashboardKey,
         weddingDate: _weddingDate,
@@ -421,26 +392,20 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onNavigateToPage: _navigateToPage,
         onNavigateToTaskWithId: _navigateToTaskWithId,
       ),
-
-      // 1 – Gäste
       GuestPage(
         guests: _guests,
         onAddGuest: _addGuest,
         onUpdateGuest: _updateGuest,
         onDeleteGuest: _deleteGuest,
       ),
-
-      // 2 – Tischplanung
       TischplanungPage(
         key: _tableKey,
         guests: _guests,
         onUpdateGuest: _updateGuest,
       ),
-
-      // 3 – Budget
+      // Budget: GlobalKey für reload() via Sync, UniqueKey für harten Reset
+      // nach Import/Tab-Tap. Beides zusammen → immer aktuell.
       EnhancedBudgetPage(key: _budgetKey),
-
-      // 4 – Planung  ← war: TaskPage
       PlanningScreen(
         key: _planningPageKey,
         tasks: _tasks,
@@ -454,14 +419,10 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         onClearSelectedTask: _clearSelectedTask,
         onNavigateToHome: () => setState(() => _currentIndex = 0),
       ),
-
-      // 5 – Dienstleister
       const DienstleisterListScreen(),
     ];
 
-    // ── Scaffold ─────────────────────────────────────────────
     return Scaffold(
-      // ── AppBar ─────────────────────────────────────────────
       appBar: AppBar(
         title: Row(
           children: [
@@ -480,14 +441,8 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         backgroundColor: brand.primary,
         foregroundColor: Colors.white,
       ),
-
-      // ── Drawer ────────────────────────────────────────────
       drawer: _buildDrawer(brand),
-
-      // ── Body ──────────────────────────────────────────────
       body: IndexedStack(index: _currentIndex, children: pages),
-
-      // ── BottomNavigationBar ───────────────────────────────
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,
@@ -498,6 +453,8 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         backgroundColor: Colors.white,
         elevation: 8,
         onTap: (index) {
+          // Budget: harter Reset beim Tab-Tap damit manuelle Änderungen
+          // (z.B. neuer Budgetposten) sofort sichtbar sind
           if (index == 3) {
             setState(() => _budgetPageKey = UniqueKey());
           }
