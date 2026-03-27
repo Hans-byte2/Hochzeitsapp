@@ -1,5 +1,7 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -112,7 +114,17 @@ class _OnboardingWrapperState extends State<OnboardingWrapper> {
   @override
   Widget build(BuildContext context) {
     if (_done) return const HeartPebbleApp();
-    return OnboardingScreen(onFinished: () => setState(() => _done = true));
+
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [Locale('de'), Locale('en')],
+      home: OnboardingScreen(onFinished: () => setState(() => _done = true)),
+    );
   }
 }
 
@@ -130,7 +142,11 @@ class HeartPebbleApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       title: 'HeartPebble',
       theme: theme,
-      localizationsDelegates: const [],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       supportedLocales: const [Locale('de'), Locale('en')],
       home: const HochzeitsApp(),
     );
@@ -196,7 +212,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   void _onSyncDataReceived() {
     debugPrint('🔄 Sync-Event empfangen → gezieltes Reload');
     _loadData();
-    // Budget neu laden via GlobalKey (kein UniqueKey nötig — vermeidet Flackern)
     _budgetKey.currentState?.reload();
     _tableKey.currentState?.reload();
     _dashboardKey.currentState?.reload();
@@ -371,7 +386,7 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Center(child: CircularProgressIndicator());
     }
 
     final variant = ref.watch(themeControllerProvider);
@@ -403,8 +418,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         guests: _guests,
         onUpdateGuest: _updateGuest,
       ),
-      // Budget: GlobalKey für reload() via Sync, UniqueKey für harten Reset
-      // nach Import/Tab-Tap. Beides zusammen → immer aktuell.
       EnhancedBudgetPage(key: _budgetKey),
       PlanningScreen(
         key: _planningPageKey,
@@ -453,8 +466,6 @@ class _HochzeitsAppState extends ConsumerState<HochzeitsApp> {
         backgroundColor: Colors.white,
         elevation: 8,
         onTap: (index) {
-          // Budget: harter Reset beim Tab-Tap damit manuelle Änderungen
-          // (z.B. neuer Budgetposten) sofort sichtbar sind
           if (index == 3) {
             setState(() => _budgetPageKey = UniqueKey());
           }
